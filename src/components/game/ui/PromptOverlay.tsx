@@ -2,16 +2,19 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { generateSpellFromPrompt } from "@/game/ai/cogentSpellGenerator";
+import { SpellGenerationError } from "@/game/ai/spellGenerationError";
+import type { SpellStage } from "@/game/ai/spellLog";
 import { useGameStore } from "@/game/state/gameStore";
 import { SANCTUARY_DURATION_MS } from "@/game/config/gameConfig";
 import type { GeneratedSpell } from "@/game/types";
 
 const examplePrompts = [
-  "A massive flaming tornado that pulls enemies in",
-  "A fast lightning spear that stuns",
-  "A freezing blizzard that slows everyone caught inside",
-  "A meteor shower of six fiery stones",
-  "A shadow trap that breaks shields",
+  "A meteor strike — one giant burning rock from the sky",
+  "A blackhole that pulls enemies into a swirling vortex",
+  "A lightning storm — branching bolts crashing down",
+  "A spinning pillar of fire that scorches everyone near it",
+  "A frost nova that bursts outward and slows the whole arena",
+  "Cursed thorns that erupt from the ground in a ring",
 ];
 
 const slotKeys = ["I", "II", "III", "IV"];
@@ -19,12 +22,25 @@ const PREVIEW_HOLD_MS = 1200;
 const SHATTER_VFX_MS = 800;
 const TIMER_TICK_MS = 250;
 
+type ErrorDetails = {
+  /** Player-facing message (lyrical). */
+  message: string;
+  /** Stage at which the failure occurred. */
+  stage: SpellStage;
+  /** Raw LLM output if available — surfaced behind "Show details". */
+  rawOutput?: string;
+  /** Whether the pipeline indicated this can be repaired by re-rolling. */
+  canRepair: boolean;
+  /** Underlying technical error message (cause chain). */
+  technical?: string;
+};
+
 type Phase =
   | { kind: "compose" }
-  | { kind: "thinking"; reasoning: string; startedAt: number }
+  | { kind: "thinking"; reasoning: string; startedAt: number; stage: SpellStage }
   | { kind: "previewing"; spell: GeneratedSpell; reasoning: string }
   | { kind: "bound"; spell: GeneratedSpell }
-  | { kind: "error"; message: string; lastPrompt: string }
+  | { kind: "error"; details: ErrorDetails; lastPrompt: string; autoRepaired: boolean }
   | { kind: "shattering" };
 
 export function PromptOverlay() {
@@ -39,6 +55,7 @@ export function PromptOverlay() {
   const [phase, setPhase] = useState<Phase>({ kind: "compose" });
   const [now, setNow] = useState(() => Date.now());
   const [thinkingElapsedMs, setThinkingElapsedMs] = useState(0);
+  const [showDetails, setShowDetails] = useState(false);
 
   const bindTimer = useRef<number | null>(null);
   const shatterTimer = useRef<number | null>(null);
@@ -142,10 +159,11 @@ export function PromptOverlay() {
 
   if (!promptOpen) return null;
 
-  const runChat = async (chatPrompt: string) => {
+  const runChat = async (chatPrompt: string, opts?: { fromAutoRepair?: boolean }) => {
     const controller = new AbortController();
     abortRef.current = controller;
-    setPhase({ kind: "thinking", reasoning: "", startedAt: Date.now() });
+    setPhase({ kind: "thinking", reasoning: "", startedAt: Date.now(), stage: "concept" });
+    setShowDetails(false);
 
     try {
       const result = await generateSpellFromPrompt(
@@ -153,7 +171,7 @@ export function PromptOverlay() {
         (progress) => {
           setPhase((current) =>
             current.kind === "thinking"
-              ? { ...current, reasoning: progress.reasoning }
+              ? { ...current, reasoning: progress.reasoning, stage: progress.stage }
               : current,
           );
         },
@@ -175,8 +193,44 @@ export function PromptOverlay() {
     } catch (err) {
       if (controller.signal.aborted) return;
       abortRef.current = null;
-      const message = err instanceof Error ? err.message : "The Sage's voice falters.";
-      setPhase({ kind: "error", message, lastPrompt: chatPrompt });
+
+      // Pipeline always wraps failures in SpellGenerationError; non-typed
+      // errors are conservatively rendered without auto-repair.
+      const details: ErrorDetails =
+        err instanceof SpellGenerationError
+          ? {
+              message: err.userMessage,
+              stage: err.stage,
+              rawOutput: err.rawOutput,
+              canRepair: err.canRepair,
+              technical: err.message,
+            }
+          : {
+              message: err instanceof Error ? err.message : "The Sage's voice falters.",
+              stage: "concept",
+              canRepair: false,
+              technical: err instanceof Error ? err.message : String(err),
+            };
+
+      // Auto-repair once on parse-class stages (concept / mechanics / visual)
+      // — a single fresh roll usually fixes flaky JSON. We only retry once
+      // and only if the pipeline says we can.
+      const canAutoRepair =
+        !opts?.fromAutoRepair &&
+        details.canRepair &&
+        (details.stage === "concept" || details.stage === "mechanics" || details.stage === "visual");
+
+      if (canAutoRepair) {
+        void runChat(chatPrompt, { fromAutoRepair: true });
+        return;
+      }
+
+      setPhase({
+        kind: "error",
+        details,
+        lastPrompt: chatPrompt,
+        autoRepaired: opts?.fromAutoRepair ?? false,
+      });
     }
   };
 
@@ -192,6 +246,15 @@ export function PromptOverlay() {
   const handleRetry = () => {
     if (phase.kind !== "error") return;
     void runChat(phase.lastPrompt);
+  };
+
+  const handleRepair = () => {
+    if (phase.kind !== "error") return;
+    // Under the hood, Repair is a fresh roll: the model is non-deterministic
+    // so a re-attempt almost always fixes flaky parse failures, while feeding
+    // the broken JSON back in tends to make things worse. We mark it as
+    // fromAutoRepair so we don't spawn ANOTHER auto-repair on top.
+    void runChat(phase.lastPrompt, { fromAutoRepair: true });
   };
 
   const handleBackToCompose = () => {
@@ -299,7 +362,7 @@ export function PromptOverlay() {
               <span className="runeCardThinkingDots" aria-hidden>
                 <span /><span /><span />
               </span>
-              <span>Sage is divining&hellip;</span>
+              <span>{stageMessage(phase.stage)}</span>
               <span className="runeCardThinkingElapsed">{formatElapsed(thinkingElapsedMs)}</span>
             </div>
             <div className="runeCardReasoning">
@@ -342,8 +405,40 @@ export function PromptOverlay() {
 
         {phase.kind === "error" ? (
           <div className="runeCardBody">
-            <div className="runeCardError">{phase.message}</div>
+            <div className="runeCardError">
+              <div className="runeCardErrorMessage">{phase.details.message}</div>
+              <div className="runeCardErrorStage">
+                Stage: {phase.details.stage}
+                {phase.autoRepaired ? " · auto-repair attempted once" : ""}
+              </div>
+              {phase.details.technical || phase.details.rawOutput ? (
+                <button
+                  type="button"
+                  className="runeCardErrorDetailsToggle"
+                  onClick={() => setShowDetails((v) => !v)}
+                >
+                  {showDetails ? "Hide details" : "Show details"}
+                </button>
+              ) : null}
+              {showDetails ? (
+                <div className="runeCardErrorDetails">
+                  {phase.details.technical ? (
+                    <div className="runeCardErrorTechnical">
+                      <strong>Technical:</strong> {phase.details.technical}
+                    </div>
+                  ) : null}
+                  {phase.details.rawOutput ? (
+                    <pre className="runeCardErrorRaw">{phase.details.rawOutput}</pre>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             <div className="runeCardErrorActions">
+              {phase.details.canRepair ? (
+                <button type="button" className="runeCardInscribe" onClick={handleRepair}>
+                  Repair
+                </button>
+              ) : null}
               <button type="button" className="runeCardInscribe" onClick={handleRetry}>
                 Retry
               </button>
@@ -386,6 +481,24 @@ function formatElapsed(ms: number): string {
   const mm = Math.floor(totalSeconds / 60);
   const ss = totalSeconds % 60;
   return `${mm}:${ss.toString().padStart(2, "0")}`;
+}
+
+/** Maps a pipeline stage to a player-facing flavor line. */
+function stageMessage(stage: SpellStage): string {
+  switch (stage) {
+    case "concept":
+      return "Sage is divining the shape…";
+    case "mechanics":
+      return "Sage is balancing the forces…";
+    case "visual":
+      return "Sage is choosing the colors…";
+    case "compose":
+      return "Sage is binding the runes…";
+    case "repair":
+      return "Sage is mending the cracks…";
+    default:
+      return "Sage is divining…";
+  }
 }
 
 function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {

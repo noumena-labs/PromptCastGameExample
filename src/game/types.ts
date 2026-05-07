@@ -1,3 +1,5 @@
+import type { ArchetypeKind, VisualRecipe } from "@/game/spells/visualRecipe";
+
 export type Vec3 = [number, number, number];
 
 export type SpellElement = "fire" | "ice" | "lightning" | "earth" | "arcane" | "shadow" | "nature";
@@ -25,6 +27,7 @@ export type GeneratedSpell = {
   name: string;
   prompt: string;
   reasoning?: string;
+  archetype: ArchetypeKind;
   element: SpellElement;
   delivery: SpellDelivery;
   impact: SpellImpact;
@@ -37,6 +40,7 @@ export type GeneratedSpell = {
   manaCost: number;
   effects: SpellEffect[];
   color: string;
+  visualRecipe: VisualRecipe;
 };
 
 export type SpellSlot = GeneratedSpell | null;

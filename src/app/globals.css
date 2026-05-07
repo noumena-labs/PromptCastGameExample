@@ -523,12 +523,10 @@ h1, h2, h3 {
 /* Crosshair removed: world-space Reticle is rendered in the R3F scene. */
 
 /* ============================================================
-   RETICLE HUD — screen-space crosshair
+   RETICLE HUD — fixed centered crosshair
    ============================================================
-   Anchored to the wizard's actual line of fire (shoulder raycast hit),
-   not the screen center, so it's accurate under the third-person orbit
-   camera. Position is mutated each frame by ReticleHUD via rAF; the wrapper
-   itself is just a fixed-position layer that ignores pointer events.
+   The orbit camera's lookAt is tuned so screen-center coincides with the
+   projectile's landing point, so the reticle is a static DOM overlay.
 */
 
 .reticleHud {
@@ -536,18 +534,15 @@ h1, h2, h3 {
   inset: 0;
   z-index: 6;
   pointer-events: none;
-  /* The children use translate3d for placement, so this layer just hosts. */
 }
 
 .reticleHudRing,
 .reticleHudDot {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   pointer-events: none;
-  opacity: 0;
-  will-change: transform, opacity;
-  transition: opacity 80ms linear;
   filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.55));
 }
 
@@ -1561,4 +1556,58 @@ h1, h2, h3 {
   background: rgba(184, 138, 44, 0.18);
 }
 
+.runeCardErrorMessage {
+  font-size: 1.0rem;
+  margin-bottom: 4px;
+}
+
+.runeCardErrorStage {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  font-style: normal;
+  margin-bottom: 6px;
+}
+
+.runeCardErrorDetailsToggle {
+  background: transparent;
+  border: 1px dashed rgba(122, 31, 31, 0.4);
+  color: var(--crimson-deep);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.runeCardErrorDetailsToggle:hover {
+  background: rgba(122, 31, 31, 0.08);
+}
+
+.runeCardErrorDetails {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(20, 14, 10, 0.7);
+  color: rgba(255, 240, 210, 0.85);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-style: normal;
+  font-size: 0.78rem;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.runeCardErrorTechnical {
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.runeCardErrorRaw {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
