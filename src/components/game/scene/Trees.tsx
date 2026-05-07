@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Color, InstancedMesh, Matrix4, Object3D } from "three";
+import { CylinderCollider, RigidBody } from "@react-three/rapier";
 import { ARENA_RADIUS, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
 import { scatterPositions } from "@/game/arena/terrain";
 
@@ -10,6 +11,8 @@ const oakLeaf = new Color("#3f6b3a");
 const oakLeafShade = new Color("#2c5230");
 const birchTrunk = new Color("#d8d2c2");
 const birchLeaf = new Color("#7ea35a");
+
+const COLLIDER_CULL_RADIUS = PLAYABLE_RADIUS + 4;
 
 type Tree = { x: number; z: number; y: number; rot: number; scale: number; kind: "oak" | "birch" };
 
@@ -24,10 +27,41 @@ export function Trees() {
     }));
   }, []);
 
+  // Only colliders for trees the player can reach — keeps physics cost flat.
+  const collidableTrees = useMemo(
+    () => trees.filter((tree) => Math.hypot(tree.x, tree.z) <= COLLIDER_CULL_RADIUS),
+    [trees],
+  );
+
   return (
     <group>
       <OakInstanced trees={trees.filter((t) => t.kind === "oak")} />
       <BirchInstanced trees={trees.filter((t) => t.kind === "birch")} />
+      <TreeColliders trees={collidableTrees} />
+    </group>
+  );
+}
+
+function TreeColliders({ trees }: { trees: Tree[] }) {
+  // One positioned RigidBody per tree. Collider sits at local origin so the
+  // RigidBody's world transform is the single source of truth.
+  return (
+    <group>
+      {trees.map((tree, i) => {
+        const isBirch = tree.kind === "birch";
+        const radius = (isBirch ? 0.28 : 0.42) * tree.scale;
+        const halfHeight = (isBirch ? 2.25 : 1.7) * tree.scale;
+        return (
+          <RigidBody
+            key={`tree-col-${i}`}
+            type="fixed"
+            colliders={false}
+            position={[tree.x, tree.y + halfHeight, tree.z]}
+          >
+            <CylinderCollider args={[halfHeight, radius]} />
+          </RigidBody>
+        );
+      })}
     </group>
   );
 }

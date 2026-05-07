@@ -2,6 +2,7 @@
 
 import { Sky } from "@react-three/drei";
 import { Crystals } from "@/components/game/scene/Crystals";
+import { ManaMotes } from "@/components/game/scene/ManaMotes";
 import { DummyTargets } from "@/components/game/scene/DummyTargets";
 import { GameplaySystems } from "@/components/game/systems/GameplaySystems";
 import { LocalWizard } from "@/components/game/scene/LocalWizard";
@@ -49,6 +50,7 @@ export function ArenaScene() {
       <Trees />
 
       <Crystals />
+      <ManaMotes />
       <DummyTargets />
       <SpellEntities />
       <RemoteWizards />

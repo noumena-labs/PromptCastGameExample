@@ -1,30 +1,52 @@
 "use client";
 
 import { Billboard, Text } from "@react-three/drei";
-import { DoubleSide } from "three";
+import { useFrame } from "@react-three/fiber";
+import { useRef } from "react";
+import { DoubleSide, Group } from "three";
+import { useShallow } from "zustand/react/shallow";
 import { useGameStore } from "@/game/state/gameStore";
+import { projectileMotion } from "@/game/state/projectileMotion";
 
 export function SpellEntities() {
-  const projectiles = useGameStore((state) => state.projectiles);
-  const areas = useGameStore((state) => state.areas);
+  const projectileIds = useGameStore(useShallow((state) => state.projectileIds));
+  const areaIds = useGameStore(useShallow((state) => state.areas.map((a) => a.id)));
 
   return (
     <group>
-      {projectiles.map((projectile) => (
-        <group key={projectile.id} position={projectile.position}>
-          <mesh castShadow>
-            <sphereGeometry args={[Math.max(0.18, projectile.spell.radius * 0.45), 12, 8]} />
-            <meshStandardMaterial color={projectile.spell.color} emissive={projectile.spell.color} emissiveIntensity={1.7} roughness={0.2} />
-          </mesh>
-          <mesh rotation-x={Math.PI / 2}>
-            <torusGeometry args={[Math.max(0.24, projectile.spell.radius * 0.55), 0.025, 6, 18]} />
-            <meshStandardMaterial color={projectile.spell.color} emissive={projectile.spell.color} emissiveIntensity={1.2} />
-          </mesh>
-        </group>
+      {projectileIds.map((id) => (
+        <Projectile key={id} id={id} />
       ))}
-      {areas.map((area) => (
-        <AreaSpell key={area.id} areaId={area.id} />
+      {areaIds.map((id) => (
+        <AreaSpell key={id} areaId={id} />
       ))}
+    </group>
+  );
+}
+
+function Projectile({ id }: { id: string }) {
+  const groupRef = useRef<Group>(null);
+  const motion = projectileMotion.get(id);
+
+  useFrame(() => {
+    const m = projectileMotion.get(id);
+    if (!groupRef.current || !m) return;
+    groupRef.current.position.set(m.position[0], m.position[1], m.position[2]);
+  });
+
+  if (!motion) return null;
+  const { spell } = motion;
+
+  return (
+    <group ref={groupRef} position={motion.position}>
+      <mesh castShadow>
+        <sphereGeometry args={[Math.max(0.18, spell.radius * 0.45), 12, 8]} />
+        <meshStandardMaterial color={spell.color} emissive={spell.color} emissiveIntensity={1.7} roughness={0.2} />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[Math.max(0.24, spell.radius * 0.55), 0.025, 6, 18]} />
+        <meshStandardMaterial color={spell.color} emissive={spell.color} emissiveIntensity={1.2} />
+      </mesh>
     </group>
   );
 }

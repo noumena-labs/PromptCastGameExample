@@ -2,6 +2,7 @@
 
 import { KeyboardControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
+import { Physics } from "@react-three/rapier";
 import { Suspense } from "react";
 import { ArenaScene } from "@/components/game/scene/ArenaScene";
 import { GameHud } from "@/components/game/ui/GameHud";
@@ -22,7 +23,9 @@ export function PromptCastCanvas() {
       <KeyboardControls map={controls}>
         <Canvas shadows camera={{ position: [0, 9, 28], fov: 60 }} dpr={[1, 1.6]}>
           <Suspense fallback={null}>
-            <ArenaScene />
+            <Physics gravity={[0, -22, 0]} timeStep="vary" colliders={false}>
+              <ArenaScene />
+            </Physics>
           </Suspense>
         </Canvas>
       </KeyboardControls>

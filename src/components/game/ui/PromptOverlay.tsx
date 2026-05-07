@@ -57,7 +57,7 @@ export function PromptOverlay() {
           <div className="spellbookEyebrow">Sanctuary &middot; Quill &amp; Ink</div>
           <h1 className="spellbookTitle">Inscribe a Spell</h1>
           <p className="spellbookCopy">
-            The shield is up. Whisper your intent into the page &mdash; the tome will divine a balanced spell and bind it to a runestone.
+            Sanctuary unlocks when you offer 3 Aura Crystals (Nam-shub). The shield is up &mdash; whisper your intent into the page and the tome will divine a balanced spell, binding it to a runestone.
           </p>
 
           <label htmlFor="spellPrompt">Incantation</label>

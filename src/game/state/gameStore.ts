@@ -3,8 +3,14 @@ import {
   AURA_THRESHOLD,
   DUMMY_TARGETS,
   INITIAL_CRYSTALS,
+  INITIAL_MANA_MOTES,
   LOCAL_PLAYER_ID,
   MAGIC_MISSILE,
+  MANA_MOTE_DROP_COUNT,
+  MANA_MOTE_DROP_DECAY_MS,
+  MANA_MOTE_RESPAWN_MAX_MS,
+  MANA_MOTE_RESPAWN_MIN_MS,
+  MANA_MOTE_VALUE,
   MANA_REGEN_PER_SECOND,
   PLAYER_MAX_HEALTH,
   PLAYER_MAX_MANA,
@@ -17,13 +23,14 @@ import type {
   DummyTarget,
   GeneratedSpell,
   LobbyPlayer,
+  ManaMoteState,
   MatchMode,
   PlayerState,
-  ProjectileState,
   SequencedCastPayload,
   SequencedCrystalPayload,
   Vec3,
 } from "@/game/types";
+import { projectileMotion } from "@/game/state/projectileMotion";
 
 const now = () => Date.now();
 
@@ -52,7 +59,8 @@ export type GameStore = {
   players: Record<string, PlayerState>;
   lobbyPlayers: LobbyPlayer[];
   crystals: CrystalState[];
-  projectiles: ProjectileState[];
+  manaMotes: ManaMoteState[];
+  projectileIds: string[];
   areas: AreaSpellState[];
   dummyTargets: DummyTarget[];
   promptOpen: boolean;
@@ -76,6 +84,10 @@ export type GameStore = {
   collectCrystalForPlayer: (crystalId: string, playerId: string) => void;
   applyCrystalState: (crystals: CrystalState[]) => void;
   respawnCrystals: () => void;
+  collectManaMote: (moteId: string) => void;
+  applyManaMoteState: (manaMotes: ManaMoteState[]) => void;
+  respawnManaMotes: () => void;
+  dropManaMotesAt: (position: Vec3, count?: number) => void;
   enterSanctuary: () => boolean;
   exitSanctuary: () => void;
   setSelectedSlot: (slot: number) => void;
@@ -91,6 +103,9 @@ export type GameStore = {
   resetMatch: () => void;
 };
 
+const moteRespawnDelay = () =>
+  MANA_MOTE_RESPAWN_MIN_MS + Math.random() * (MANA_MOTE_RESPAWN_MAX_MS - MANA_MOTE_RESPAWN_MIN_MS);
+
 export const useGameStore = create<GameStore>((set, get) => ({
   mode: "solo",
   roomCode: null,
@@ -98,7 +113,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   players: { [LOCAL_PLAYER_ID]: createLocalPlayer() },
   lobbyPlayers: [],
   crystals: INITIAL_CRYSTALS,
-  projectiles: [],
+  manaMotes: INITIAL_MANA_MOTES,
+  projectileIds: [],
   areas: [],
   dummyTargets: DUMMY_TARGETS,
   promptOpen: false,
@@ -168,7 +184,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return { players };
     }),
 
-  regenerateMana: (delta) =>
+  regenerateMana: (delta) => {
+    if (MANA_REGEN_PER_SECOND <= 0) return;
     set((state) => {
       const player = state.players[state.localPlayerId];
       if (!player || player.status === "dead") return state;
@@ -178,7 +195,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
           [player.id]: { ...player, mana: Math.min(PLAYER_MAX_MANA, player.mana + MANA_REGEN_PER_SECOND * delta) },
         },
       };
-    }),
+    });
+  },
 
   collectCrystal: (crystalId) =>
     set((state) => {
@@ -186,17 +204,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const crystal = state.crystals.find((item) => item.id === crystalId);
       if (!player || !crystal?.active) return state;
       const sequence = state.networkSequence + 1;
+      const nextAura = Math.min(AURA_THRESHOLD, player.aura + 1);
       return {
         networkSequence: sequence,
         lastCrystalCollect: { sequence, playerId: player.id, crystalId },
         crystals: state.crystals.map((item) =>
-          item.id === crystalId ? { ...item, active: false, respawnAt: now() + 12000 + Math.random() * 7000 } : item,
+          item.id === crystalId ? { ...item, active: false, respawnAt: now() + 18000 + Math.random() * 9000 } : item,
         ),
         players: {
           ...state.players,
-          [player.id]: { ...player, aura: Math.min(AURA_THRESHOLD, player.aura + 1) },
+          [player.id]: { ...player, aura: nextAura },
         },
-        log: [`Aura crystal collected (${Math.min(AURA_THRESHOLD, player.aura + 1)}/${AURA_THRESHOLD}).`, ...state.log].slice(0, 5),
+        log: [`Aura Crystal claimed (${nextAura}/${AURA_THRESHOLD}). Sacred Nam-shub awaits.`, ...state.log].slice(0, 5),
       };
     }),
 
@@ -207,7 +226,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (!player || !crystal?.active) return state;
       return {
         crystals: state.crystals.map((item) =>
-          item.id === crystalId ? { ...item, active: false, respawnAt: now() + 12000 + Math.random() * 7000 } : item,
+          item.id === crystalId ? { ...item, active: false, respawnAt: now() + 18000 + Math.random() * 9000 } : item,
         ),
         players: {
           ...state.players,
@@ -225,6 +244,64 @@ export const useGameStore = create<GameStore>((set, get) => ({
       ),
     })),
 
+  collectManaMote: (moteId) =>
+    set((state) => {
+      const player = state.players[state.localPlayerId];
+      const mote = state.manaMotes.find((item) => item.id === moteId);
+      if (!player || !mote?.active || player.status === "dead") return state;
+      const nextMana = Math.min(PLAYER_MAX_MANA, player.mana + mote.amount);
+      const motes = mote.ephemeral
+        ? state.manaMotes.filter((item) => item.id !== moteId)
+        : state.manaMotes.map((item) =>
+            item.id === moteId ? { ...item, active: false, respawnAt: now() + moteRespawnDelay() } : item,
+          );
+      return {
+        manaMotes: motes,
+        players: {
+          ...state.players,
+          [player.id]: { ...player, mana: nextMana },
+        },
+      };
+    }),
+
+  applyManaMoteState: (manaMotes) => set({ manaMotes }),
+
+  respawnManaMotes: () =>
+    set((state) => {
+      const timestamp = now();
+      const next: ManaMoteState[] = [];
+      for (const mote of state.manaMotes) {
+        // Prune expired ephemeral drops.
+        if (mote.ephemeral && mote.decayAt && mote.decayAt <= timestamp) continue;
+        if (!mote.active && mote.respawnAt && mote.respawnAt <= timestamp) {
+          next.push({ ...mote, active: true, respawnAt: null });
+        } else {
+          next.push(mote);
+        }
+      }
+      return { manaMotes: next };
+    }),
+
+  dropManaMotesAt: (position, count = MANA_MOTE_DROP_COUNT) =>
+    set((state) => {
+      const timestamp = now();
+      const drops: ManaMoteState[] = [];
+      for (let i = 0; i < count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 0.6 + Math.random() * 1.4;
+        drops.push({
+          id: `mote-drop-${timestamp}-${i}-${Math.floor(Math.random() * 1000)}`,
+          position: [position[0] + Math.cos(angle) * radius, position[1] + 0.9, position[2] + Math.sin(angle) * radius],
+          active: true,
+          respawnAt: null,
+          decayAt: timestamp + MANA_MOTE_DROP_DECAY_MS,
+          amount: MANA_MOTE_VALUE,
+          ephemeral: true,
+        });
+      }
+      return { manaMotes: [...state.manaMotes, ...drops] };
+    }),
+
   enterSanctuary: () => {
     const state = get();
     const player = state.players[state.localPlayerId];
@@ -236,7 +313,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ...state.players,
         [player.id]: { ...player, aura: player.aura - AURA_THRESHOLD, status: "sanctuary", isShielded: true, velocity: [0, 0, 0] },
       },
-      log: ["Sanctuary State opened. Type a spell prompt.", ...state.log].slice(0, 5),
+      log: ["Sanctuary opened. Inscribe a Nam-shub.", ...state.log].slice(0, 5),
     });
     return true;
   },
@@ -271,7 +348,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ...state.players,
           [player.id]: { ...player, status: "alive", isShielded: false, spellSlots: slots },
         },
-        log: [`Saved ${spell.name} to slot ${state.selectedSlot + 1} (${source}).`, ...state.log].slice(0, 5),
+        log: [`Bound ${spell.name} to runestone ${state.selectedSlot + 1} (${source}).`, ...state.log].slice(0, 5),
       };
     }),
 
@@ -296,15 +373,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
 
     if (spell.shape === "aoe" || spell.shape === "vortex" || spell.shape === "burst" || spell.shape === "wall" || spell.shape === "trap") {
-    const sequence = ownerId === state.localPlayerId ? state.networkSequence + 1 : state.networkSequence;
-    const localNetworkUpdate =
-      ownerId === state.localPlayerId ? { networkSequence: sequence, lastLocalCast: { sequence, playerId: ownerId, spell, origin, direction } } : {};
+      const sequence = ownerId === state.localPlayerId ? state.networkSequence + 1 : state.networkSequence;
+      const localNetworkUpdate =
+        ownerId === state.localPlayerId ? { networkSequence: sequence, lastLocalCast: { sequence, playerId: ownerId, spell, origin, direction } } : {};
 
-    set({
-      ...localNetworkUpdate,
-      players: { ...state.players, [ownerId]: nextPlayer },
-      areas: [...state.areas, { ...common, tickedAt: {} }],
-    });
+      set({
+        ...localNetworkUpdate,
+        players: { ...state.players, [ownerId]: nextPlayer },
+        areas: [...state.areas, { ...common, tickedAt: {} }],
+      });
       return true;
     }
 
@@ -312,10 +389,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const localNetworkUpdate =
       ownerId === state.localPlayerId ? { networkSequence: sequence, lastLocalCast: { sequence, playerId: ownerId, spell, origin, direction } } : {};
 
+    projectileMotion.register({
+      id: common.id,
+      ownerId,
+      spell,
+      position: origin,
+      direction,
+      createdAt: timestamp,
+      expiresAt: common.expiresAt,
+    });
+
     set({
       ...localNetworkUpdate,
       players: { ...state.players, [ownerId]: nextPlayer },
-      projectiles: [...state.projectiles, { ...common, direction, hitIds: [] }],
+      projectileIds: [...state.projectileIds, common.id],
     });
     return true;
   },
@@ -329,39 +416,54 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   tickCooldowns: () => set((state) => ({ players: { ...state.players } })),
 
-  removeProjectile: (projectileId) => set((state) => ({ projectiles: state.projectiles.filter((projectile) => projectile.id !== projectileId) })),
+  removeProjectile: (projectileId) => {
+    projectileMotion.unregister(projectileId);
+    set((state) => ({ projectileIds: state.projectileIds.filter((id) => id !== projectileId) }));
+  },
 
-  damageDummy: (dummyId, amount, ownerId) =>
+  damageDummy: (dummyId, amount, ownerId) => {
+    let scoredPosition: Vec3 | null = null;
     set((state) => {
-      let scored = false;
       const dummyTargets = state.dummyTargets.map((dummy) => {
         if (dummy.id !== dummyId || dummy.respawnAt) return dummy;
         const health = Math.max(0, dummy.health - amount);
-        scored = health <= 0;
-        return health <= 0 ? { ...dummy, health: 0, respawnAt: now() + 4500 } : { ...dummy, health };
+        if (health <= 0) {
+          scoredPosition = dummy.position;
+          return { ...dummy, health: 0, respawnAt: now() + 4500 };
+        }
+        return { ...dummy, health };
       });
       const owner = state.players[ownerId];
       return {
         dummyTargets,
-        players: owner && scored ? { ...state.players, [ownerId]: { ...owner, score: owner.score + 1 } } : state.players,
+        players: owner && scoredPosition ? { ...state.players, [ownerId]: { ...owner, score: owner.score + 1 } } : state.players,
       };
-    }),
+    });
+    if (scoredPosition) get().dropManaMotesAt(scoredPosition);
+  },
 
-  damagePlayer: (playerId, amount, ownerId) =>
+  damagePlayer: (playerId, amount, ownerId) => {
+    let killPosition: Vec3 | null = null;
     set((state) => {
       const player = state.players[playerId];
       if (!player || player.isShielded || player.status === "dead") return state;
       const health = Math.max(0, player.health - amount);
       const players = {
         ...state.players,
-        [playerId]: health <= 0 ? { ...player, health: 0, status: "dead" as const, respawnAt: now() + 5000 } : { ...player, health },
+        [playerId]:
+          health <= 0
+            ? { ...player, health: 0, status: "dead" as const, respawnAt: now() + 5000 }
+            : { ...player, health },
       };
       const owner = players[ownerId];
       if (health <= 0 && owner && ownerId !== playerId) {
         players[ownerId] = { ...owner, score: owner.score + 1 };
+        killPosition = player.position;
       }
       return { players };
-    }),
+    });
+    if (killPosition) get().dropManaMotesAt(killPosition);
+  },
 
   tickRespawns: () =>
     set((state) => {
@@ -393,18 +495,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return { areas: state.areas.filter((area) => area.expiresAt > timestamp) };
     }),
 
-  resetMatch: () =>
+  resetMatch: () => {
+    projectileMotion.clear();
     set({
       players: { [LOCAL_PLAYER_ID]: createLocalPlayer() },
       crystals: INITIAL_CRYSTALS.map((crystal) => ({ ...crystal })),
-      projectiles: [],
+      manaMotes: INITIAL_MANA_MOTES.map((mote) => ({ ...mote })),
+      projectileIds: [],
       areas: [],
       dummyTargets: DUMMY_TARGETS.map((dummy) => ({ ...dummy })),
       promptOpen: false,
       selectedSlot: 0,
       sanctuaryEndsAt: null,
       log: ["Match reset."],
-    }),
+    });
+  },
 }));
 
 export { MAGIC_MISSILE };

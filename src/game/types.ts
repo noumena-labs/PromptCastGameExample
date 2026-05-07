@@ -51,15 +51,18 @@ export type CrystalState = {
   respawnAt: number | null;
 };
 
-export type ProjectileState = {
+export type ManaMoteState = {
   id: string;
-  ownerId: string;
-  spell: GeneratedSpell;
   position: Vec3;
-  direction: Vec3;
-  createdAt: number;
-  expiresAt: number;
-  hitIds: string[];
+  active: boolean;
+  /** When set, the mote will reappear at this timestamp after being collected. */
+  respawnAt: number | null;
+  /** When set, the mote will permanently disappear at this timestamp (used for kill drops). */
+  decayAt: number | null;
+  /** Mana restored on contact. */
+  amount: number;
+  /** True for kill-drop motes — they decay rather than respawn. */
+  ephemeral: boolean;
 };
 
 export type AreaSpellState = {

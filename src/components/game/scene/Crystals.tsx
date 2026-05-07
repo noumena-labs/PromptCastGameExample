@@ -1,29 +1,25 @@
 "use client";
 
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useRef } from "react";
 import { Group } from "three";
+import { useShallow } from "zustand/react/shallow";
 import { useGameStore } from "@/game/state/gameStore";
 
 export function Crystals() {
-  const crystals = useGameStore((state) => state.crystals);
-  const group = useRef<Group>(null);
-  const activeCrystals = useMemo(() => crystals.filter((crystal) => crystal.active), [crystals]);
-
-  useFrame((_, delta) => {
-    if (group.current) group.current.rotation.y += delta * 0.28;
-  });
+  const crystalIds = useGameStore(useShallow((state) => state.crystals.map((c) => c.id)));
 
   return (
-    <group ref={group}>
-      {activeCrystals.map((crystal, index) => (
-        <Crystal key={crystal.id} position={crystal.position} phase={index} />
+    <group>
+      {crystalIds.map((id, index) => (
+        <Crystal key={id} id={id} phase={index} />
       ))}
     </group>
   );
 }
 
-function Crystal({ position, phase }: { position: [number, number, number]; phase: number }) {
+function Crystal({ id, phase }: { id: string; phase: number }) {
+  const crystal = useGameStore((state) => state.crystals.find((c) => c.id === id));
   const mesh = useRef<Group>(null);
 
   useFrame((state) => {
@@ -32,18 +28,41 @@ function Crystal({ position, phase }: { position: [number, number, number]; phas
     mesh.current.rotation.y += 0.03;
   });
 
+  if (!crystal?.active) return null;
+
   return (
-    <group position={position} rotation-y={phase * 0.7}>
+    <group position={crystal.position} rotation-y={phase * 0.7}>
       <group ref={mesh}>
+        {/* Core crystal — violet octahedron */}
         <mesh castShadow>
-          <octahedronGeometry args={[0.62, 0]} />
-          <meshStandardMaterial color="#68f7d2" emissive="#44ffcc" emissiveIntensity={1.8} roughness={0.2} />
+          <octahedronGeometry args={[1.05, 0]} />
+          <meshStandardMaterial
+            color="#b890ff"
+            emissive="#7a3df7"
+            emissiveIntensity={2.2}
+            roughness={0.18}
+            metalness={0.35}
+          />
+        </mesh>
+        {/* Inner gold core peeking through */}
+        <mesh>
+          <octahedronGeometry args={[0.55, 0]} />
+          <meshStandardMaterial
+            color="#ffd76b"
+            emissive="#f7b53a"
+            emissiveIntensity={2.4}
+            roughness={0.25}
+            metalness={0.55}
+          />
         </mesh>
       </group>
-      <mesh position={[0, 0.35, 0]}>
-        <sphereGeometry args={[1.1, 12, 8]} />
-        <meshStandardMaterial color="#58ffcd" emissive="#22ffc2" emissiveIntensity={0.7} transparent opacity={0.16} />
+      {/* Soft violet halo */}
+      <mesh position={[0, 0.55, 0]}>
+        <sphereGeometry args={[1.85, 14, 10]} />
+        <meshStandardMaterial color="#cda6ff" emissive="#8b4dff" emissiveIntensity={0.85} transparent opacity={0.18} />
       </mesh>
+      {/* Anchor light to call attention */}
+      <pointLight color="#c89bff" intensity={1.4} distance={6} decay={2} position={[0, 0.6, 0]} />
     </group>
   );
 }

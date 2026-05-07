@@ -80,11 +80,11 @@ export function GameHud() {
           <div style={{ width: `${mana * 100}%` }} />
         </div>
         <div className="auraRow">
-          <span>Aura Crystals</span>
+          <span>Aura Crystals (Nam-shub)</span>
           <strong>{player?.aura ?? 0} / {AURA_THRESHOLD}</strong>
         </div>
         <div className="hint">
-          Click to lock the camera. WASD to move, Space to leap, Left Click to loose Magic Missile, E to enter Sanctuary, I-IV to wield bound spells.
+          Click to lock the camera. WASD to move, Space to leap, Left Click to loose Magic Missile, E to enter Sanctuary (3 Aura Crystals), I-IV to wield bound spells.
           {lastGenerationSource ? <><br /><em>Last inscription: {lastGenerationSource}.</em></> : null}
         </div>
       </div>

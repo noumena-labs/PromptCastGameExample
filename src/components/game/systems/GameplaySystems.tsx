@@ -1,109 +1,173 @@
 "use client";
 
 import { useFrame } from "@react-three/fiber";
+import { useRapier } from "@react-three/rapier";
 import { useRef } from "react";
 import { useGameStore } from "@/game/state/gameStore";
 import { vec3Distance, vec3DistanceSq } from "@/game/math/vector";
-import type { AreaSpellState, ProjectileState, Vec3 } from "@/game/types";
+import type { AreaSpellState, GeneratedSpell, Vec3 } from "@/game/types";
+import type { Ray, World } from "@dimforge/rapier3d-compat";
+import { projectileMotion, type ProjectileMotion } from "@/game/state/projectileMotion";
+import { colliderRegistry } from "@/game/state/colliderRegistry";
+
+// Module-scope reusable ray to avoid per-projectile-per-frame allocations.
+let sharedRay: Ray | null = null;
 
 export function GameplaySystems() {
   const accumulator = useRef(0);
+  const { world, rapier } = useRapier();
 
   useFrame((_, delta) => {
     const state = useGameStore.getState();
     accumulator.current += delta;
-    state.regenerateMana(delta);
 
+    // Per-frame: motion, pickups (must be tight to avoid missing at sprint speed).
+    advanceProjectiles(delta, world, rapier);
+    collectNearbyAuraCrystals();
+    collectNearbyManaMotes();
+
+    // Coarse cadence: respawns, area-of-effect ticks.
     if (accumulator.current > 0.12) {
       accumulator.current = 0;
       state.respawnCrystals();
+      state.respawnManaMotes();
       state.tickRespawns();
       state.tickAreas();
       state.tickCooldowns();
-      collectNearbyCrystals();
       resolveAreas();
     }
-
-    advanceProjectiles(delta);
   });
 
   return null;
 }
 
-function collectNearbyCrystals() {
+function collectNearbyAuraCrystals() {
   const state = useGameStore.getState();
   const player = state.players[state.localPlayerId];
   if (!player || player.status === "dead") return;
 
   for (const crystal of state.crystals) {
-    if (crystal.active && vec3DistanceSq(player.position, crystal.position) < 2.1) {
+    if (crystal.active && vec3DistanceSq(player.position, crystal.position) < 2.4 * 2.4) {
       state.collectCrystal(crystal.id);
       break;
     }
   }
 }
 
-function advanceProjectiles(delta: number) {
+function collectNearbyManaMotes() {
   const state = useGameStore.getState();
-  const timestamp = Date.now();
-  const removals = new Set<string>();
-  const nextProjectiles: ProjectileState[] = [];
+  const player = state.players[state.localPlayerId];
+  if (!player || player.status === "dead") return;
 
-  for (const projectile of state.projectiles) {
-    if (projectile.expiresAt <= timestamp) {
-      removals.add(projectile.id);
-      continue;
+  for (const mote of state.manaMotes) {
+    if (mote.active && vec3DistanceSq(player.position, mote.position) < 1.4 * 1.4) {
+      state.collectManaMote(mote.id);
     }
-
-    const nextPosition: Vec3 = [
-      projectile.position[0] + projectile.direction[0] * projectile.spell.speed * delta,
-      projectile.position[1] + projectile.direction[1] * projectile.spell.speed * delta,
-      projectile.position[2] + projectile.direction[2] * projectile.spell.speed * delta,
-    ];
-
-    const hitDummy = state.dummyTargets.find(
-      (dummy) => !dummy.respawnAt && vec3DistanceSq(nextPosition, dummy.position) < Math.pow(projectile.spell.radius + 0.95, 2),
-    );
-    if (hitDummy) {
-      state.damageDummy(hitDummy.id, projectile.spell.damage, projectile.ownerId);
-      removals.add(projectile.id);
-      spawnBurst(projectile, nextPosition);
-      continue;
-    }
-
-    const hitPlayer = Object.values(state.players).find(
-      (player) =>
-        player.id !== projectile.ownerId && player.status !== "dead" && vec3DistanceSq(nextPosition, player.position) < Math.pow(projectile.spell.radius + 0.75, 2),
-    );
-    if (hitPlayer) {
-      state.damagePlayer(hitPlayer.id, projectile.spell.damage, projectile.ownerId);
-      removals.add(projectile.id);
-      spawnBurst(projectile, nextPosition);
-      continue;
-    }
-
-    nextProjectiles.push({ ...projectile, position: nextPosition });
-  }
-
-  if (nextProjectiles.length !== state.projectiles.length || removals.size > 0) {
-    useGameStore.setState({ projectiles: nextProjectiles });
   }
 }
 
-function spawnBurst(projectile: ProjectileState, position: Vec3) {
-  const spell = projectile.spell;
-  if (spell.radius < 1.6 && spell.effects.length === 0) return;
+function advanceProjectiles(delta: number, world: World, rapier: typeof import("@dimforge/rapier3d-compat")) {
+  const state = useGameStore.getState();
+  if (state.projectileIds.length === 0) return;
+
   const timestamp = Date.now();
+  const removedIds: string[] = [];
+  const bursts: Array<{ motion: ProjectileMotion; position: Vec3; reason: "hit" | "expire" }> = [];
+
+  for (const id of state.projectileIds) {
+    const motion = projectileMotion.get(id);
+    if (!motion) {
+      removedIds.push(id);
+      continue;
+    }
+
+    if (motion.expiresAt <= timestamp) {
+      bursts.push({ motion, position: motion.position, reason: "expire" });
+      removedIds.push(id);
+      continue;
+    }
+
+    const stepDistance = motion.spell.speed * delta;
+    const nextPosition: Vec3 = [
+      motion.position[0] + motion.direction[0] * stepDistance,
+      motion.position[1] + motion.direction[1] * stepDistance,
+      motion.position[2] + motion.direction[2] * stepDistance,
+    ];
+
+    // Rapier raycast against the physics world (trees, shrine, dummies, wizards).
+    // direction is unit, so timeOfImpact = world distance.
+    if (!sharedRay) {
+      sharedRay = new rapier.Ray(
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 1 },
+      );
+    }
+    sharedRay.origin.x = motion.position[0];
+    sharedRay.origin.y = motion.position[1];
+    sharedRay.origin.z = motion.position[2];
+    sharedRay.dir.x = motion.direction[0];
+    sharedRay.dir.y = motion.direction[1];
+    sharedRay.dir.z = motion.direction[2];
+
+    const hit = world.castRay(sharedRay, stepDistance, true);
+    if (hit) {
+      const impact: Vec3 = [
+        motion.position[0] + motion.direction[0] * hit.timeOfImpact,
+        motion.position[1] + motion.direction[1] * hit.timeOfImpact,
+        motion.position[2] + motion.direction[2] * hit.timeOfImpact,
+      ];
+      const entry = colliderRegistry.get(hit.collider.handle);
+      if (entry) {
+        if (entry.kind === "dummy") {
+          state.damageDummy(entry.id, motion.spell.damage, motion.ownerId);
+        } else if (entry.kind === "wizard" && entry.id !== motion.ownerId) {
+          state.damagePlayer(entry.id, motion.spell.damage, motion.ownerId);
+        }
+        // static: no damage, just stop the projectile.
+      }
+      bursts.push({ motion, position: impact, reason: "hit" });
+      removedIds.push(id);
+      continue;
+    }
+
+    // Mutate motion in place — no zustand churn.
+    motion.position[0] = nextPosition[0];
+    motion.position[1] = nextPosition[1];
+    motion.position[2] = nextPosition[2];
+  }
+
+  if (removedIds.length > 0) {
+    for (const id of removedIds) projectileMotion.unregister(id);
+    useGameStore.setState((s) => ({
+      projectileIds: s.projectileIds.filter((id) => !removedIds.includes(id)),
+    }));
+  }
+
+  for (const burst of bursts) {
+    spawnBurst(burst.motion.id, burst.motion.ownerId, burst.motion.spell, burst.position, burst.reason);
+  }
+}
+
+function spawnBurst(
+  projectileId: string,
+  ownerId: string,
+  spell: GeneratedSpell,
+  position: Vec3,
+  reason: "hit" | "expire",
+) {
+  const timestamp = Date.now();
+  const durationMs = reason === "hit" ? 380 : 260;
+  const radius = Math.max(0.7, spell.radius * 1.4);
   useGameStore.setState((state) => ({
     areas: [
       ...state.areas,
       {
-        id: `${projectile.id}-impact`,
-        ownerId: projectile.ownerId,
-        spell: { ...spell, shape: "burst", durationMs: 650, radius: Math.max(1.4, spell.radius) },
+        id: `${projectileId}-${reason}`,
+        ownerId,
+        spell: { ...spell, shape: "burst", durationMs, radius },
         position,
         createdAt: timestamp,
-        expiresAt: timestamp + 650,
+        expiresAt: timestamp + durationMs,
         tickedAt: {},
       },
     ],
