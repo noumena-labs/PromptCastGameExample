@@ -143,6 +143,12 @@ function advanceProjectiles(delta: number, world: World) {
       continue;
     }
 
+    if (segmentReachesTarget(motion, stepDistance)) {
+      bursts.push({ motion, position: motion.targetPoint, reason: "hit" });
+      removedIds.push(id);
+      continue;
+    }
+
     // Mutate motion in place — no zustand churn.
     motion.position[0] = nextPosition[0];
     motion.position[1] = nextPosition[1];
@@ -168,6 +174,25 @@ function advanceProjectiles(delta: number, world: World) {
   }
 }
 
+function segmentReachesTarget(motion: ProjectileMotion, stepDistance: number): boolean {
+  const toTarget: Vec3 = [
+    motion.targetPoint[0] - motion.position[0],
+    motion.targetPoint[1] - motion.position[1],
+    motion.targetPoint[2] - motion.position[2],
+  ];
+  const along =
+    toTarget[0] * motion.direction[0] +
+    toTarget[1] * motion.direction[1] +
+    toTarget[2] * motion.direction[2];
+  if (along < 0 || along > stepDistance) return false;
+  const closest: Vec3 = [
+    motion.position[0] + motion.direction[0] * along,
+    motion.position[1] + motion.direction[1] * along,
+    motion.position[2] + motion.direction[2] * along,
+  ];
+  return vec3Distance(closest, motion.targetPoint) <= Math.max(0.5, motion.spell.radius * 0.35);
+}
+
 function spawnBurst(
   projectileId: string,
   ownerId: string,
@@ -179,7 +204,7 @@ function spawnBurst(
   const timestamp = Date.now();
   const isLingering = spell.impact === "aoe" || spell.impact === "vortex" || spell.impact === "wall" || spell.impact === "trap";
   // Compose stage encodes the visual lifetime of the impact scene:
-  //   single  → 800ms, burst → 1000ms, none → 0ms, lingering → spell.durationMs.
+  //   single  → 1200ms, burst → 1400ms, none → 0ms, lingering → spell.durationMs.
   const durationMs = spell.impactDurationMs;
   // Skip "expire" bursts that have no impact stage (none-impact spells) and
   // non-lingering "expire" bursts (projectile hit nothing — no impact to draw).

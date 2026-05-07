@@ -10,37 +10,41 @@ import { balanceSchema, type SpellBalance, type SpellConcept } from "@/game/spel
  * tier 1..5. The engine then derives mana cost, damage, duration, cooldown,
  * and radius deterministically (see balance.ts).
  *
- * Failure here is silent: the caller falls back to tier 3. The tier is the
- * least player-visible knob in the pipeline, so a hiccup must not block the
- * cast. We still log the failure for diagnostics.
+ * During pre-release this call is allowed to fail loudly. Silent tier-3
+ * fallback made it impossible to tell whether the model actually chose a tier.
  */
 
 const SYSTEM_PROMPT = `You are the Sage of the Sanctuary, weighing how mighty a spell ought to be. The CONCEPT is given. Choose ONE integer power tier from 1 to 5.
 
 Tiers:
-  1 — utility / micro flicker (weakest; cheap mana, short cooldown, gentle damage)
-  2 — light skirmish spell
-  3 — standard combat spell
-  4 — heavy spell (significant mana, longer cooldown, large area or damage)
-  5 — ultimate / cataclysmic (rare; epic scale)
+  1 — tiny utility / flicker / nuisance; low damage, cheap, brief
+  2 — minor combat spell; simple bolt, small shield, short hazard
+  3 — normal combat spell; reliable pressure, moderate area or damage
+  4 — heavy spell; large impact, strong control, multi-hit, costly
+  5 — explicit ultimate / cataclysm / world-shaking spell only
 
 Rules of thumb:
-  - Single-target precise strikes (single bolt, beam): tier 2-4.
-  - Multi-projectile volleys / sky storms: tier 3-5 by count and area.
-  - Self-cast bursts and shields: tier 2-4.
-  - Reserve tier 5 for explicitly cataclysmic, world-shaking, ultimate, or apocalyptic intents.
-  - Reserve tier 1 for explicitly small, weak, gentle, or flicker-level intents.
+  - Choose tier 1 for small/gentle/weak/flicker/spark/single nuisance.
+  - Choose tier 2 for ordinary small attacks and modest defense.
+  - Choose tier 3 for standard combat spells with no extreme language.
+  - Choose tier 4 for storms, walls, large area denial, many projectiles, strong control.
+  - Choose tier 5 only for explicit cataclysm, apocalypse, ultimate, annihilation, world-shaking scale.
+
+Examples:
+  "a tiny candle spark" => 1
+  "a quick ice dart" => 2
+  "a reliable fireball" => 3
+  "a meteor shower raining over the arena" => 4
+  "an apocalyptic sun that erases everything" => 5
 
 Output ONLY a JSON object on its own line. No reasoning, no fences, no commentary.
-
-{ "powerTier": 3 }`;
+Required shape: { "powerTier": <integer 1-5> }
+Use the selected integer, not the examples.`;
 
 export type BalanceCallResult = {
   balance: SpellBalance;
   rawOutput: string;
 };
-
-const PREFIX = "</think>";
 
 function buildUserMessage(prompt: string, concept: SpellConcept): string {
   return [
@@ -51,11 +55,12 @@ function buildUserMessage(prompt: string, concept: SpellConcept): string {
     `  element:        ${concept.element}`,
     `  deliveryFamily: ${concept.deliveryFamily}`,
     `  impact:         ${concept.impact}`,
+    `  placement:      ${concept.placement}`,
     `  count:          ${concept.count}`,
     `  effects:        ${concept.effects.join(", ") || "(none)"}`,
     `  intent:         ${concept.intent_summary}`,
     "",
-    "Output the balance JSON now.",
+    "Output the balance JSON now. The first character must be {.",
   ].join("\n");
 }
 
@@ -72,16 +77,14 @@ export async function runBalanceCall(opts: {
     engine: opts.engine,
     systemPrompt: SYSTEM_PROMPT,
     prompt: buildUserMessage(opts.prompt, opts.concept),
-    maxTokens: 64,
+    maxTokens: 256,
     grammar: BALANCE_GRAMMAR,
-    assistantPrefix: PREFIX,
     signal: opts.signal,
     stage: "balance",
     onToken: (token) => opts.onToken?.(token, "balance"),
   });
 
-  const tail = buffer.startsWith(PREFIX) ? buffer.slice(PREFIX.length) : buffer;
-  const extraction = extractJson(tail);
+  const extraction = extractJson(buffer);
   if (!extraction.ok) {
     spellLog.failure({
       stage: "balance",
@@ -113,6 +116,6 @@ export async function runBalanceCall(opts: {
     });
   }
 
-  spellLog.info("balance", "ok", { powerTier: parsed.data.powerTier });
+  spellLog.info("balance", "ok", { powerTier: parsed.data.powerTier, rawOutput: buffer });
   return { balance: parsed.data, rawOutput: buffer };
 }

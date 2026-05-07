@@ -10,9 +10,9 @@
  *   - Numbers are kept loose (signed integers + floats) — Zod re-clamps.
  *   - llama.cpp GBNF requires single-line rule bodies. The `root ::=` for each
  *     grammar MUST be on one line — do NOT line-wrap rule bodies.
- *   - The reasoning <think>...</think> block lives BEFORE the JSON. We do NOT
- *     constrain reasoning. The grammar starts at `{`; the pipeline pre-feeds
- *     the closing `</think>` so the model jumps straight into JSON.
+ *   - Every stage emits structured JSON directly. We use the Instruct model
+ *     and keep prompts aligned with the grammar: no hidden thinking prefix,
+ *     no fenced code blocks, no commentary.
  */
 
 const COMMON = `
@@ -33,6 +33,7 @@ const lit = (xs: readonly string[]) => xs.map((s) => `"\\"${s}\\""`).join(" | ")
 const elementLit = lit(["fire", "ice", "lightning", "earth", "arcane", "shadow", "nature"]);
 const deliveryLit = lit(["projectile", "beam", "sky", "self"]);
 const impactLit = lit(["single", "aoe", "vortex", "wall", "trap", "burst", "none"]);
+const placementLit = lit(["target", "front", "self"]);
 const effectLit = lit(["burn", "slow", "stun", "pull", "knockback", "shield_break", "poison"]);
 const shapeLit = lit([
   "sphere",
@@ -66,12 +67,26 @@ const arrangeLit = lit(["single", "ring", "line", "stack", "random"]);
 // Stage 1 — concept
 // ─────────────────────────────────────────────────────────────────────────────
 
+const CONCEPT_FIELDS = [
+  `"\\"name\\"" ws ":" ws string`,
+  `"\\"element\\"" ws ":" ws element`,
+  `"\\"deliveryFamily\\"" ws ":" ws delivery`,
+  `"\\"impact\\"" ws ":" ws impact`,
+  `"\\"placement\\"" ws ":" ws placement`,
+  `"\\"intent_summary\\"" ws ":" ws string`,
+  `"\\"cast_imagery\\"" ws ":" ws string`,
+  `"\\"impact_imagery\\"" ws ":" ws string`,
+  `"\\"effects\\"" ws ":" ws effect-array`,
+  `"\\"count\\"" ws ":" ws number`,
+].join(` ws "," ws `);
+
 export const CONCEPT_GRAMMAR = `
 ${COMMON}
-root ::= ws "{" ws "\\"name\\"" ws ":" ws string ws "," ws "\\"element\\"" ws ":" ws element ws "," ws "\\"deliveryFamily\\"" ws ":" ws delivery ws "," ws "\\"impact\\"" ws ":" ws impact ws "," ws "\\"intent_summary\\"" ws ":" ws string ws "," ws "\\"cast_imagery\\"" ws ":" ws string ws "," ws "\\"impact_imagery\\"" ws ":" ws string ws "," ws "\\"effects\\"" ws ":" ws effect-array ws "," ws "\\"count\\"" ws ":" ws number ws "}" ws
+root ::= ws "{" ws ${CONCEPT_FIELDS} ws "}" ws
 element ::= ${elementLit}
 delivery ::= ${deliveryLit}
 impact ::= ${impactLit}
+placement ::= ${placementLit}
 effect ::= ${effectLit}
 effect-array ::= "[" ws "]" | "[" ws effect (ws "," ws effect)* ws "]"
 `.trim();

@@ -21,6 +21,8 @@ export type SpellDeliveryFamily = "projectile" | "beam" | "sky" | "self";
  */
 export type SpellImpact = "single" | "aoe" | "vortex" | "wall" | "trap" | "burst" | "none";
 
+export type SpellPlacement = "target" | "front" | "self";
+
 export type SpellEffect = "burn" | "slow" | "stun" | "pull" | "knockback" | "shield_break" | "poison";
 
 export type GeneratedSpell = {
@@ -31,6 +33,8 @@ export type GeneratedSpell = {
   element: SpellElement;
   deliveryFamily: SpellDeliveryFamily;
   impact: SpellImpact;
+  placement: SpellPlacement;
+  powerTier: 1 | 2 | 3 | 4 | 5;
   count: number;
   damage: number;
   speed: number;

@@ -41,8 +41,6 @@ export type PaletteCallResult = {
   rawOutput: string;
 };
 
-const PREFIX = "</think>";
-
 function buildUserMessage(prompt: string, concept: SpellConcept, form: SpellForm): string {
   const colorHints = [form.color, ...form.children.map((c) => c.color)].slice(0, 4).join(", ");
   return [
@@ -51,6 +49,7 @@ function buildUserMessage(prompt: string, concept: SpellConcept, form: SpellForm
     "CONCEPT:",
     `  name:    ${concept.name}`,
     `  element: ${concept.element}`,
+    `  placement: ${concept.placement}`,
     `  intent:  ${concept.intent_summary}`,
     "",
     "FORM:",
@@ -58,7 +57,7 @@ function buildUserMessage(prompt: string, concept: SpellConcept, form: SpellForm
     `  children:  ${form.children.length}`,
     `  hues:      ${colorHints}`,
     "",
-    "Output the palette JSON now.",
+    "Output the palette JSON now. The first character must be {.",
   ].join("\n");
 }
 
@@ -76,16 +75,14 @@ export async function runPaletteCall(opts: {
     engine: opts.engine,
     systemPrompt: SYSTEM_PROMPT,
     prompt: buildUserMessage(opts.prompt, opts.concept, opts.form),
-    maxTokens: 128,
+    maxTokens: 512,
     grammar: PALETTE_GRAMMAR,
-    assistantPrefix: PREFIX,
     signal: opts.signal,
     stage: "palette",
     onToken: (token) => opts.onToken?.(token, "palette"),
   });
 
-  const tail = buffer.startsWith(PREFIX) ? buffer.slice(PREFIX.length) : buffer;
-  const extraction = extractJson(tail);
+  const extraction = extractJson(buffer);
   if (!extraction.ok) {
     spellLog.failure({
       stage: "palette",

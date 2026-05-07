@@ -27,48 +27,80 @@ import { ParticleEmitterNode } from "@/components/game/scene/ParticleEmitterNode
  */
 
 const LIGHT_CAP = 2;
+const IMPACT_LIGHT_CAP = 4;
 const LIGHT_THRESHOLD = 0.5;
 
 export function SceneNodeRenderer({
   scene,
   spellId,
-  spawnedAt: _spawnedAt,
-  lifetimeSeconds: _lifetimeSeconds,
+  spawnedAt,
+  lifetimeSeconds,
+  variant = "cast",
 }: {
   scene: SpellScene;
   spellId: string;
-  /** Reserved for future fade-on-expiry; unused for now. */
   spawnedAt?: number;
-  /** Reserved for future fade-on-expiry; unused for now. */
   lifetimeSeconds?: number;
+  variant?: "cast" | "impact";
 }) {
   const seed = useMemo(() => seedFromId(spellId), [spellId]);
+  const groupRef = useRef<Group>(null);
 
   // Pick the top-N most-emissive nodes to host point lights. Everything else
   // still uses meshStandardMaterial.emissive but contributes no actual light.
   const lightNodeIds = useMemo(() => {
+    const cap = variant === "impact" ? IMPACT_LIGHT_CAP : LIGHT_CAP;
     const all: { idx: number; v: number }[] = [];
     if (scene.emissiveIntensity > LIGHT_THRESHOLD) all.push({ idx: -1, v: scene.emissiveIntensity });
     scene.children.forEach((c, i) => {
       if (c.emissiveIntensity > LIGHT_THRESHOLD) all.push({ idx: i, v: c.emissiveIntensity });
     });
     all.sort((a, b) => b.v - a.v);
-    return new Set(all.slice(0, LIGHT_CAP).map((x) => x.idx));
-  }, [scene]);
+    return new Set(all.slice(0, cap).map((x) => x.idx));
+  }, [scene, variant]);
+
+  const opacityMultiplier = impactOpacityMultiplier(variant, spawnedAt, lifetimeSeconds);
+
+  useFrame(() => {
+    if (!groupRef.current || variant !== "impact" || spawnedAt === undefined) return;
+    const age = (Date.now() - spawnedAt) / 1000;
+    const pop = 1 + Math.min(1, age / 0.22) * 0.22;
+    groupRef.current.scale.setScalar(pop);
+  });
 
   return (
-    <group>
-      <NodeInstance node={scene} seed={seed} hostsLight={lightNodeIds.has(-1)} />
+    <group ref={groupRef}>
+      <NodeInstance
+        node={scene}
+        seed={seed}
+        hostsLight={lightNodeIds.has(-1)}
+        variant={variant}
+        opacityMultiplier={opacityMultiplier}
+      />
       {scene.children.map((child, i) => (
         <NodeInstance
           key={i}
           node={child}
           seed={seed ^ ((i + 1) * 0x9e3779b9)}
           hostsLight={lightNodeIds.has(i)}
+          variant={variant}
+          opacityMultiplier={opacityMultiplier}
         />
       ))}
     </group>
   );
+}
+
+function impactOpacityMultiplier(
+  variant: "cast" | "impact",
+  spawnedAt?: number,
+  lifetimeSeconds?: number,
+): number {
+  if (variant !== "impact" || spawnedAt === undefined || !lifetimeSeconds) return 1;
+  const age = (Date.now() - spawnedAt) / 1000;
+  const fadeStart = lifetimeSeconds * 0.68;
+  if (age <= fadeStart) return 1;
+  return Math.max(0, 1 - (age - fadeStart) / Math.max(0.1, lifetimeSeconds - fadeStart));
 }
 
 /**
@@ -81,10 +113,14 @@ function NodeInstance({
   node,
   seed,
   hostsLight,
+  variant,
+  opacityMultiplier,
 }: {
   node: SceneLeaf;
   seed: number;
   hostsLight: boolean;
+  variant: "cast" | "impact";
+  opacityMultiplier: number;
 }) {
   const groupRef = useRef<Group>(null);
   const elapsedRef = useRef(0);
@@ -117,14 +153,14 @@ function NodeInstance({
       {hostsLight && (
         <pointLight
           color={node.color}
-          intensity={Math.min(node.emissiveIntensity, 4) * 1.6}
-          distance={Math.max(2, node.size * 6)}
+          intensity={Math.min(node.emissiveIntensity, 4) * (variant === "impact" ? 3.0 : 1.6)}
+          distance={Math.max(2, node.size * (variant === "impact" ? 10 : 6))}
           decay={2}
         />
       )}
       {offsets.map((offset, i) => (
         <group key={i} position={offset}>
-          <ShapePrimitive node={node} />
+          <ShapePrimitive node={node} variant={variant} opacityMultiplier={opacityMultiplier} />
         </group>
       ))}
     </group>
@@ -137,21 +173,31 @@ function NodeInstance({
  * R3F's automatic dedup of inline JSX), but geometries are too small to
  * bother caching.
  */
-function ShapePrimitive({ node }: { node: SceneLeaf }) {
+function ShapePrimitive({
+  node,
+  variant,
+  opacityMultiplier,
+}: {
+  node: SceneLeaf;
+  variant: "cast" | "impact";
+  opacityMultiplier: number;
+}) {
   if (node.shape === "particle_cloud") {
-    return <ParticleEmitterNode node={node} />;
+    return <ParticleEmitterNode node={node} opacityMultiplier={opacityMultiplier} burst={variant === "impact"} />;
   }
+
+  const opacity = Math.max(0, Math.min(1, node.opacity * opacityMultiplier));
 
   const material = (
     <meshStandardMaterial
       color={node.color}
       emissive={node.color}
       emissiveIntensity={node.emissiveIntensity}
-      transparent={node.opacity < 1}
-      opacity={node.opacity}
+      transparent={opacity < 1}
+      opacity={opacity}
       toneMapped={false}
       blending={node.emissiveIntensity > 1.5 ? AdditiveBlending : undefined}
-      depthWrite={node.opacity >= 0.95}
+      depthWrite={opacity >= 0.95}
     />
   );
 

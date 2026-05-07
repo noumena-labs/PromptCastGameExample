@@ -20,13 +20,14 @@ import { clampScene } from "@/game/spells/sceneNode";
  */
 
 const FORM_RETRY_LIMIT = 8;
-const THINK_CLOSE = "</think>";
+const FORM_MAX_TOKENS = 2048;
 
 export type FormAttempt = {
   /** Which sub-stage is being attempted: "cast" or "impact". */
   scene: "cast" | "impact";
   n: number;
   total: number;
+  retryReason?: string;
 };
 
 export type FormCallResult = {
@@ -42,7 +43,7 @@ export type FormCallResult = {
 
 const CAST_SYSTEM_PROMPT = `You are the Sage of the Sanctuary, sculpting the visible body of a spell IN FLIGHT. The CONCEPT is given, including a "cast imagery" line describing exactly what the player should see while the spell travels. Output a single SCENE TREE describing that travelling body.
 
-Reason briefly inside <think>...</think>, then output ONLY the JSON object after </think>. No fences, no commentary.
+Output ONLY the JSON object, starting with { and ending with }. No <think>, no reasoning, no fences, no commentary.
 
 The scene is one ROOT node plus up to 6 child nodes (depth 1, no grandchildren).
 
@@ -96,7 +97,9 @@ clearly in motion.`;
 
 const IMPACT_SYSTEM_PROMPT = `You are the Sage of the Sanctuary, sculpting the ERUPTION that occurs at the destination of a spell. The CONCEPT is given, including a "impact imagery" line describing exactly what should erupt at the hit/landing point. Output a single SCENE TREE describing that eruption.
 
-Reason briefly inside <think>...</think>, then output ONLY the JSON object after </think>. No fences, no commentary.
+Output ONLY the JSON object, starting with { and ending with }. No <think>, no reasoning, no fences, no commentary.
+
+The IMPACT is the hero moment. It must be much more visible than the travelling cast: large silhouette, bright flash, expanding motion, and secondary particles/rings/shards. Prefer 2-6 children unless the root is already a huge dramatic structure.
 
 The scene is one ROOT node plus up to 6 child nodes (depth 1, no grandchildren).
 
@@ -119,10 +122,12 @@ IMPACT RECIPES — match the impact field:
   single  : a brief eruption at the hit point — a spike of flame, a shock-
             flash, a gout of frost. Either root.size ≥ 0.8, OR include ≥ 2
             ornament children for visible mass. Use motion='expand', 'pulse',
-            'rise', or 'shake' for drama.
+            'rise', or 'shake' for drama. Add particle_cloud sparks/smoke or
+            expanding ring/disc shockwaves whenever possible.
 
   burst   : a brief expanding flash. Root motion='expand' or 'pulse'.
-            Root size ≥ 0.9, emissiveIntensity ≥ 1.5.
+            Root size ≥ 1.2, emissiveIntensity ≥ 1.5. Include a particle_cloud
+            child and an expanding ring/disc child for readable VFX.
 
   aoe     : a ground-hugging persistent zone. Root MUST be 'ring', 'disc',
             'plane', 'cylinder', or 'torus'. Root size 1.0-1.6, opacity ≥ 0.6.
@@ -146,6 +151,11 @@ IMPACT RECIPES — match the impact field:
 DRAMA RULE: an impact must look like an EVENT. If root.size < 0.9, you MUST
 include at least 2 ornament children supplying secondary motion / particles /
 extra mass. Tiny single-shape impacts are forbidden.
+
+VFX RULE: if the impact is single or burst, include at least one particle_cloud
+child with particleCount 80-200 and one expanding/pulsing ring, disc, sphere,
+or shockwave-like child. Persistent impacts should still include vertical
+motion (rise/swirl/pulse) so they are visible in combat.
 
 VISIBILITY FLOOR (universal):
   - root.size ≥ 0.4
@@ -179,10 +189,11 @@ function buildCastUserMessage(
     `  name:           ${concept.name}`,
     `  element:        ${concept.element}`,
     `  deliveryFamily: ${concept.deliveryFamily}`,
+    `  placement:      ${concept.placement}`,
     `  count:          ${concept.count}`,
     `  intent:         ${concept.intent_summary}`,
     "",
-    "Output the cast scene JSON now.",
+    "Output the cast scene JSON now. The first character must be {.",
   ];
   if (previousViolations && previousViolations.length > 0) {
     lines.push(
@@ -190,7 +201,7 @@ function buildCastUserMessage(
       `Your previous attempt (${attempt - 1}/${FORM_RETRY_LIMIT}) was REJECTED. Fix these specific problems and re-emit the FULL scene JSON, corrected:`,
     );
     for (const v of previousViolations) lines.push(`  - ${v}`);
-    lines.push("", "Do not repeat any of the rejected choices. Output the corrected JSON only.");
+    lines.push("", "Do not repeat any of the rejected choices. Output the corrected JSON only; first character must be {.");
   } else if (attempt > 1) {
     lines.push("", `(retry ${attempt}/${FORM_RETRY_LIMIT})`);
   }
@@ -218,6 +229,7 @@ function buildImpactUserMessage(
     `  element:        ${concept.element}`,
     `  deliveryFamily: ${concept.deliveryFamily}`,
     `  impact:         ${concept.impact}`,
+    `  placement:      ${concept.placement}`,
     `  intent:         ${concept.intent_summary}`,
     "",
     "CAST SCENE (already chosen — match palette + motif):",
@@ -226,7 +238,7 @@ function buildImpactUserMessage(
     `  rootSize:  ${castForm.size}`,
     `  childHues: ${childHues || "(none)"}`,
     "",
-    "Output the impact scene JSON now.",
+    "Output the impact scene JSON now. The first character must be {.",
   ];
   if (previousViolations && previousViolations.length > 0) {
     lines.push(
@@ -234,7 +246,7 @@ function buildImpactUserMessage(
       `Your previous attempt (${attempt - 1}/${FORM_RETRY_LIMIT}) was REJECTED. Fix these specific problems and re-emit the FULL scene JSON, corrected:`,
     );
     for (const v of previousViolations) lines.push(`  - ${v}`);
-    lines.push("", "Do not repeat any of the rejected choices. Output the corrected JSON only.");
+    lines.push("", "Do not repeat any of the rejected choices. Output the corrected JSON only; first character must be {.");
   } else if (attempt > 1) {
     lines.push("", `(retry ${attempt}/${FORM_RETRY_LIMIT})`);
   }
@@ -247,31 +259,45 @@ type RunSceneCallOpts = {
   userMessage: (attempt: number, previousViolations: string[] | null) => string;
   signal?: AbortSignal;
   onToken?: StreamSink;
-  onAttempt?: (n: number) => void;
+  onAttempt?: (n: number, retryReason?: string) => void;
   label: "cast" | "impact";
 };
+
+function tailPreview(text: string): string {
+  return text.slice(Math.max(0, text.length - 240));
+}
+
+function retryReason(reason: string): string {
+  return reason.length > 72 ? `${reason.slice(0, 69)}...` : reason;
+}
 
 async function runSceneCall(opts: RunSceneCallOpts): Promise<{ form: SpellForm; rawOutput: string; attempts: number }> {
   let lastError: SpellGenerationError | null = null;
   let previousViolations: string[] | null = null;
+  let nextRetryReason: string | undefined;
 
   for (let attempt = 1; attempt <= FORM_RETRY_LIMIT; attempt += 1) {
-    opts.onAttempt?.(attempt);
+    opts.onAttempt?.(attempt, nextRetryReason);
+    nextRetryReason = undefined;
+    let tokenCount = 0;
+    let streamedOutput = "";
     try {
       const { buffer } = await runChatCall({
         engine: opts.engine,
         systemPrompt: opts.systemPrompt,
         prompt: opts.userMessage(attempt, previousViolations),
-        maxTokens: 1400,
+        maxTokens: FORM_MAX_TOKENS,
         grammar: FORM_GRAMMAR,
         signal: opts.signal,
         stage: "form",
-        onToken: (token) => opts.onToken?.(token, "form"),
+        onToken: (token) => {
+          tokenCount += 1;
+          streamedOutput += token;
+          opts.onToken?.(token, "form");
+        },
       });
 
-      const closeIdx = buffer.indexOf(THINK_CLOSE);
-      const tail = closeIdx === -1 ? buffer : buffer.slice(closeIdx + THINK_CLOSE.length);
-      const extraction = extractJson(tail);
+      const extraction = extractJson(buffer);
       if (!extraction.ok) {
         lastError = new SpellGenerationError({
           stage: "form",
@@ -279,8 +305,15 @@ async function runSceneCall(opts: RunSceneCallOpts): Promise<{ form: SpellForm; 
           rawOutput: buffer,
           canRepair: true,
         });
-        spellLog.warn("form", `${opts.label} attempt failed: extract`, { attempt, reason: extraction.reason });
+        spellLog.warn("form", `${opts.label} attempt failed: extract`, {
+          attempt,
+          reason: extraction.reason,
+          rawOutputLen: buffer.length,
+          tokenCount,
+          tailPreview: tailPreview(buffer),
+        });
         previousViolations = [`Your previous output was not valid JSON: ${extraction.reason}. Emit ONLY a single JSON object.`];
+        nextRetryReason = retryReason(extraction.reason);
         continue;
       }
 
@@ -292,14 +325,23 @@ async function runSceneCall(opts: RunSceneCallOpts): Promise<{ form: SpellForm; 
           rawOutput: buffer,
           canRepair: true,
         });
-        spellLog.warn("form", `${opts.label} attempt failed: zod`, { attempt, cause: parsed.error.message });
+        spellLog.warn("form", `${opts.label} attempt failed: zod`, {
+          attempt,
+          cause: parsed.error.message,
+          rawOutputLen: buffer.length,
+          tokenCount,
+          tailPreview: tailPreview(buffer),
+        });
         previousViolations = [`Your previous output failed schema validation: ${parsed.error.message}. Re-check field types and ranges.`];
+        nextRetryReason = retryReason("schema validation failed");
         continue;
       }
 
       const form = clampScene(parsed.data);
       spellLog.info("form", `${opts.label} ok`, {
         attempt,
+        rawOutputLen: buffer.length,
+        tokenCount,
         children: form.children.length,
         rootShape: form.shape,
         rootSize: form.size,
@@ -313,8 +355,15 @@ async function runSceneCall(opts: RunSceneCallOpts): Promise<{ form: SpellForm; 
         cause: err,
         canRepair: true,
       });
-      spellLog.warn("form", `${opts.label} attempt threw`, { attempt, cause: (err as Error).message });
+      spellLog.warn("form", `${opts.label} attempt threw`, {
+        attempt,
+        cause: (err as Error).message,
+        rawOutputLen: streamedOutput.length,
+        tokenCount,
+        tailPreview: tailPreview(streamedOutput),
+      });
       previousViolations = null;
+      nextRetryReason = retryReason((err as Error).message);
       continue;
     }
   }
@@ -360,7 +409,7 @@ export async function runFormCall(opts: {
     userMessage: (attempt, prev) => buildCastUserMessage(opts.prompt, opts.concept, attempt, prev),
     signal: opts.signal,
     onToken: opts.onToken,
-    onAttempt: (n) => opts.onAttempt?.({ scene: "cast", n, total: FORM_RETRY_LIMIT }),
+    onAttempt: (n, retryReason) => opts.onAttempt?.({ scene: "cast", n, total: FORM_RETRY_LIMIT, retryReason }),
     label: "cast",
   });
 
@@ -372,7 +421,7 @@ export async function runFormCall(opts: {
       buildImpactUserMessage(opts.prompt, opts.concept, cast.form, attempt, prev),
     signal: opts.signal,
     onToken: opts.onToken,
-    onAttempt: (n) => opts.onAttempt?.({ scene: "impact", n, total: FORM_RETRY_LIMIT }),
+    onAttempt: (n, retryReason) => opts.onAttempt?.({ scene: "impact", n, total: FORM_RETRY_LIMIT, retryReason }),
     label: "impact",
   });
 

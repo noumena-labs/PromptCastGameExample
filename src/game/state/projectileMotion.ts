@@ -18,6 +18,7 @@ export type ProjectileMotion = {
   spell: GeneratedSpell;
   position: Vec3;
   direction: Vec3;
+  targetPoint: Vec3;
   createdAt: number;
   expiresAt: number;
 };

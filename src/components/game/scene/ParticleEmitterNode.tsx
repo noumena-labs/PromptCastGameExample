@@ -18,7 +18,15 @@ import type { SceneLeaf } from "@/game/spells/sceneNode";
 
 const HARD_CAP = 200;
 
-export function ParticleEmitterNode({ node }: { node: SceneLeaf }) {
+export function ParticleEmitterNode({
+  node,
+  opacityMultiplier = 1,
+  burst = false,
+}: {
+  node: SceneLeaf;
+  opacityMultiplier?: number;
+  burst?: boolean;
+}) {
   const pointsRef = useRef<Points>(null);
   const count = Math.max(1, Math.min(HARD_CAP, Math.round(node.particleCount)));
 
@@ -35,10 +43,10 @@ export function ParticleEmitterNode({ node }: { node: SceneLeaf }) {
     const lifetimes = new Float32Array(count);
     for (let i = 0; i < count; i += 1) {
       respawn(i, positions, velocities, ages, lifetimes, spread, lifetime);
-      ages[i] = Math.random() * lifetimes[i]!;
+      ages[i] = burst ? 0 : Math.random() * lifetimes[i]!;
     }
     return { positions, velocities, ages, lifetimes };
-  }, [count, spread, lifetime]);
+  }, [burst, count, spread, lifetime]);
 
   const geometry = useMemo(() => {
     const g = new BufferGeometry();
@@ -51,6 +59,12 @@ export function ParticleEmitterNode({ node }: { node: SceneLeaf }) {
     for (let i = 0; i < count; i += 1) {
       ages[i]! += delta;
       if (ages[i]! >= lifetimes[i]!) {
+        if (burst) {
+          positions[i * 3 + 0] = 9999;
+          positions[i * 3 + 1] = 9999;
+          positions[i * 3 + 2] = 9999;
+          continue;
+        }
         respawn(i, positions, velocities, ages, lifetimes, spread, lifetime);
         continue;
       }
@@ -63,7 +77,7 @@ export function ParticleEmitterNode({ node }: { node: SceneLeaf }) {
     attr.needsUpdate = true;
   });
 
-  const drawSize = Math.max(0.04, node.size * 0.5);
+  const drawSize = Math.max(0.04, node.size * (burst ? 0.7 : 0.5));
 
   return (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,7 +86,7 @@ export function ParticleEmitterNode({ node }: { node: SceneLeaf }) {
         color={node.color}
         size={drawSize * 5}
         transparent
-        opacity={node.opacity}
+        opacity={Math.max(0, Math.min(1, node.opacity * opacityMultiplier))}
         sizeAttenuation
         blending={AdditiveBlending}
         depthWrite={false}

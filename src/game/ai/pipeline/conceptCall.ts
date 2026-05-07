@@ -6,20 +6,16 @@ import { spellLog } from "@/game/ai/spellLog";
 import { conceptSchema, type SpellConcept } from "@/game/spells/spellSchema";
 
 /**
- * Concept call: free-form thinking + tiny JSON tail. The LLM names the spell,
- * picks element + delivery family + impact, lists status effects, and chooses
- * a count for sky / projectile spells.
- *
- * This is the ONLY call where reasoning runs unconstrained — we want the model
- * to think out loud about the player's intent. The grammar applies only to
- * the post-`</think>` body.
+ * Concept call: structured JSON only. The LLM names the spell, picks element +
+ * delivery family + impact, lists status effects, and chooses a count for sky /
+ * projectile spells.
  */
 
 const SYSTEM_PROMPT = `You are the Sage of the Sanctuary. The player describes a spell. In this step you grasp the SHAPE of their intent — not the numbers, but the imagery.
 
-Think briefly inside <think>...</think>, then output a single strict JSON object on its own line:
+Output ONLY a single strict JSON object on its own line. The first character must be {.
 
-{ "name": "...", "element": "...", "deliveryFamily": "...", "impact": "...", "intent_summary": "...", "cast_imagery": "...", "impact_imagery": "...", "effects": [], "count": 1 }
+{ "name": "...", "element": "...", "deliveryFamily": "...", "impact": "...", "placement": "...", "intent_summary": "...", "cast_imagery": "...", "impact_imagery": "...", "effects": [], "count": 1 }
 
 FIELDS:
 - name: short evocative title, 2-4 words, max 32 chars.
@@ -31,6 +27,10 @@ FIELDS:
     self       — centered on the wizard (nova, shield, aura, vine eruption)
 - impact — what happens at the destination:
     single | aoe | vortex | wall | trap | burst | none
+- placement — where the spell should resolve:
+    target — offensive spells aimed at enemies/ground reticle
+    front  — defensive barriers, shields, wards, walls placed in front of the wizard
+    self   — true caster-centered auras, novas, shields, body effects
 - intent_summary: one sentence, ≤180 chars, capturing the player's vision.
 - cast_imagery: vivid description of the TRAVEL stage — what the player sees while the spell is in flight (the projectile's body, the beam's core, the falling meteor's shape, the self-cast root). Be concrete: shapes, colors, motion, trailing details. ≤220 chars.
 - impact_imagery: vivid description of the IMPACT stage — what ERUPTS at the destination point: pillars of flame, expanding shockwave rings, crackling shards, ground sigils, vortex columns, walls of force. The impact must be DRAMATIC and visibly distinct from the cast. ≤220 chars.
@@ -42,33 +42,25 @@ FIELDS:
 
 EXAMPLES of cast_imagery vs impact_imagery:
   prompt: "black flame"
+    placement:      "target"
     cast_imagery:   "A coal-black sphere wreathed in violet smoke, trailing wisps of dark fire as it streaks forward."
     impact_imagery: "A column of black flame erupts upward 3m tall, ringed by a low circle of guttering shadow-fire and curling smoke."
   prompt: "icy meteor shower"
+    placement:      "target"
     cast_imagery:   "Jagged shards of pale-blue ice falling from the sky, leaving frost trails behind."
     impact_imagery: "Each shard shatters into a wide ring of frost; a cracked-ice sigil glows on the ground beneath drifting cold mist."
   prompt: "wall of thorns"
+    placement:      "front"
     cast_imagery:   "A green pulse of nature energy travelling forward along the ground, low and fast."
     impact_imagery: "A jagged wall of dark-green thorned vines erupts vertically from the earth, spanning 4m wide, twisting in place."
 
-After </think>, output ONLY the JSON object. No fences, no commentary.`;
+No <think>, no reasoning, no fences, no commentary.`;
 
 export type ConceptCallResult = {
   concept: SpellConcept;
   reasoning: string;
   rawOutput: string;
 };
-
-const THINK_OPEN = "<think>";
-const THINK_CLOSE = "</think>";
-
-function extractReasoning(buffer: string): string {
-  const open = buffer.indexOf(THINK_OPEN);
-  const close = buffer.indexOf(THINK_CLOSE);
-  if (close === -1) return "";
-  const start = open === -1 ? 0 : open + THINK_OPEN.length;
-  return buffer.slice(start, close).trim();
-}
 
 export async function runConceptCall(opts: {
   engine: CogentEngine;
@@ -82,18 +74,14 @@ export async function runConceptCall(opts: {
     engine: opts.engine,
     systemPrompt: SYSTEM_PROMPT,
     prompt: opts.prompt,
-    maxTokens: 384,
+    maxTokens: 1024,
     grammar: CONCEPT_GRAMMAR,
     signal: opts.signal,
     stage: "concept",
     onToken: (token) => opts.onToken?.(token, "concept"),
   });
 
-  const reasoning = extractReasoning(buffer);
-  const closeIdx = buffer.indexOf(THINK_CLOSE);
-  const tail = closeIdx === -1 ? buffer : buffer.slice(closeIdx + THINK_CLOSE.length);
-
-  const extraction = extractJson(tail);
+  const extraction = extractJson(buffer);
   if (!extraction.ok) {
     spellLog.failure({
       stage: "concept",
@@ -130,9 +118,10 @@ export async function runConceptCall(opts: {
     element: parsed.data.element,
     deliveryFamily: parsed.data.deliveryFamily,
     impact: parsed.data.impact,
+    placement: parsed.data.placement,
     cast_imagery: parsed.data.cast_imagery,
     impact_imagery: parsed.data.impact_imagery,
   });
 
-  return { concept: parsed.data, reasoning, rawOutput: buffer };
+  return { concept: parsed.data, reasoning: "", rawOutput: buffer };
 }

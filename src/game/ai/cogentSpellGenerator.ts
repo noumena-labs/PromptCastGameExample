@@ -27,11 +27,13 @@ export type ModelLoadProgress = {
 };
 
 /**
- * Hard-coded GGUF model. Loaded once via OPFS-cached download (~730 MB) and
+ * Hard-coded GGUF model. Loaded once via OPFS-cached download and
  * reused for the lifetime of the page. We deliberately pin the model so the
- * Sage's voice is consistent across players in a P2P match.
+ * Sage's voice is consistent across players in a P2P match. The Instruct
+ * variant is better suited to our grammar-constrained JSON pipeline than the
+ * Thinking variant, which tends to leak reasoning tokens into structured calls.
  */
-export const MODEL_URL = "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking-GGUF/resolve/main/LFM2.5-1.2B-Thinking-Q4_K_M.gguf?download=true";
+export const MODEL_URL = "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf?download=true";
 
 let enginePromise: Promise<CogentEngine> | null = null;
 let modelLoadPromise: Promise<void> | null = null;
@@ -54,16 +56,16 @@ function broadcastProgress(progress: ModelLoadProgress): void {
  * PromptOverlay contract (`reasoning`, `phase`) keeps working.
  */
 export type SpellGenerationProgress = {
-  /** Reasoning tokens accumulated from the concept call. */
+  /** Reserved for optional explanation text; currently empty for JSON-only calls. */
   reasoning: string;
   /** Phase of the streaming response. */
-  phase: "thinking" | "writing" | "done";
+  phase: "writing" | "done";
   /** Pipeline stage emitting this update. */
   stage: PipelineProgress["stage"];
   /** Newly emitted tokens since the last progress event. */
   tokenDelta: string;
   /** Set on stage start or form retry — UI inserts a header/separator. */
-  segmentStart?: { stage: PipelineStage; attempt?: number };
+  segmentStart?: { stage: PipelineStage; attempt?: number; retryReason?: string };
   /** Populated only during the form stage; absent on other stages. */
   formAttempt?: FormAttempt;
   /** Snapshot of every completed stage's final raw buffer. */

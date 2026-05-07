@@ -3,7 +3,7 @@ import { spellLog, type SpellStage } from "@/game/ai/spellLog";
 
 /**
  * Streaming token sink shared by every pipeline call. Lets the UI surface the
- * Sage's reasoning in real time across all three calls.
+ * Sage's structured output in real time across all calls.
  */
 export type StreamSink = (token: string, stage: string) => void;
 
@@ -14,8 +14,6 @@ export type PipelineCallOptions = {
   maxTokens: number;
   grammar?: string;
   signal?: AbortSignal;
-  /** Optional pre-seeded assistant content (used to skip <think> phase). */
-  assistantPrefix?: string;
   onToken?: (token: string) => void;
   /**
    * Stage label used for telemetry. When supplied, runChatCall emits a
@@ -36,32 +34,20 @@ const WARN_RATIO = 0.85;
 
 export type PipelineCallResult = {
   text: string;
-  /** Combined buffer including the assistantPrefix (if provided). */
+  /** Complete streamed assistant output. */
   buffer: string;
 };
 
 /**
- * Issues a chat completion against cogentlm. We always include a fresh user
- * message; if `assistantPrefix` is provided we also append a partial assistant
- * message so the grammar can be applied starting at the JSON `{` rather than
- * fighting through the model's thinking phase.
- *
- * Note: cogentlm's ChatMessage role is union'd to system/user/assistant — we
- * use that to inject the prefix as a regular assistant turn even though the
- * conversation is single-shot. The model should continue from where the prefix
- * left off.
+ * Issues a grammar-constrained chat completion against cogentlm.
  */
 export async function runChatCall(opts: PipelineCallOptions): Promise<PipelineCallResult> {
-  const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+  const messages: { role: "system" | "user"; content: string }[] = [
     { role: "system", content: opts.systemPrompt },
     { role: "user", content: opts.prompt },
   ];
-  if (opts.assistantPrefix) {
-    messages.push({ role: "assistant", content: opts.assistantPrefix });
-  }
 
-  let buffer = opts.assistantPrefix ?? "";
-  const prefixLen = buffer.length;
+  let buffer = "";
   const warnAtChars = Math.floor(opts.maxTokens * CHARS_PER_TOKEN * WARN_RATIO);
   const budgetChars = opts.maxTokens * CHARS_PER_TOKEN;
   let warned = false;
@@ -71,11 +57,11 @@ export async function runChatCall(opts: PipelineCallOptions): Promise<PipelineCa
     grammar: opts.grammar,
     onToken: (token: string) => {
       buffer += token;
-      if (opts.stage && !warned && buffer.length - prefixLen >= warnAtChars) {
+      if (opts.stage && !warned && buffer.length >= warnAtChars) {
         warned = true;
         spellLog.warn(opts.stage, "token budget near limit", {
           maxTokens: opts.maxTokens,
-          bufferChars: buffer.length - prefixLen,
+          bufferChars: buffer.length,
           ratio: WARN_RATIO,
         });
       }
@@ -83,14 +69,14 @@ export async function runChatCall(opts: PipelineCallOptions): Promise<PipelineCa
     },
   });
 
-  if (opts.stage && buffer.length - prefixLen >= budgetChars) {
+  if (opts.stage && buffer.length >= budgetChars) {
     spellLog.error(opts.stage, "token budget exceeded; output likely truncated", {
       maxTokens: opts.maxTokens,
-      bufferChars: buffer.length - prefixLen,
+      bufferChars: buffer.length,
     });
   }
 
-  return { text: reply || buffer.slice(opts.assistantPrefix?.length ?? 0), buffer };
+  return { text: reply || buffer, buffer };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

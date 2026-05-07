@@ -4,15 +4,16 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useKeyboardControls } from "@react-three/drei";
 import { CapsuleCollider, RigidBody, useRapier } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Group, MathUtils, Vector3 } from "three";
-import type { KinematicCharacterController } from "@dimforge/rapier3d-compat";
+import { Ray, type KinematicCharacterController, type World } from "@dimforge/rapier3d-compat";
 import { LOCAL_PLAYER_ID, MAGIC_MISSILE, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
 import { getGroundHeight } from "@/game/arena/terrain";
 import { toVec3 } from "@/game/math/vector";
+import type { Vec3 } from "@/game/types";
 import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
-import { WIZARD_GROUPS } from "@/game/physics/collisionGroups";
+import { AIM_RAY_GROUPS, WIZARD_GROUPS } from "@/game/physics/collisionGroups";
 import { WizardModel } from "@/components/game/scene/WizardModel";
 
 type ControlName = "forward" | "backward" | "left" | "right" | "jump";
@@ -37,13 +38,13 @@ const PITCH_MAX = 1.55;
 const SPAWN_X = 0;
 const SPAWN_Z = 18;
 
-// Aim/cast geometry. Projectiles spawn at the wizard's shoulder and fly along
-// camera-forward. The reticle is a fixed centered crosshair (the camera's
-// lookAt is tuned so screen-center == projectile landing point), so no
-// per-frame aim raycast is needed — origin/direction/target are computed
-// on-demand at cast time.
+// Aim/cast geometry. Projectiles spawn at the wizard's shoulder, but every
+// spell resolves against the centered reticle's world intersection point.
 const SHOULDER_OFFSET_Y = 1.6; // above capsule center, ~chest height
-const CAST_TARGET_DISTANCE = 60; // how far ahead to place the synthetic target point
+const CAST_TARGET_DISTANCE = 70;
+const TERRAIN_RAY_STEPS = 80;
+
+type AimTarget = { point: Vec3; source: "rapier-hit" | "terrain-hit" | "front-fallback" };
 
 export function LocalWizard() {
   const visualGroup = useRef<Group>(null);
@@ -82,6 +83,29 @@ export function LocalWizard() {
   const tmpCamOffset = useRef(new Vector3());
   const tmpLook = useRef(new Vector3());
   const tmpCastDir = useRef(new Vector3());
+  const tmpCastOrigin = useRef(new Vector3());
+
+  const buildCastGeometry = useCallback((): { origin: Vec3; direction: Vec3; targetPoint: Vec3; targetSource: AimTarget["source"] } => {
+    const rayDirection = camera.getWorldDirection(tmpCastDir.current).normalize();
+    const shoulder = tmpCastOrigin.current.set(
+      center.current.x,
+      center.current.y + SHOULDER_OFFSET_Y,
+      center.current.z,
+    );
+    const aim = resolveAimTarget(world, camera.position, rayDirection, shoulder, colliderHandleRef.current);
+    const shotDir = tmpForward.current
+      .set(aim.point[0] - shoulder.x, aim.point[1] - shoulder.y, aim.point[2] - shoulder.z)
+      .normalize();
+    if (!Number.isFinite(shotDir.x) || shotDir.lengthSq() < 1e-5) {
+      shotDir.copy(rayDirection);
+    }
+    return {
+      origin: [shoulder.x, shoulder.y, shoulder.z],
+      direction: [shotDir.x, shotDir.y, shotDir.z],
+      targetPoint: aim.point,
+      targetSource: aim.source,
+    };
+  }, [camera, world]);
 
   // Pointer lock + mouse handlers.
   useEffect(() => {
@@ -153,23 +177,14 @@ export function LocalWizard() {
       ) {
         const slot =
           event.code === "Digit1" ? 0 : event.code === "Digit2" ? 1 : event.code === "Digit3" ? 2 : 3;
-        const cd = camera.getWorldDirection(tmpCastDir.current).normalize();
-        const ox = center.current.x;
-        const oy = center.current.y + SHOULDER_OFFSET_Y;
-        const oz = center.current.z;
-        const origin: [number, number, number] = [ox, oy, oz];
-        const dir: [number, number, number] = [cd.x, cd.y, cd.z];
-        const targetPoint: [number, number, number] = [
-          ox + cd.x * CAST_TARGET_DISTANCE,
-          oy + cd.y * CAST_TARGET_DISTANCE,
-          oz + cd.z * CAST_TARGET_DISTANCE,
-        ];
-        castSlot(slot, origin, dir, targetPoint);
+        const cast = buildCastGeometry();
+        console.debug("[CastTarget] slot", { slot, source: cast.targetSource, point: cast.targetPoint });
+        castSlot(slot, cast.origin, cast.direction, cast.targetPoint);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [addLog, camera, castSlot, enterSanctuary, promptOpen]);
+  }, [addLog, buildCastGeometry, castSlot, enterSanctuary, promptOpen]);
 
   // Create the character controller once Rapier is ready.
   useEffect(() => {
@@ -349,18 +364,9 @@ export function LocalWizard() {
     if (mouseDown.current && !promptOpen && !dead && !sanctuary && pointerLocked.current) {
       const t = Date.now();
       if (t - lastMagicMissileAt.current > MAGIC_MISSILE.cooldownMs) {
-        const cd = camera.getWorldDirection(tmpCastDir.current).normalize();
-        const ox = center.current.x;
-        const oy = center.current.y + SHOULDER_OFFSET_Y;
-        const oz = center.current.z;
-        const origin: [number, number, number] = [ox, oy, oz];
-        const dir: [number, number, number] = [cd.x, cd.y, cd.z];
-        const targetPoint: [number, number, number] = [
-          ox + cd.x * CAST_TARGET_DISTANCE,
-          oy + cd.y * CAST_TARGET_DISTANCE,
-          oz + cd.z * CAST_TARGET_DISTANCE,
-        ];
-        if (castSpell(MAGIC_MISSILE, origin, dir, targetPoint)) lastMagicMissileAt.current = t;
+        const cast = buildCastGeometry();
+        console.debug("[CastTarget] mouse", { source: cast.targetSource, point: cast.targetPoint });
+        if (castSpell(MAGIC_MISSILE, cast.origin, cast.direction, cast.targetPoint)) lastMagicMissileAt.current = t;
       }
     }
   });
@@ -381,6 +387,80 @@ export function LocalWizard() {
       </group>
     </>
   );
+}
+
+function resolveAimTarget(
+  world: World,
+  rayOrigin: Vector3,
+  rayDirection: Vector3,
+  fallbackOrigin: Vector3,
+  ownerColliderHandle: number | null,
+): AimTarget {
+  const ray = new Ray(
+    { x: rayOrigin.x, y: rayOrigin.y, z: rayOrigin.z },
+    { x: rayDirection.x, y: rayDirection.y, z: rayDirection.z },
+  );
+  const hit = world.castRay(
+    ray,
+    CAST_TARGET_DISTANCE,
+    true,
+    undefined,
+    AIM_RAY_GROUPS,
+    undefined,
+    undefined,
+    ownerColliderHandle == null ? undefined : (collider) => collider.handle !== ownerColliderHandle,
+  );
+  if (hit) {
+    return {
+      source: "rapier-hit",
+      point: [
+        rayOrigin.x + rayDirection.x * hit.timeOfImpact,
+        rayOrigin.y + rayDirection.y * hit.timeOfImpact,
+        rayOrigin.z + rayDirection.z * hit.timeOfImpact,
+      ],
+    };
+  }
+
+  const terrainPoint = intersectTerrain(rayOrigin, rayDirection, CAST_TARGET_DISTANCE);
+  if (terrainPoint) return { source: "terrain-hit", point: terrainPoint };
+
+  const hx = rayDirection.x;
+  const hz = rayDirection.z;
+  const hLen = Math.hypot(hx, hz) || 1;
+  const x = fallbackOrigin.x + (hx / hLen) * 8;
+  const z = fallbackOrigin.z + (hz / hLen) * 8;
+  return { source: "front-fallback", point: [x, getGroundHeight(x, z) + 0.05, z] };
+}
+
+function intersectTerrain(origin: Vector3, direction: Vector3, maxDistance: number): Vec3 | null {
+  let prevDistance = 0;
+  let prevAbove = origin.y - getGroundHeight(origin.x, origin.z);
+  for (let step = 1; step <= TERRAIN_RAY_STEPS; step += 1) {
+    const distance = (step / TERRAIN_RAY_STEPS) * maxDistance;
+    const x = origin.x + direction.x * distance;
+    const y = origin.y + direction.y * distance;
+    const z = origin.z + direction.z * distance;
+    const above = y - getGroundHeight(x, z);
+    if (above <= 0 && prevAbove >= 0) {
+      let lo = prevDistance;
+      let hi = distance;
+      for (let i = 0; i < 10; i += 1) {
+        const mid = (lo + hi) * 0.5;
+        const mx = origin.x + direction.x * mid;
+        const my = origin.y + direction.y * mid;
+        const mz = origin.z + direction.z * mid;
+        if (my - getGroundHeight(mx, mz) > 0) lo = mid;
+        else hi = mid;
+      }
+      const hitDistance = hi;
+      const hitX = origin.x + direction.x * hitDistance;
+      const hitZ = origin.z + direction.z * hitDistance;
+      return [hitX, getGroundHeight(hitX, hitZ) + 0.05, hitZ];
+    }
+    prevDistance = distance;
+    prevAbove = above;
+  }
+  return null;
 }
 
 void LOCAL_PLAYER_ID;

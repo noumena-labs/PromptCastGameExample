@@ -55,6 +55,7 @@ function Projectile({ id }: { id: string }) {
         spellId={spell.id}
         spawnedAt={createdAt}
         lifetimeSeconds={Math.max(0.4, spell.durationMs / 1000)}
+        variant="cast"
       />
     </group>
   );
@@ -86,6 +87,7 @@ function AreaSpell({ areaId }: { areaId: string }) {
           spellId={area.spell.id}
           spawnedAt={area.createdAt}
           lifetimeSeconds={Math.max(0.6, (area.expiresAt - area.createdAt) / 1000)}
+          variant="impact"
         />
       </group>
       <Billboard position={[0, 0.18, 0]}>

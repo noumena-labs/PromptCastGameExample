@@ -7,6 +7,7 @@ import type { GeneratedSpell, SpellElement } from "@/game/types";
 export const spellElements = ["fire", "ice", "lightning", "earth", "arcane", "shadow", "nature"] as const;
 export const spellDeliveryFamilies = ["projectile", "beam", "sky", "self"] as const;
 export const spellImpacts = ["single", "aoe", "vortex", "wall", "trap", "burst", "none"] as const;
+export const spellPlacements = ["target", "front", "self"] as const;
 export const spellEffects = ["burn", "slow", "stun", "pull", "knockback", "shield_break", "poison"] as const;
 
 export const elementColors: Record<SpellElement, string> = {
@@ -29,6 +30,7 @@ export const conceptSchema = z.object({
   element: z.enum(spellElements).catch("arcane"),
   deliveryFamily: z.enum(spellDeliveryFamilies).catch("projectile"),
   impact: z.enum(spellImpacts).catch("single"),
+  placement: z.enum(spellPlacements).catch("target"),
   intent_summary: z.string().max(200).catch(""),
   cast_imagery: z.string().max(240).catch(""),
   impact_imagery: z.string().max(240).catch(""),
@@ -42,7 +44,7 @@ export type SpellConcept = z.infer<typeof conceptSchema>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const balanceSchema = z.object({
-  powerTier: z.coerce.number().int().min(1).max(5).catch(3),
+  powerTier: z.coerce.number().int().min(1).max(5),
 });
 export type SpellBalance = z.infer<typeof balanceSchema>;
 
@@ -99,7 +101,7 @@ export function composeSpell(input: ComposeInput): GeneratedSpell {
   const count = Math.max(1, Math.min(countCap, concept.count));
 
   const castScene = clampScene(applyEmissiveBoost(castForm, palette.emissiveBoost));
-  const impactScene = clampScene(applyEmissiveBoost(impactForm, palette.emissiveBoost));
+  const impactScene = clampScene(applyEmissiveBoost(impactForm, palette.emissiveBoost * 1.25));
 
   const color =
     palette.primary || castForm.color || impactForm.color || elementColors[concept.element];
@@ -112,6 +114,8 @@ export function composeSpell(input: ComposeInput): GeneratedSpell {
     element: concept.element,
     deliveryFamily: concept.deliveryFamily,
     impact: concept.impact,
+    placement: concept.placement,
+    powerTier: tier,
     count,
     damage: derived.damage,
     speed: derived.speed,
@@ -129,9 +133,9 @@ export function composeSpell(input: ComposeInput): GeneratedSpell {
 function impactDurationFor(impact: SpellConcept["impact"], spellDurationMs: number): number {
   switch (impact) {
     case "single":
-      return 800;
+      return 1200;
     case "burst":
-      return 1000;
+      return 1400;
     case "none":
       return 0;
     case "aoe":

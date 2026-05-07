@@ -74,7 +74,7 @@ function advanceStages(prev: StageProgress, nextStage: PipelineStage): StageProg
 // ─── Transcript model ────────────────────────────────────────────────────────
 
 type TranscriptSegment =
-  | { kind: "header"; stage: PipelineStage; attempt?: number; key: number }
+  | { kind: "header"; stage: PipelineStage; attempt?: number; retryReason?: string; key: number }
   | { kind: "tokens"; stage: PipelineStage; attempt: number; text: string; key: number };
 
 type ErrorDetails = {
@@ -280,6 +280,7 @@ export function PromptOverlay() {
                   kind: "header",
                   stage: progress.segmentStart.stage,
                   attempt: progress.segmentStart.attempt,
+                  retryReason: progress.segmentStart.retryReason,
                   key: k,
                 },
               ];
@@ -706,7 +707,7 @@ function SageStream({ transcript }: { transcript: TranscriptSegment[] }) {
           transcript.map((seg) => {
             if (seg.kind === "header") {
               const label = seg.attempt && seg.attempt > 1
-                ? `[${seg.stage} · retry ${seg.attempt}]`
+                ? `[${seg.stage} · retry ${seg.attempt}${seg.retryReason ? ` · ${seg.retryReason}` : ""}]`
                 : `[${seg.stage}]`;
               return (
                 <div key={seg.key} className="runeCardStreamHeader">
@@ -737,10 +738,10 @@ function SageStream({ transcript }: { transcript: TranscriptSegment[] }) {
 function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
   const composition =
     spell.deliveryFamily === "self"
-      ? `self · ${spell.impact}`
+      ? `self · ${spell.impact} · ${spell.placement}`
       : spell.count > 1
-        ? `${spell.count}× ${spell.deliveryFamily} · ${spell.impact}`
-        : `${spell.deliveryFamily} · ${spell.impact}`;
+        ? `${spell.count}× ${spell.deliveryFamily} · ${spell.impact} · ${spell.placement}`
+        : `${spell.deliveryFamily} · ${spell.impact} · ${spell.placement}`;
 
   return (
     <div className="runeCardSpell" style={{ borderColor: spell.color }}>
@@ -756,6 +757,7 @@ function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
 
       <dl className="runeCardSpellStats">
         <div><dt>Damage</dt><dd>{spell.damage}{spell.count > 1 ? ` × ${spell.count}` : ""}</dd></div>
+        <div><dt>Tier</dt><dd>{spell.powerTier}</dd></div>
         <div><dt>Speed</dt><dd>{spell.speed}</dd></div>
         <div><dt>Radius</dt><dd>{spell.radius.toFixed(1)}</dd></div>
         <div><dt>Duration</dt><dd>{(spell.durationMs / 1000).toFixed(1)}s</dd></div>
@@ -788,6 +790,8 @@ function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: Preview
       </div>
       <div className="runeCardErrorTechnical">
         <strong>Delivery:</strong> {spell.deliveryFamily} · <strong>Impact:</strong> {spell.impact}
+        {" · "}<strong>Placement:</strong> {spell.placement}
+        {" · "}<strong>Tier:</strong> {spell.powerTier}
         {" · "}<strong>Count:</strong> {spell.count}
         {" · "}<strong>Impact dur:</strong> {spell.impactDurationMs}ms
       </div>

@@ -13,9 +13,8 @@ import type { GeneratedSpell } from "@/game/types";
  *
  * Chains: concept → balance → form → palette → composeSpell. Each call is
  * grammar-constrained so failures are localised. The form call retries up to
- * 4 times internally; the balance call silently falls back to tier 3 on
- * failure (the player would never notice). All other stages surface a
- * SpellGenerationError on failure.
+ * its internal limit. During pre-release, stage failures surface loudly so we
+ * can fix prompts and schemas instead of hiding bad outputs.
  *
  * Token streaming: every stage's tokens flow up to `onProgress` as deltas,
  * coalesced via requestAnimationFrame so React re-renders cap at one per
@@ -27,14 +26,14 @@ export type PipelineStage = "concept" | "balance" | "form-cast" | "form-impact" 
 
 export type PipelineProgress = {
   stage: PipelineStage;
-  /** "thinking" while inside <think>; "writing" once JSON tokens emit. */
-  phase: "thinking" | "writing" | "done";
-  /** Cumulative reasoning text (only populated during the concept stage). */
+  /** "writing" while structured JSON streams, "done" when composed. */
+  phase: "writing" | "done";
+  /** Reserved for optional explanation text; currently empty for JSON-only calls. */
   reasoning: string;
   /** Newly emitted tokens since the last progress event. */
   tokenDelta: string;
   /** Set on stage start or form retry — UI uses this to insert a header. */
-  segmentStart?: { stage: PipelineStage; attempt?: number };
+  segmentStart?: { stage: PipelineStage; attempt?: number; retryReason?: string };
   /** Populated only during the form stages; null otherwise. */
   formAttempt?: FormAttempt;
   /** Snapshot of every completed stage's final raw buffer. */
@@ -45,8 +44,6 @@ export type PipelineResult = {
   spell: GeneratedSpell;
   reasoning: string;
 };
-
-const THINK_CLOSE = "</think>";
 
 export async function runSpellPipeline(opts: {
   engine: CogentEngine;
@@ -67,8 +64,8 @@ export async function runSpellPipeline(opts: {
 
   // ── Streaming infrastructure ────────────────────────────────────────────
   const outputs: Partial<Record<PipelineStage, string>> = {};
-  let conceptReasoning = "";
-  let conceptPhase: PipelineProgress["phase"] = "thinking";
+  const conceptReasoning = "";
+  const conceptPhase: PipelineProgress["phase"] = "writing";
   let currentStage: PipelineStage = "concept";
   let currentFormAttempt: FormAttempt | undefined;
   let pending = "";
@@ -101,7 +98,7 @@ export async function runSpellPipeline(opts: {
     }
   };
 
-  const emitSegmentStart = (stage: PipelineStage, attempt?: number) => {
+  const emitSegmentStart = (stage: PipelineStage, attempt?: number, retryReason?: string) => {
     // Always flush any pending tokens BEFORE emitting the segment header so
     // the UI gets strict chronological ordering.
     if (pending) flush();
@@ -112,10 +109,10 @@ export async function runSpellPipeline(opts: {
     }
     onProgress?.({
       stage,
-      phase: stage === "concept" ? "thinking" : "writing",
+      phase: "writing",
       reasoning: conceptReasoning,
       tokenDelta: "",
-      segmentStart: { stage, attempt },
+      segmentStart: { stage, attempt, retryReason },
       formAttempt: stage === "form-cast" || stage === "form-impact" ? currentFormAttempt : undefined,
       outputs: { ...outputs },
     });
@@ -130,12 +127,6 @@ export async function runSpellPipeline(opts: {
     signal,
     onToken: (token) => {
       conceptBuffer += token;
-      if (conceptPhase === "thinking" && conceptBuffer.includes(THINK_CLOSE)) {
-        conceptPhase = "writing";
-      }
-      const closeIdx = conceptBuffer.indexOf(THINK_CLOSE);
-      conceptReasoning =
-        closeIdx === -1 ? stripThinkOpen(conceptBuffer) : stripThinkOpen(conceptBuffer.slice(0, closeIdx));
       pending += token;
       scheduleFlush();
     },
@@ -145,53 +136,43 @@ export async function runSpellPipeline(opts: {
   if (pending) flush();
 
   // ── Balance ──────────────────────────────────────────────────────────────
-  // Balance failure is non-fatal; default to tier 3.
   currentStage = "balance";
   emitSegmentStart("balance");
   let balance: SpellBalance;
-  let balanceBuffer = "";
-  try {
-    const result = await runBalanceCall({
-      engine,
-      prompt: cleanPrompt,
-      concept: conceptResult.concept,
-      signal,
-      onToken: (token) => {
-        balanceBuffer += token;
-        pending += token;
-        scheduleFlush();
-      },
-    });
-    balance = result.balance;
-    outputs.balance = result.rawOutput;
-    if (pending) flush();
-  } catch (err) {
-    if ((err as Error).name === "AbortError") throw err;
-    spellLog.warn("balance", "balance call failed; defaulting to tier 3", {
-      cause: (err as Error).message,
-    });
-    outputs.balance = balanceBuffer || "(balance call failed; defaulted to tier 3)";
-    if (pending) flush();
-    balance = { powerTier: 3 };
-  }
+  const balanceResult = await runBalanceCall({
+    engine,
+    prompt: cleanPrompt,
+    concept: conceptResult.concept,
+    signal,
+    onToken: (token) => {
+      pending += token;
+      scheduleFlush();
+    },
+  });
+  balance = balanceResult.balance;
+  outputs.balance = balanceResult.rawOutput;
+  if (pending) flush();
 
   // ── Form (cast + impact) ─────────────────────────────────────────────────
   currentStage = "form-cast";
-  emitSegmentStart("form-cast", 1);
-  let lastFormStage: PipelineStage = "form-cast";
+  let lastFormStage: PipelineStage | undefined;
   const formResult = await runFormCall({
     engine,
     prompt: cleanPrompt,
     concept: conceptResult.concept,
     signal,
     onAttempt: (attempt) => {
-      currentFormAttempt = attempt;
       const stageId: PipelineStage = attempt.scene === "cast" ? "form-cast" : "form-impact";
       // Emit a fresh segment header on stage transition or on every retry.
       if (stageId !== lastFormStage || attempt.n > 1) {
+        if (pending) flush();
         currentStage = stageId;
         lastFormStage = stageId;
-        emitSegmentStart(stageId, attempt.n);
+        currentFormAttempt = attempt;
+        emitSegmentStart(stageId, attempt.n, attempt.retryReason);
+      } else {
+        currentStage = stageId;
+        currentFormAttempt = attempt;
       }
     },
     onToken: (token) => {
@@ -260,6 +241,8 @@ export async function runSpellPipeline(opts: {
     name: spell.name,
     deliveryFamily: spell.deliveryFamily,
     impact: spell.impact,
+    placement: spell.placement,
+    powerTier: spell.powerTier,
     manaCost: spell.manaCost,
     cooldownMs: spell.cooldownMs,
     impactDurationMs: spell.impactDurationMs,
@@ -267,9 +250,4 @@ export async function runSpellPipeline(opts: {
   });
 
   return { spell, reasoning: conceptResult.reasoning };
-}
-
-function stripThinkOpen(text: string): string {
-  const open = text.indexOf("<think>");
-  return (open === -1 ? text : text.slice(open + "<think>".length)).trim();
 }

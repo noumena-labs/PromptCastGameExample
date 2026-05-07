@@ -33,6 +33,7 @@ import type {
 import { projectileMotion } from "@/game/state/projectileMotion";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { rotateAroundY } from "@/game/math/vector";
+import { getGroundHeight } from "@/game/arena/terrain";
 
 const now = () => Date.now();
 
@@ -109,6 +110,25 @@ export type GameStore = {
 
 const moteRespawnDelay = () =>
   MANA_MOTE_RESPAWN_MIN_MS + Math.random() * (MANA_MOTE_RESPAWN_MAX_MS - MANA_MOTE_RESPAWN_MIN_MS);
+
+function resolvePlacementPoint(
+  spell: GeneratedSpell,
+  casterPosition: Vec3,
+  direction: Vec3,
+  targetPoint: Vec3,
+): Vec3 {
+  if (spell.placement === "self") {
+    return [casterPosition[0], casterPosition[1] + 0.05, casterPosition[2]];
+  }
+  if (spell.placement === "front") {
+    const len = Math.hypot(direction[0], direction[2]) || 1;
+    const distance = Math.max(3, Math.min(8, spell.radius * 1.4 + 2));
+    const x = casterPosition[0] + (direction[0] / len) * distance;
+    const z = casterPosition[2] + (direction[2] / len) * distance;
+    return [x, getGroundHeight(x, z) + 0.05, z];
+  }
+  return targetPoint;
+}
 
 export const useGameStore = create<GameStore>((set, get) => ({
   mode: "solo",
@@ -395,19 +415,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
       : {};
 
     const baseId = `${spell.id}-${timestamp}-${Math.random().toString(16).slice(2)}`;
-    const expiresAt = timestamp + spell.durationMs;
+    const resolvedPoint = resolvePlacementPoint(spell, player.position, direction, targetPoint);
+    console.debug("[CastPlacement]", {
+      spell: spell.name,
+      deliveryFamily: spell.deliveryFamily,
+      impact: spell.impact,
+      placement: spell.placement,
+      targetPoint,
+      resolvedPoint,
+    });
     // Resolve the caster's Rapier collider handle once per cast. Used by the
     // projectile raycast to exclude the wizard's own capsule so the projectile
     // doesn't self-collide on spawn.
     const ownerColliderHandle = colliderRegistry.findWizardHandle(ownerId);
 
-    // SELF: AOE/wall/burst centered on caster.
-    if (spell.deliveryFamily === "self") {
+    // SELF / FRONT: defensive and caster-centered spells resolve immediately
+    // as impact areas instead of travelling projectiles.
+    if (spell.placement === "self" || spell.placement === "front" || spell.deliveryFamily === "self") {
       // Normalize the cast direction so the renderer can orient walls/beams
       // perpendicular to the player's aim. Self-cast walls face whichever
       // way the caster was looking when they triggered the spell.
       const dirLen = Math.hypot(direction[0], direction[1], direction[2]) || 1;
       const forward: Vec3 = [direction[0] / dirLen, direction[1] / dirLen, direction[2] / dirLen];
+      const areaDurationMs = spell.impactDurationMs > 0 ? spell.impactDurationMs : spell.durationMs;
+      const isLingering = spell.impact === "aoe" || spell.impact === "vortex" || spell.impact === "wall" || spell.impact === "trap";
+      const areaRadius = isLingering ? spell.radius : Math.max(0.7, spell.radius * 1.4);
       set({
         ...networkUpdate,
         players: { ...state.players, [ownerId]: nextPlayer },
@@ -416,11 +448,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
           {
             id: baseId,
             ownerId,
-            spell,
-            position: [player.position[0], player.position[1] + 0.05, player.position[2]],
+            spell: { ...spell, durationMs: areaDurationMs, radius: areaRadius },
+            position: resolvedPoint,
             forward,
             createdAt: timestamp,
-            expiresAt,
+            expiresAt: timestamp + areaDurationMs,
             tickedAt: {},
           },
         ],
@@ -432,15 +464,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (spell.deliveryFamily === "sky") {
       const newMotions: string[] = [];
       const skyHeight = 28;
+      const skyTravelMs = Math.ceil((skyHeight / Math.max(1, spell.speed)) * 1000) + 500;
       for (let i = 0; i < spell.count; i += 1) {
         const angle = Math.random() * Math.PI * 2;
         const radius = i === 0 ? 0 : Math.random() * Math.max(1.5, spell.radius);
-        const tx = targetPoint[0] + Math.cos(angle) * radius;
-        const tz = targetPoint[2] + Math.sin(angle) * radius;
+        const tx = resolvedPoint[0] + Math.cos(angle) * radius;
+        const tz = resolvedPoint[2] + Math.sin(angle) * radius;
+        const ty = getGroundHeight(tx, tz) + 0.05;
         const id = `${baseId}-${i}`;
-        const motionPosition: Vec3 = [tx, skyHeight, tz];
-        // Slight random delay by staggering creation: stagger via a very small per-meteor offset
-        // is achieved by reducing the per-projectile expiresAt and offsetting position in Y.
+        const meteorTarget: Vec3 = [tx, ty, tz];
+        const motionPosition: Vec3 = [tx, ty + skyHeight, tz];
         projectileMotion.register({
           id,
           ownerId,
@@ -448,8 +481,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
           spell,
           position: motionPosition,
           direction: [0, -1, 0],
+          targetPoint: meteorTarget,
           createdAt: timestamp + i * 90,
-          expiresAt: expiresAt + i * 90,
+          expiresAt: timestamp + i * 90 + Math.max(spell.durationMs, skyTravelMs),
         });
         newMotions.push(id);
       }
@@ -465,10 +499,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const newMotions: string[] = [];
     const fanDeg = spell.count > 1 ? 6 : 0;
     const baseDir = direction;
+    const targetDistance = Math.max(1, Math.hypot(
+      resolvedPoint[0] - origin[0],
+      resolvedPoint[1] - origin[1],
+      resolvedPoint[2] - origin[2],
+    ));
+    const travelExpiresAt = timestamp + Math.max(
+      spell.durationMs,
+      Math.ceil((targetDistance / Math.max(1, spell.speed)) * 1000) + 500,
+    );
     for (let i = 0; i < spell.count; i += 1) {
       const offsetDeg = spell.count === 1 ? 0 : (i - (spell.count - 1) / 2) * fanDeg;
       const dir = rotateAroundY(baseDir, (offsetDeg * Math.PI) / 180);
       const id = `${baseId}-${i}`;
+      const projectileTarget: Vec3 = [
+        origin[0] + dir[0] * targetDistance,
+        origin[1] + dir[1] * targetDistance,
+        origin[2] + dir[2] * targetDistance,
+      ];
       projectileMotion.register({
         id,
         ownerId,
@@ -476,8 +524,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         spell,
         position: [origin[0], origin[1], origin[2]],
         direction: dir,
+        targetPoint: projectileTarget,
         createdAt: timestamp,
-        expiresAt,
+        expiresAt: travelExpiresAt,
       });
       newMotions.push(id);
     }

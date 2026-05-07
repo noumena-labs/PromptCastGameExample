@@ -1,8 +1,8 @@
 /**
  * Structured logger + ring buffer for the spell generation pipeline.
  *
- * The Sage was failing silently — `JSON.parse` exceptions and missing `</think>`
- * tags were swallowed and surfaced as opaque "spoke in tongues" errors. Every
+ * The Sage was failing silently — `JSON.parse` exceptions and malformed JSON
+ * tails were swallowed and surfaced as opaque "spoke in tongues" errors. Every
  * stage of the pipeline now writes through this module so:
  *   1. Failures include the raw model output (mirrored to localStorage so it
  *      survives a refresh).
