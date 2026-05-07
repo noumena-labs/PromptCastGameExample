@@ -32,7 +32,7 @@ const GRAVITY = -22;
 const MOUSE_SENSITIVITY = 0.0024;
 
 const CAM_DISTANCE = 8.5;
-const CAM_HEIGHT = 3.6;
+const CAM_HEIGHT = 4.6;
 const PITCH_MIN = -0.85;
 const PITCH_MAX = 0.55;
 
@@ -338,7 +338,7 @@ export function LocalWizard() {
       CAM_HEIGHT - Math.sin(pitch.current) * CAM_DISTANCE,
       Math.cos(yaw.current) * Math.cos(pitch.current) * CAM_DISTANCE,
     );
-    const camTarget = tmpLook.current.set(center.current.x, center.current.y + 0.5, center.current.z);
+    const camTarget = tmpLook.current.set(center.current.x, center.current.y + 1.8, center.current.z);
     camera.position.set(camTarget.x + camOffset.x, camTarget.y + camOffset.y, camTarget.z + camOffset.z);
     camera.lookAt(camTarget);
 
