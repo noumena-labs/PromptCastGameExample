@@ -10,6 +10,7 @@ import { useShallow } from "zustand/react/shallow";
 import { LOCAL_PLAYER_ID } from "@/game/config/gameConfig";
 import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
+import { WIZARD_GROUPS } from "@/game/physics/collisionGroups";
 import { WizardModel } from "@/components/game/scene/WizardModel";
 
 const CAPSULE_HALF_HEIGHT = 0.5;
@@ -78,7 +79,7 @@ function RemoteWizard({ id }: { id: string }) {
         position={[player.position[0], player.position[1] + CAPSULE_FOOT_OFFSET, player.position[2]]}
         enabledRotations={[false, false, false]}
       >
-        <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} />
+        <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} collisionGroups={WIZARD_GROUPS} />
       </RigidBody>
       <group ref={visualRef} position={player.position} rotation-y={player.rotationY}>
         <WizardModel color={player.color} shielded={player.isShielded} />

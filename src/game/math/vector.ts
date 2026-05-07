@@ -15,3 +15,13 @@ export function normalizeVec3(value: Vec3): Vec3 {
   const length = Math.hypot(value[0], value[1], value[2]) || 1;
   return [value[0] / length, value[1] / length, value[2] / length];
 }
+
+export function subVec3(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+export function rotateAroundY(v: Vec3, radians: number): Vec3 {
+  const c = Math.cos(radians);
+  const s = Math.sin(radians);
+  return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c];
+}

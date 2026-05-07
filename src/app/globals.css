@@ -453,8 +453,8 @@ h1, h2, h3 {
 
 .hud button,
 .hud a,
-.promptOverlay,
-.promptOverlay * {
+.runeOverlay,
+.runeOverlay * {
   pointer-events: auto;
 }
 
@@ -520,51 +520,51 @@ h1, h2, h3 {
   background: rgba(255, 250, 230, 0.45);
 }
 
-/* Crosshair: rune cross */
-.crosshair {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 22px;
-  height: 22px;
-  transform: translate(-50%, -50%);
+/* Crosshair removed: world-space Reticle is rendered in the R3F scene. */
+
+/* ============================================================
+   RETICLE HUD — screen-space crosshair
+   ============================================================
+   Anchored to the wizard's actual line of fire (shoulder raycast hit),
+   not the screen center, so it's accurate under the third-person orbit
+   camera. Position is mutated each frame by ReticleHUD via rAF; the wrapper
+   itself is just a fixed-position layer that ignores pointer events.
+*/
+
+.reticleHud {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
   pointer-events: none;
+  /* The children use translate3d for placement, so this layer just hosts. */
 }
 
-.crosshair::before,
-.crosshair::after {
-  content: "";
+.reticleHudRing,
+.reticleHudDot {
   position: absolute;
-  background: rgba(243, 230, 196, 0.85);
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
-}
-
-.crosshair::before {
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1.5px;
-  transform: translateY(-50%);
-}
-
-.crosshair::after {
-  left: 50%;
   top: 0;
-  bottom: 0;
-  width: 1.5px;
-  transform: translateX(-50%);
+  left: 0;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+  transition: opacity 80ms linear;
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.55));
 }
 
-.crosshairDot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 3px;
-  height: 3px;
-  background: var(--gold-light);
+.reticleHudRing {
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--parchment-light);
   border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 6px rgba(184, 138, 44, 0.9);
+  background: transparent;
+}
+
+.reticleHudDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--parchment-light);
+  box-shadow: 0 0 6px rgba(255, 240, 200, 0.65);
 }
 
 /* Medallion panels */
@@ -850,285 +850,6 @@ h1, h2, h3 {
 }
 
 /* ============================================================
-   PROMPT OVERLAY — OPEN SPELLBOOK
-   ============================================================ */
-
-.promptOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background:
-    radial-gradient(circle at center, rgba(20, 12, 6, 0.5), rgba(10, 6, 3, 0.92));
-  backdrop-filter: blur(6px);
-}
-
-.spellbook {
-  position: relative;
-  width: min(880px, 100%);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  background:
-    radial-gradient(ellipse at 30% 20%, rgba(255, 235, 180, 0.5), transparent 55%),
-    radial-gradient(ellipse at 70% 80%, rgba(170, 120, 50, 0.18), transparent 60%),
-    linear-gradient(135deg, var(--parchment-light) 0%, var(--parchment) 60%, var(--parchment-dark) 100%);
-  color: var(--ink);
-  border: 3px double var(--gold);
-  border-radius: 4px;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
-}
-
-.spellbook::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 2px;
-  background: linear-gradient(180deg, transparent, rgba(122, 80, 30, 0.55), transparent);
-  transform: translateX(-50%);
-}
-
-.spellbookPage {
-  padding: 36px 32px;
-  position: relative;
-}
-
-.spellbookEyebrow {
-  font-family: var(--font-flavor);
-  font-style: italic;
-  font-size: 0.95rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--crimson);
-}
-
-.spellbookTitle {
-  font-family: var(--font-display);
-  font-size: clamp(1.8rem, 4vw, 2.6rem);
-  letter-spacing: 0.06em;
-  color: var(--ink);
-  margin: 8px 0 14px;
-}
-
-.spellbookCopy {
-  font-family: var(--font-flavor);
-  font-style: italic;
-  font-size: 1.05rem;
-  line-height: 1.6;
-  color: var(--ink-soft);
-}
-
-.spellbookPage label {
-  display: block;
-  margin: 18px 0 6px;
-  font-family: var(--font-display);
-  font-size: 0.74rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--crimson-deep);
-}
-
-.spellbookPage textarea {
-  width: 100%;
-  min-height: 120px;
-  padding: 14px 16px;
-  font-family: var(--font-flavor);
-  font-size: 1.1rem;
-  line-height: 1.5;
-  color: var(--ink);
-  background: rgba(255, 245, 215, 0.7);
-  border: 1px solid var(--gold);
-  border-radius: 3px;
-  outline: none;
-  resize: vertical;
-  box-shadow: inset 0 2px 6px rgba(122, 80, 30, 0.18);
-}
-
-.slotPicker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.slotPicker button {
-  padding: 6px 14px;
-  font-family: var(--font-display);
-  font-size: 0.74rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink);
-  background: rgba(255, 245, 215, 0.6);
-  border: 1px solid var(--gold);
-  border-radius: 999px;
-}
-
-.slotPicker button.selected {
-  color: var(--parchment-light);
-  background: linear-gradient(135deg, var(--crimson), var(--crimson-deep));
-  border-color: var(--gold-light);
-}
-
-.examples {
-  display: grid;
-  gap: 6px;
-  margin-top: 14px;
-}
-
-.examples button {
-  padding: 8px 12px;
-  font-family: var(--font-flavor);
-  font-style: italic;
-  font-size: 0.95rem;
-  text-align: left;
-  color: var(--ink);
-  background: transparent;
-  border: 1px dashed rgba(184, 138, 44, 0.5);
-  border-radius: 3px;
-}
-
-.examples button:hover {
-  background: rgba(255, 245, 215, 0.6);
-}
-
-.promptError {
-  margin-top: 14px;
-  padding: 8px 12px;
-  font-family: var(--font-flavor);
-  color: var(--parchment-light);
-  background: var(--crimson-deep);
-  border-radius: 3px;
-}
-
-.promptActions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 22px;
-}
-
-.promptFootnote {
-  display: block;
-  margin-top: 14px;
-  font-family: var(--font-flavor);
-  font-style: italic;
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-}
-
-.promptFootnote code {
-  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
-  font-size: 0.78rem;
-  padding: 1px 5px;
-  background: rgba(122, 80, 30, 0.12);
-  border: 1px solid rgba(184, 138, 44, 0.4);
-  border-radius: 2px;
-}
-
-/* Spell preview card on the right page */
-.spellPreview {
-  margin-top: 8px;
-  padding: 16px 18px;
-  border: 2px solid var(--gold);
-  border-radius: 4px;
-  background:
-    radial-gradient(ellipse at 30% 20%, rgba(255, 235, 180, 0.55), transparent 55%),
-    linear-gradient(135deg, rgba(255, 245, 215, 0.85), rgba(216, 195, 147, 0.85));
-  box-shadow: inset 0 0 30px rgba(122, 80, 30, 0.18), 0 6px 18px rgba(0, 0, 0, 0.25);
-}
-
-.spellPreviewHead {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-family: var(--font-display);
-  font-size: 0.82rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--crimson-deep);
-}
-
-.spellPreviewHead strong {
-  font-weight: 900;
-  color: var(--crimson-deep);
-}
-
-.spellPreviewHead span {
-  color: var(--ink-soft);
-  font-weight: 400;
-  letter-spacing: 0.1em;
-}
-
-.spellPreviewSource {
-  margin-left: auto;
-  font-family: var(--font-flavor);
-  font-style: italic;
-  font-size: 0.78rem;
-  color: var(--ink-soft);
-  letter-spacing: 0.1em;
-}
-
-.spellSwatch {
-  display: inline-block;
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--gold);
-  border-radius: 50%;
-  box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.4), 0 0 8px currentColor;
-}
-
-.spellStats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px 14px;
-  margin: 14px 0 0;
-  padding: 10px 0 0;
-  border-top: 1px dashed rgba(184, 138, 44, 0.5);
-}
-
-.spellStats > div {
-  display: flex;
-  flex-direction: column;
-}
-
-.spellStats dt {
-  font-family: var(--font-display);
-  font-size: 0.66rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-}
-
-.spellStats dd {
-  margin: 2px 0 0;
-  font-family: var(--font-flavor);
-  font-size: 1.05rem;
-  color: var(--ink);
-}
-
-.spellEffects {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-.spellEffects span {
-  padding: 3px 10px;
-  font-family: var(--font-display);
-  font-size: 0.7rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--parchment-light);
-  background: linear-gradient(135deg, var(--crimson), var(--crimson-deep));
-  border: 1px solid var(--gold);
-  border-radius: 999px;
-}
-
-/* ============================================================
    RESPONSIVE
    ============================================================ */
 
@@ -1139,14 +860,6 @@ h1, h2, h3 {
 
   .tome {
     padding: 32px 20px;
-  }
-
-  .spellbook {
-    grid-template-columns: 1fr;
-  }
-
-  .spellbook::before {
-    display: none;
   }
 
   .topBar {
@@ -1162,3 +875,690 @@ h1, h2, h3 {
     display: none;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Model Loader splash
+   ───────────────────────────────────────────────────────────────────────── */
+
+.modelLoader {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(184, 138, 44, 0.22), transparent 55%),
+    radial-gradient(circle at 50% 75%, rgba(122, 31, 31, 0.18), transparent 60%),
+    linear-gradient(135deg, #2a1a0c 0%, #1a0f06 60%, #0e0804 100%);
+  color: var(--parchment);
+  text-align: center;
+}
+
+.modelLoaderRune {
+  position: relative;
+  width: 160px;
+  height: 160px;
+}
+
+.modelLoaderRuneOuter,
+.modelLoaderRuneInner {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(224, 189, 94, 0.4);
+}
+
+.modelLoaderRuneOuter {
+  border-top-color: var(--gold-light);
+  border-right-color: var(--gold-light);
+  animation: rune-spin 4.6s linear infinite;
+  box-shadow: 0 0 24px rgba(224, 189, 94, 0.18) inset;
+}
+
+.modelLoaderRuneInner {
+  inset: 22px;
+  border: 1px dashed rgba(224, 189, 94, 0.5);
+  border-bottom-color: var(--crimson);
+  animation: rune-spin 6.2s linear infinite reverse;
+}
+
+.modelLoaderSpark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--gold-light) 0%, rgba(224, 189, 94, 0) 70%);
+  animation: rune-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes rune-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes rune-pulse {
+  0%, 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(0.85); }
+  50%      { opacity: 1;    transform: translate(-50%, -50%) scale(1.4); }
+}
+
+.modelLoaderTitle {
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  margin: 0;
+  letter-spacing: 0.18em;
+  color: var(--parchment-light);
+  text-shadow: 0 0 14px rgba(224, 189, 94, 0.35);
+}
+
+.modelLoaderMessage {
+  font-family: var(--font-flavor);
+  font-size: 1.1rem;
+  color: var(--gold-light);
+  margin: 0;
+}
+
+.modelLoaderDetail {
+  max-width: 480px;
+  margin: 0;
+  font-size: 0.92rem;
+  color: rgba(243, 230, 196, 0.7);
+}
+
+.modelLoaderError {
+  color: #f0a8a8;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Sanctuary rune card (single-step spell inscription)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.runeOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.85));
+  backdrop-filter: blur(2px);
+}
+
+.runeCard {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 28px 32px 32px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 30% 0%, rgba(255, 232, 180, 0.22), transparent 60%),
+    linear-gradient(180deg, var(--parchment-light) 0%, var(--parchment) 60%, var(--parchment-dark) 100%);
+  color: var(--ink);
+  border: 1px solid rgba(184, 138, 44, 0.6);
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(184, 138, 44, 0.25),
+    0 0 28px rgba(184, 138, 44, 0.2) inset;
+  font-family: var(--font-body);
+}
+
+.runeCardClose {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  background: transparent;
+  color: var(--ink-soft);
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  border-radius: 50%;
+  line-height: 1;
+}
+
+.runeCardClose:hover {
+  background: rgba(184, 138, 44, 0.18);
+  color: var(--crimson);
+}
+
+.runeCardHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding-right: 36px;
+}
+
+.runeCardEyebrow {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+}
+
+.runeCardTitle {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  color: var(--crimson-deep);
+  margin: 0;
+}
+
+.runeCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.runeCardBody label {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+.runeCardBody textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(184, 138, 44, 0.5);
+  background: rgba(255, 250, 230, 0.65);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.runeCardBody textarea:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(184, 138, 44, 0.25);
+}
+
+.runeCardSlotPicker {
+  display: flex;
+  gap: 8px;
+}
+
+.runeCardSlotPicker button {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: 6px;
+  border: 1px solid rgba(184, 138, 44, 0.5);
+  background: rgba(255, 250, 230, 0.5);
+  color: var(--ink);
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+}
+
+.runeCardSlotPicker button:hover:not(:disabled) {
+  background: rgba(184, 138, 44, 0.18);
+}
+
+.runeCardSlotPicker button.selected {
+  background: var(--crimson);
+  color: var(--parchment-light);
+  border-color: var(--crimson-deep);
+  box-shadow: 0 0 12px rgba(122, 31, 31, 0.45);
+}
+
+.runeCardExamples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.runeCardExamples button {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  background: rgba(255, 250, 230, 0.45);
+  color: var(--ink-soft);
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.88rem;
+}
+
+.runeCardExamples button:hover:not(:disabled) {
+  background: rgba(184, 138, 44, 0.18);
+  color: var(--crimson-deep);
+}
+
+.runeCardReasoning {
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 250, 230, 0.55);
+}
+
+.runeCardReasoningLabel {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  color: var(--crimson);
+  margin-bottom: 4px;
+}
+
+.runeCardReasoningText {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.98rem;
+  color: var(--ink);
+  min-height: 1.6em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.runeCardCursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--crimson);
+  animation: rune-cursor 0.9s steps(2, start) infinite;
+}
+
+@keyframes rune-cursor {
+  to { opacity: 0; }
+}
+
+.runeCardError {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(122, 31, 31, 0.15);
+  color: var(--crimson-deep);
+  font-family: var(--font-flavor);
+  font-style: italic;
+}
+
+.runeCardInscribe {
+  align-self: flex-end;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--crimson-deep);
+  background: linear-gradient(180deg, var(--crimson) 0%, var(--crimson-deep) 100%);
+  color: var(--parchment-light);
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.94rem;
+  box-shadow: 0 4px 14px rgba(77, 16, 16, 0.4);
+}
+
+.runeCardInscribe:hover:not(:disabled) {
+  background: linear-gradient(180deg, #8e2828 0%, #5a1414 100%);
+}
+
+.runeCardSpell {
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 250, 230, 0.6);
+}
+
+.runeCardSpellHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.runeCardSpellHead strong {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  color: var(--crimson-deep);
+}
+
+.runeCardSpellHead span {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--ink-soft);
+  margin-left: 4px;
+}
+
+.runeCardSpellSwatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.35) inset;
+}
+
+.runeCardSpellPrompt {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+}
+
+.runeCardSpellStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px 12px;
+  margin: 0 0 8px;
+}
+
+.runeCardSpellStats > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.runeCardSpellStats dt {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.runeCardSpellStats dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.runeCardSpellEffects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.runeCardSpellEffects span {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(122, 31, 31, 0.15);
+  color: var(--crimson-deep);
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.84rem;
+  text-transform: capitalize;
+}
+
+.runeCardBindingHint {
+  text-align: center;
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--crimson);
+  letter-spacing: 0.04em;
+}
+
+.runeCardBoundHint {
+  text-align: center;
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Model loader progress bar
+   ───────────────────────────────────────────────────────────────────────── */
+
+.modelLoaderBar {
+  position: relative;
+  width: min(440px, 90vw);
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(15, 8, 4, 0.55);
+  border: 1px solid rgba(224, 189, 94, 0.35);
+  box-shadow: 0 0 18px rgba(224, 189, 94, 0.12) inset;
+  overflow: hidden;
+}
+
+.modelLoaderBarFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #b88a2c 0%, #e0bd5e 60%, #fff0bf 100%);
+  box-shadow: 0 0 18px rgba(255, 224, 150, 0.55);
+  transition: width 250ms ease-out;
+}
+
+.modelLoaderBarShimmer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 240, 191, 0) 0%,
+    rgba(255, 240, 191, 0.45) 50%,
+    rgba(255, 240, 191, 0) 100%
+  );
+  background-size: 200% 100%;
+  background-position: 200% 0;
+  opacity: 0;
+}
+
+.modelLoaderBar[data-indeterminate="true"] .modelLoaderBarShimmer {
+  opacity: 1;
+  animation: model-loader-shimmer 1.6s linear infinite;
+}
+
+@keyframes model-loader-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.modelLoaderBarLabel {
+  margin: 0;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-size: 0.92rem;
+  color: var(--gold-light);
+  text-shadow: 0 0 10px rgba(224, 189, 94, 0.35);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Aura-shield timer + crack overlay (compose phase)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.runeCardTimer {
+  position: absolute;
+  top: 12px;
+  right: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(15, 8, 4, 0.08);
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  line-height: 1;
+  transition: color 200ms ease, border-color 200ms ease, background 200ms ease;
+}
+
+.runeCardTimerLabel {
+  font-size: 0.62rem;
+  color: var(--ink-soft);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.runeCardTimerValue {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.runeCardTimer[data-state="warning"] {
+  color: #8a4a14;
+  border-color: rgba(170, 80, 30, 0.7);
+  background: rgba(170, 80, 30, 0.08);
+}
+
+.runeCardTimer[data-state="warning"] .runeCardTimerValue {
+  color: #b85a1c;
+}
+
+.runeCardTimer[data-state="critical"] {
+  color: var(--crimson-deep);
+  border-color: var(--crimson-deep);
+  background: rgba(122, 31, 31, 0.18);
+  animation: rune-timer-pulse 0.85s ease-in-out infinite;
+}
+
+.runeCardTimer[data-state="critical"] .runeCardTimerValue {
+  color: var(--crimson-deep);
+}
+
+@keyframes rune-timer-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(122, 31, 31, 0); }
+  50%      { box-shadow: 0 0 16px rgba(122, 31, 31, 0.55); }
+}
+
+/* Drive border-color and box-shadow toward crimson as the shield decays. */
+.runeCard {
+  --shieldDecay: 0;
+  /* Border: gold (low decay) → amber → crimson (high decay). */
+  border-color: rgba(
+    calc(184 + (122 - 184) * var(--shieldDecay)),
+    calc(138 + (31 - 138) * var(--shieldDecay)),
+    calc(44 + (31 - 44) * var(--shieldDecay)),
+    calc(0.6 + 0.3 * var(--shieldDecay))
+  );
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(184, 138, 44, calc(0.25 - 0.15 * var(--shieldDecay))),
+    0 0 calc(28px + 36px * var(--shieldDecay))
+      rgba(
+        calc(184 + (122 - 184) * var(--shieldDecay)),
+        calc(138 + (31 - 138) * var(--shieldDecay)),
+        calc(44 + (31 - 44) * var(--shieldDecay)),
+        calc(0.2 + 0.45 * var(--shieldDecay))
+      ) inset;
+}
+
+.runeCardCrackOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 14px;
+  opacity: var(--shieldDecay);
+  /* Layered crimson cracks: thin jagged lines built from linear gradients. */
+  background:
+    linear-gradient(118deg, transparent 47%, rgba(122, 31, 31, 0.55) 47.6%, transparent 48.2%),
+    linear-gradient(72deg,  transparent 31%, rgba(122, 31, 31, 0.45) 31.4%, transparent 32%),
+    linear-gradient(155deg, transparent 64%, rgba(122, 31, 31, 0.35) 64.5%, transparent 65%),
+    linear-gradient(94deg,  transparent 12%, rgba(122, 31, 31, 0.4)  12.3%, transparent 12.7%),
+    radial-gradient(circle at 80% 20%, rgba(122, 31, 31, 0.25), transparent 30%);
+  mix-blend-mode: multiply;
+  transition: opacity 200ms ease-out;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Shatter VFX
+   ───────────────────────────────────────────────────────────────────────── */
+
+.runeCardShatter {
+  --shieldDecay: 1;
+  animation: rune-card-shatter 800ms ease-out forwards;
+}
+
+.runeCardShatter .runeCardCrackOverlay {
+  animation: rune-card-shatter-cracks 800ms ease-out forwards;
+}
+
+.runeCardShatterMessage {
+  text-align: center;
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--crimson-deep);
+  font-size: 1.05rem;
+  padding: 12px 0;
+}
+
+@keyframes rune-card-shatter {
+  0%   { transform: translate(0, 0) scale(1);    opacity: 1; }
+  20%  { transform: translate(-3px, 1px) scale(1.01); }
+  40%  { transform: translate(4px, -2px) scale(1.02); }
+  60%  { transform: translate(-2px, 3px) scale(1.01); }
+  80%  { transform: translate(1px, -1px) scale(1);    opacity: 0.85; }
+  100% { transform: translate(0, 6px) scale(0.98);    opacity: 0; }
+}
+
+@keyframes rune-card-shatter-cracks {
+  0%   { opacity: 1; }
+  60%  { opacity: 1; filter: drop-shadow(0 0 12px rgba(122, 31, 31, 0.65)); }
+  100% { opacity: 0.4; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Thinking-phase indicator + error actions
+   ───────────────────────────────────────────────────────────────────────── */
+
+.runeCardThinkingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--crimson-deep);
+}
+
+.runeCardThinkingDots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.runeCardThinkingDots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--crimson);
+  opacity: 0.4;
+  animation: rune-thinking-dot 1.2s ease-in-out infinite;
+}
+
+.runeCardThinkingDots span:nth-child(2) { animation-delay: 0.18s; }
+.runeCardThinkingDots span:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes rune-thinking-dot {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50%      { opacity: 1;   transform: translateY(-3px); }
+}
+
+.runeCardThinkingElapsed {
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.runeCardErrorActions {
+  display: flex;
+  gap: 10px;
+  align-self: flex-end;
+}
+
+.runeCardDismiss {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(184, 138, 44, 0.6);
+  background: rgba(255, 250, 230, 0.6);
+  color: var(--ink);
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-size: 0.92rem;
+}
+
+.runeCardDismiss:hover {
+  background: rgba(184, 138, 44, 0.18);
+}
+
+

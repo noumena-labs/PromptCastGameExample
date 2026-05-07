@@ -5,6 +5,7 @@ import { Color, InstancedMesh, Matrix4, Object3D } from "three";
 import { CylinderCollider, RigidBody } from "@react-three/rapier";
 import { ARENA_RADIUS, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
 import { scatterPositions } from "@/game/arena/terrain";
+import { ENVIRONMENT_GROUPS } from "@/game/physics/collisionGroups";
 
 const trunkColor = new Color("#3b2a1c");
 const oakLeaf = new Color("#3f6b3a");
@@ -58,7 +59,7 @@ function TreeColliders({ trees }: { trees: Tree[] }) {
             colliders={false}
             position={[tree.x, tree.y + halfHeight, tree.z]}
           >
-            <CylinderCollider args={[halfHeight, radius]} />
+            <CylinderCollider args={[halfHeight, radius]} collisionGroups={ENVIRONMENT_GROUPS} />
           </RigidBody>
         );
       })}

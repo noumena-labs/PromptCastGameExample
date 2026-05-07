@@ -7,11 +7,14 @@ import type { RapierRigidBody } from "@react-three/rapier";
 import { useEffect, useRef } from "react";
 import { Group, MathUtils, Vector3 } from "three";
 import type { KinematicCharacterController } from "@dimforge/rapier3d-compat";
+import { Ray } from "@dimforge/rapier3d-compat";
 import { LOCAL_PLAYER_ID, MAGIC_MISSILE, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
 import { getGroundHeight } from "@/game/arena/terrain";
-import { normalizeVec3, toVec3 } from "@/game/math/vector";
+import { toVec3 } from "@/game/math/vector";
 import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
+import { reticleTarget } from "@/game/state/reticleTarget";
+import { AIM_RAY_GROUPS, WIZARD_GROUPS } from "@/game/physics/collisionGroups";
 import { WizardModel } from "@/components/game/scene/WizardModel";
 
 type ControlName = "forward" | "backward" | "left" | "right" | "jump";
@@ -35,6 +38,23 @@ const PITCH_MAX = 0.55;
 
 const SPAWN_X = 0;
 const SPAWN_Z = 18;
+
+// Aim/cast geometry. The reticle and projectile both originate at the
+// wizard's shoulder, but the *direction* they fly is derived from a camera-
+// center "look-at" raycast — NOT from the camera's forward axis directly.
+// This decouples aim from camera framing so the reticle hovers over the world
+// point the player is looking at instead of disappearing behind the wizard's
+// silhouette in the third-person orbit camera.
+const SHOULDER_OFFSET_Y = 0.6; // above capsule center, ~chest height
+const AIM_MAX_DISTANCE = 80;
+const AIM_FALLBACK_DISTANCE = 60;
+// Camera-center look-at cast: how far to probe down the player's screen-center
+// ray to discover what they're looking at.
+const LOOKAT_MAX_DISTANCE = 200;
+// Clamp so close-range hits don't invert the shoulder→lookAt direction.
+const LOOKAT_MIN_DISTANCE = 5;
+// Used when the camera-center ray hits nothing (sky / open air).
+const LOOKAT_FALLBACK_DISTANCE = 80;
 
 export function LocalWizard() {
   const visualGroup = useRef<Group>(null);
@@ -72,8 +92,11 @@ export function LocalWizard() {
   const tmpMove = useRef(new Vector3());
   const tmpCamOffset = useRef(new Vector3());
   const tmpLook = useRef(new Vector3());
-  const tmpCastDir = useRef(new Vector3());
-  const tmpOrigin = useRef(new Vector3());
+  const tmpAimDir = useRef(new Vector3());
+  const tmpCamDir = useRef(new Vector3());
+  const tmpLookAt = useRef(new Vector3());
+  const aimRay = useRef(new Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }));
+  const lookRay = useRef(new Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }));
 
   // Pointer lock + mouse handlers.
   useEffect(() => {
@@ -132,17 +155,24 @@ export function LocalWizard() {
       if (event.repeat) return;
       if (promptOpen) return;
 
-      const camDir = computeCastDirection(yaw.current, pitch.current, tmpCastDir.current);
-      const origin: [number, number, number] = [center.current.x, center.current.y - 0.4 + 1.55, center.current.z];
-      const dir: [number, number, number] = [camDir.x, camDir.y, camDir.z];
-
       if (event.code === "KeyE") {
         if (!enterSanctuary()) addLog("Collect 3 Aura Crystals before entering Sanctuary.");
+        return;
       }
-      if (event.code === "Digit1") castSlot(0, origin, dir);
-      if (event.code === "Digit2") castSlot(1, origin, dir);
-      if (event.code === "Digit3") castSlot(2, origin, dir);
-      if (event.code === "Digit4") castSlot(3, origin, dir);
+
+      // Cast paths read the shared aim state (shoulder origin + aim ray hit
+      // point). Updated each frame in useFrame below.
+      const o = reticleTarget.origin;
+      const d = reticleTarget.direction;
+      const tp = reticleTarget.hitPoint;
+      const origin: [number, number, number] = [o[0], o[1], o[2]];
+      const dir: [number, number, number] = [d[0], d[1], d[2]];
+      const targetPoint: [number, number, number] = [tp[0], tp[1], tp[2]];
+
+      if (event.code === "Digit1") castSlot(0, origin, dir, targetPoint);
+      if (event.code === "Digit2") castSlot(1, origin, dir, targetPoint);
+      if (event.code === "Digit3") castSlot(2, origin, dir, targetPoint);
+      if (event.code === "Digit4") castSlot(3, origin, dir, targetPoint);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -320,19 +350,117 @@ export function LocalWizard() {
       toVec3(velocity.current.x, velocity.current.y, velocity.current.z),
     );
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Aim raycasts (TPS over-the-shoulder pattern, two-ray decoupled aim).
+    //
+    // Cast 1 — "look-at" ray from the CAMERA along its forward axis. This
+    //   is where the player's screen center is pointing at in the world.
+    // Cast 2 — "aim" ray from the WIZARD'S SHOULDER toward that world point.
+    //   This is the projectile's actual flight path; its endpoint is what
+    //   the reticle visualizes.
+    //
+    // Why two rays: with the orbit camera sitting above-and-behind the
+    // wizard, a single ray from the shoulder along camera-forward passes
+    // through the wizard's body and the reticle gets stuck on the wizard's
+    // silhouette. Decoupling the rays lets the reticle hover over whatever
+    // the camera is centered on while the projectile honestly originates
+    // from the wizard's body.
+    // ──────────────────────────────────────────────────────────────────────
+    const ownHandle = colliderHandleRef.current;
+    const camDir = camera.getWorldDirection(tmpCamDir.current);
+
+    // Cast 1: camera-center → world.
+    lookRay.current.origin.x = camera.position.x;
+    lookRay.current.origin.y = camera.position.y;
+    lookRay.current.origin.z = camera.position.z;
+    lookRay.current.dir.x = camDir.x;
+    lookRay.current.dir.y = camDir.y;
+    lookRay.current.dir.z = camDir.z;
+
+    const lookHit = world.castRay(
+      lookRay.current,
+      LOOKAT_MAX_DISTANCE,
+      true,
+      undefined,
+      AIM_RAY_GROUPS,
+      undefined,
+      undefined,
+      ownHandle == null ? undefined : (collider) => collider.handle !== ownHandle,
+    );
+    const lookDistance = lookHit
+      ? Math.max(LOOKAT_MIN_DISTANCE, lookHit.timeOfImpact)
+      : LOOKAT_FALLBACK_DISTANCE;
+    tmpLookAt.current.set(
+      camera.position.x + camDir.x * lookDistance,
+      camera.position.y + camDir.y * lookDistance,
+      camera.position.z + camDir.z * lookDistance,
+    );
+
+    // Cast 2: shoulder → look-at point. This direction is the projectile's
+    // true flight vector and is what the reticle's hit-point visualizes.
+    const shoulderX = center.current.x;
+    const shoulderY = center.current.y + SHOULDER_OFFSET_Y;
+    const shoulderZ = center.current.z;
+    const aimDir = tmpAimDir.current.set(
+      tmpLookAt.current.x - shoulderX,
+      tmpLookAt.current.y - shoulderY,
+      tmpLookAt.current.z - shoulderZ,
+    ).normalize();
+
+    aimRay.current.origin.x = shoulderX;
+    aimRay.current.origin.y = shoulderY;
+    aimRay.current.origin.z = shoulderZ;
+    aimRay.current.dir.x = aimDir.x;
+    aimRay.current.dir.y = aimDir.y;
+    aimRay.current.dir.z = aimDir.z;
+
+    const aimHit = world.castRay(
+      aimRay.current,
+      AIM_MAX_DISTANCE,
+      true,
+      undefined,
+      AIM_RAY_GROUPS,
+      undefined,
+      undefined,
+      ownHandle == null ? undefined : (collider) => collider.handle !== ownHandle,
+    );
+    const aimDistance = aimHit && aimHit.timeOfImpact > 0.05 ? aimHit.timeOfImpact : AIM_FALLBACK_DISTANCE;
+    const hitX = shoulderX + aimDir.x * aimDistance;
+    const hitY = shoulderY + aimDir.y * aimDistance;
+    const hitZ = shoulderZ + aimDir.z * aimDistance;
+
+    reticleTarget.origin[0] = shoulderX;
+    reticleTarget.origin[1] = shoulderY;
+    reticleTarget.origin[2] = shoulderZ;
+    reticleTarget.direction[0] = aimDir.x;
+    reticleTarget.direction[1] = aimDir.y;
+    reticleTarget.direction[2] = aimDir.z;
+    reticleTarget.hitPoint[0] = hitX;
+    reticleTarget.hitPoint[1] = hitY;
+    reticleTarget.hitPoint[2] = hitZ;
+    reticleTarget.hasHit = aimHit != null;
+    reticleTarget.ready = true;
+
     // Click-to-cast Magic Missile.
     if (mouseDown.current && !promptOpen && !dead && !sanctuary && pointerLocked.current) {
       const t = Date.now();
       if (t - lastMagicMissileAt.current > MAGIC_MISSILE.cooldownMs) {
-        const camDir = computeCastDirection(yaw.current, pitch.current, tmpCastDir.current);
-        const originVec = tmpOrigin.current.set(
-          center.current.x + camDir.x * 0.8,
-          center.current.y + 0.2,
-          center.current.z + camDir.z * 0.8,
-        );
-        const origin: [number, number, number] = [originVec.x, originVec.y, originVec.z];
-        const dir = normalizeVec3([camDir.x, camDir.y, camDir.z]);
-        if (castSpell(MAGIC_MISSILE, origin, dir)) lastMagicMissileAt.current = t;
+        const origin: [number, number, number] = [
+          reticleTarget.origin[0],
+          reticleTarget.origin[1],
+          reticleTarget.origin[2],
+        ];
+        const dir: [number, number, number] = [
+          reticleTarget.direction[0],
+          reticleTarget.direction[1],
+          reticleTarget.direction[2],
+        ];
+        const targetPoint: [number, number, number] = [
+          reticleTarget.hitPoint[0],
+          reticleTarget.hitPoint[1],
+          reticleTarget.hitPoint[2],
+        ];
+        if (castSpell(MAGIC_MISSILE, origin, dir, targetPoint)) lastMagicMissileAt.current = t;
       }
     }
   });
@@ -346,22 +474,13 @@ export function LocalWizard() {
         position={[center.current.x, center.current.y, center.current.z]}
         enabledRotations={[false, false, false]}
       >
-        <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} />
+        <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} collisionGroups={WIZARD_GROUPS} />
       </RigidBody>
       <group ref={visualGroup}>
         <WizardModel color={player?.color ?? "#74f7d0"} shielded={player?.isShielded} />
       </group>
     </>
   );
-}
-
-function computeCastDirection(yawValue: number, pitchValue: number, target: Vector3) {
-  target.set(
-    -Math.sin(yawValue) * Math.cos(pitchValue),
-    Math.sin(pitchValue),
-    -Math.cos(yawValue) * Math.cos(pitchValue),
-  );
-  return target.normalize();
 }
 
 void LOCAL_PLAYER_ID;

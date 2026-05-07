@@ -6,23 +6,25 @@ import { useRef } from "react";
 import { useGameStore } from "@/game/state/gameStore";
 import { vec3Distance, vec3DistanceSq } from "@/game/math/vector";
 import type { AreaSpellState, GeneratedSpell, Vec3 } from "@/game/types";
-import type { Ray, World } from "@dimforge/rapier3d-compat";
+import type { World } from "@dimforge/rapier3d-compat";
+import { Ray } from "@dimforge/rapier3d-compat";
 import { projectileMotion, type ProjectileMotion } from "@/game/state/projectileMotion";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
+import { AIM_RAY_GROUPS } from "@/game/physics/collisionGroups";
 
 // Module-scope reusable ray to avoid per-projectile-per-frame allocations.
 let sharedRay: Ray | null = null;
 
 export function GameplaySystems() {
   const accumulator = useRef(0);
-  const { world, rapier } = useRapier();
+  const { world } = useRapier();
 
   useFrame((_, delta) => {
     const state = useGameStore.getState();
     accumulator.current += delta;
 
     // Per-frame: motion, pickups (must be tight to avoid missing at sprint speed).
-    advanceProjectiles(delta, world, rapier);
+    advanceProjectiles(delta, world);
     collectNearbyAuraCrystals();
     collectNearbyManaMotes();
 
@@ -66,7 +68,7 @@ function collectNearbyManaMotes() {
   }
 }
 
-function advanceProjectiles(delta: number, world: World, rapier: typeof import("@dimforge/rapier3d-compat")) {
+function advanceProjectiles(delta: number, world: World) {
   const state = useGameStore.getState();
   if (state.projectileIds.length === 0) return;
 
@@ -97,7 +99,7 @@ function advanceProjectiles(delta: number, world: World, rapier: typeof import("
     // Rapier raycast against the physics world (trees, shrine, dummies, wizards).
     // direction is unit, so timeOfImpact = world distance.
     if (!sharedRay) {
-      sharedRay = new rapier.Ray(
+      sharedRay = new Ray(
         { x: 0, y: 0, z: 0 },
         { x: 0, y: 0, z: 1 },
       );
@@ -109,7 +111,18 @@ function advanceProjectiles(delta: number, world: World, rapier: typeof import("
     sharedRay.dir.y = motion.direction[1];
     sharedRay.dir.z = motion.direction[2];
 
-    const hit = world.castRay(sharedRay, stepDistance, true);
+    const hit = world.castRay(
+      sharedRay,
+      stepDistance,
+      true,
+      undefined,
+      AIM_RAY_GROUPS,
+      undefined,
+      undefined,
+      motion.ownerColliderHandle == null
+        ? undefined
+        : (collider) => collider.handle !== motion.ownerColliderHandle,
+    );
     if (hit) {
       const impact: Vec3 = [
         motion.position[0] + motion.direction[0] * hit.timeOfImpact,
@@ -156,15 +169,21 @@ function spawnBurst(
   reason: "hit" | "expire",
 ) {
   const timestamp = Date.now();
-  const durationMs = reason === "hit" ? 380 : 260;
-  const radius = Math.max(0.7, spell.radius * 1.4);
+  const isLingering = spell.impact === "aoe" || spell.impact === "vortex" || spell.impact === "wall" || spell.impact === "trap";
+  // Single-target spells leave only a small visual flash on impact. Lingering
+  // impacts spawn a real area that ticks damage for the spell's duration.
+  const durationMs = isLingering ? spell.durationMs : reason === "hit" ? 380 : 260;
+  const radius = isLingering ? spell.radius : Math.max(0.7, spell.radius * 1.4);
+  // Skip pure single-target "expire" bursts (they hit nothing) so we don't
+  // litter the meadow with empty rings.
+  if (!isLingering && reason === "expire") return;
   useGameStore.setState((state) => ({
     areas: [
       ...state.areas,
       {
         id: `${projectileId}-${reason}`,
         ownerId,
-        spell: { ...spell, shape: "burst", durationMs, radius },
+        spell: { ...spell, durationMs, radius },
         position,
         createdAt: timestamp,
         expiresAt: timestamp + durationMs,
@@ -181,8 +200,10 @@ function resolveAreas() {
 
   for (const area of state.areas) {
     if (area.expiresAt <= timestamp) continue;
-    const tickWindow = area.spell.shape === "burst" ? area.spell.durationMs : 650;
-    const tickDamage = area.spell.shape === "burst" ? area.spell.damage : Math.max(4, Math.round(area.spell.damage * 0.28));
+    const isLingering = area.spell.impact === "aoe" || area.spell.impact === "vortex" || area.spell.impact === "wall" || area.spell.impact === "trap";
+    // Single bursts: full damage once. Lingering AOE: 28% damage every 650ms.
+    const tickWindow = isLingering ? 650 : area.spell.durationMs;
+    const tickDamage = isLingering ? Math.max(4, Math.round(area.spell.damage * 0.28)) : area.spell.damage;
     const tickedAt = { ...area.tickedAt };
 
     for (const dummy of state.dummyTargets) {

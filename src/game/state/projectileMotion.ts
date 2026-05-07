@@ -8,6 +8,13 @@ import type { GeneratedSpell, Vec3 } from "@/game/types";
 export type ProjectileMotion = {
   id: string;
   ownerId: string;
+  /**
+   * Rapier collider handle of the wizard who cast this projectile, used to
+   * exclude the caster from the per-step raycast so projectiles don't self-
+   * collide at spawn. `null` when the caster has no registered collider yet
+   * (e.g. remote wizard not mounted) — the raycast simply skips owner-filter.
+   */
+  ownerColliderHandle: number | null;
   spell: GeneratedSpell;
   position: Vec3;
   direction: Vec3;

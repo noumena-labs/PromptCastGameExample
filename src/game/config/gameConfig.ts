@@ -3,7 +3,7 @@ import { scatterPositions } from "@/game/arena/terrain";
 
 export const LOCAL_PLAYER_ID = "local-player";
 export const AURA_THRESHOLD = 3;
-export const SANCTUARY_DURATION_MS = 15000;
+export const SANCTUARY_DURATION_MS = 120000;
 export const PLAYER_MAX_HEALTH = 100;
 export const PLAYER_MAX_MANA = 100;
 /** Mana now comes from collecting motes; passive regen is disabled. */
@@ -22,7 +22,9 @@ export const MAGIC_MISSILE: GeneratedSpell = {
   name: "Magic Missile",
   prompt: "A reliable arcane bolt for steady pressure.",
   element: "arcane",
-  shape: "projectile",
+  delivery: "projectile",
+  impact: "single",
+  count: 1,
   damage: 15,
   speed: 32,
   radius: 0.42,

@@ -6,7 +6,9 @@ import { Physics } from "@react-three/rapier";
 import { Suspense } from "react";
 import { ArenaScene } from "@/components/game/scene/ArenaScene";
 import { GameHud } from "@/components/game/ui/GameHud";
+import { ModelLoader } from "@/components/game/ui/ModelLoader";
 import { PromptOverlay } from "@/components/game/ui/PromptOverlay";
+import { ReticleHUD } from "@/components/game/ui/ReticleHUD";
 import { NetworkBridge } from "@/components/game/networking/NetworkBridge";
 
 const controls = [
@@ -19,19 +21,22 @@ const controls = [
 
 export function PromptCastCanvas() {
   return (
-    <main className="gameShell">
-      <KeyboardControls map={controls}>
-        <Canvas shadows camera={{ position: [0, 9, 28], fov: 60 }} dpr={[1, 1.6]}>
-          <Suspense fallback={null}>
-            <Physics gravity={[0, -22, 0]} timeStep="vary" colliders={false}>
-              <ArenaScene />
-            </Physics>
-          </Suspense>
-        </Canvas>
-      </KeyboardControls>
-      <NetworkBridge />
-      <GameHud />
-      <PromptOverlay />
-    </main>
+    <ModelLoader>
+      <main className="gameShell">
+        <KeyboardControls map={controls}>
+          <Canvas shadows camera={{ position: [0, 9, 28], fov: 60 }} dpr={[1, 1.6]}>
+            <Suspense fallback={null}>
+              <Physics gravity={[0, -22, 0]} timeStep="vary" colliders={false}>
+                <ArenaScene />
+              </Physics>
+            </Suspense>
+          </Canvas>
+        </KeyboardControls>
+        <NetworkBridge />
+        <ReticleHUD />
+        <GameHud />
+        <PromptOverlay />
+      </main>
+    </ModelLoader>
   );
 }

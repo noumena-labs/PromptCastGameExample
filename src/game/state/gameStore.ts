@@ -31,6 +31,8 @@ import type {
   Vec3,
 } from "@/game/types";
 import { projectileMotion } from "@/game/state/projectileMotion";
+import { colliderRegistry } from "@/game/state/colliderRegistry";
+import { rotateAroundY } from "@/game/math/vector";
 
 const now = () => Date.now();
 
@@ -66,7 +68,6 @@ export type GameStore = {
   promptOpen: boolean;
   selectedSlot: number;
   sanctuaryEndsAt: number | null;
-  lastGenerationSource: "cogentlm" | "fallback" | null;
   networkSequence: number;
   lastLocalCast: SequencedCastPayload | null;
   lastCrystalCollect: SequencedCrystalPayload | null;
@@ -91,9 +92,9 @@ export type GameStore = {
   enterSanctuary: () => boolean;
   exitSanctuary: () => void;
   setSelectedSlot: (slot: number) => void;
-  saveGeneratedSpell: (spell: GeneratedSpell, source: "cogentlm" | "fallback") => void;
-  castSpell: (spell: GeneratedSpell, origin: Vec3, direction: Vec3, ownerId?: string) => boolean;
-  castSlot: (slot: number, origin: Vec3, direction: Vec3) => boolean;
+  saveGeneratedSpell: (spell: GeneratedSpell) => void;
+  castSpell: (spell: GeneratedSpell, origin: Vec3, direction: Vec3, targetPoint: Vec3, ownerId?: string) => boolean;
+  castSlot: (slot: number, origin: Vec3, direction: Vec3, targetPoint: Vec3) => boolean;
   tickCooldowns: () => void;
   removeProjectile: (projectileId: string) => void;
   damageDummy: (dummyId: string, amount: number, ownerId: string) => void;
@@ -120,7 +121,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
   promptOpen: false,
   selectedSlot: 0,
   sanctuaryEndsAt: null,
-  lastGenerationSource: null,
   networkSequence: 0,
   lastLocalCast: null,
   lastCrystalCollect: null,
@@ -334,7 +334,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setSelectedSlot: (selectedSlot) => set({ selectedSlot: Math.max(0, Math.min(3, selectedSlot)) }),
 
-  saveGeneratedSpell: (spell, source) =>
+  saveGeneratedSpell: (spell) =>
     set((state) => {
       const player = state.players[state.localPlayerId];
       if (!player) return state;
@@ -343,16 +343,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return {
         promptOpen: false,
         sanctuaryEndsAt: null,
-        lastGenerationSource: source,
         players: {
           ...state.players,
           [player.id]: { ...player, status: "alive", isShielded: false, spellSlots: slots },
         },
-        log: [`Bound ${spell.name} to runestone ${state.selectedSlot + 1} (${source}).`, ...state.log].slice(0, 5),
+        log: [`Bound ${spell.name} to runestone ${state.selectedSlot + 1}.`, ...state.log].slice(0, 5),
       };
     }),
 
-  castSpell: (spell, origin, direction, ownerId = get().localPlayerId) => {
+  castSpell: (spell, origin, direction, targetPoint, ownerId = get().localPlayerId) => {
     const state = get();
     const player = state.players[ownerId];
     const timestamp = now();
@@ -363,55 +362,108 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const cooldowns = ownerId === state.localPlayerId ? { ...player.cooldowns, [spell.id]: timestamp + spell.cooldownMs } : player.cooldowns;
     const nextPlayer = ownerId === state.localPlayerId ? { ...player, mana: Math.max(0, player.mana - spell.manaCost), cooldowns } : player;
-    const common = {
-      id: `${spell.id}-${timestamp}-${Math.random().toString(16).slice(2)}`,
-      ownerId,
-      spell,
-      position: origin,
-      createdAt: timestamp,
-      expiresAt: timestamp + spell.durationMs,
-    };
 
-    if (spell.shape === "aoe" || spell.shape === "vortex" || spell.shape === "burst" || spell.shape === "wall" || spell.shape === "trap") {
-      const sequence = ownerId === state.localPlayerId ? state.networkSequence + 1 : state.networkSequence;
-      const localNetworkUpdate =
-        ownerId === state.localPlayerId ? { networkSequence: sequence, lastLocalCast: { sequence, playerId: ownerId, spell, origin, direction } } : {};
+    const isLocal = ownerId === state.localPlayerId;
+    const sequence = isLocal ? state.networkSequence + 1 : state.networkSequence;
+    const networkUpdate = isLocal
+      ? { networkSequence: sequence, lastLocalCast: { sequence, playerId: ownerId, spell, origin, direction, targetPoint } }
+      : {};
 
+    const baseId = `${spell.id}-${timestamp}-${Math.random().toString(16).slice(2)}`;
+    const expiresAt = timestamp + spell.durationMs;
+    // Resolve the caster's Rapier collider handle once per cast. Used by the
+    // projectile raycast to exclude the wizard's own capsule so the projectile
+    // doesn't self-collide on spawn.
+    const ownerColliderHandle = colliderRegistry.findWizardHandle(ownerId);
+
+    // SELF: AOE/wall/burst centered on caster.
+    if (spell.delivery === "self") {
       set({
-        ...localNetworkUpdate,
+        ...networkUpdate,
         players: { ...state.players, [ownerId]: nextPlayer },
-        areas: [...state.areas, { ...common, tickedAt: {} }],
+        areas: [
+          ...state.areas,
+          {
+            id: baseId,
+            ownerId,
+            spell,
+            position: [player.position[0], player.position[1] + 0.05, player.position[2]],
+            createdAt: timestamp,
+            expiresAt,
+            tickedAt: {},
+          },
+        ],
       });
       return true;
     }
 
-    const sequence = ownerId === state.localPlayerId ? state.networkSequence + 1 : state.networkSequence;
-    const localNetworkUpdate =
-      ownerId === state.localPlayerId ? { networkSequence: sequence, lastLocalCast: { sequence, playerId: ownerId, spell, origin, direction } } : {};
+    // SKY: spawn N projectiles falling from above the targetPoint.
+    if (spell.delivery === "sky") {
+      const newMotions: string[] = [];
+      const skyHeight = 28;
+      for (let i = 0; i < spell.count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = i === 0 ? 0 : Math.random() * Math.max(1.5, spell.radius);
+        const tx = targetPoint[0] + Math.cos(angle) * radius;
+        const tz = targetPoint[2] + Math.sin(angle) * radius;
+        const id = `${baseId}-${i}`;
+        const motionPosition: Vec3 = [tx, skyHeight, tz];
+        // Slight random delay by staggering creation: stagger via a very small per-meteor offset
+        // is achieved by reducing the per-projectile expiresAt and offsetting position in Y.
+        projectileMotion.register({
+          id,
+          ownerId,
+          ownerColliderHandle,
+          spell,
+          position: motionPosition,
+          direction: [0, -1, 0],
+          createdAt: timestamp + i * 90,
+          expiresAt: expiresAt + i * 90,
+        });
+        newMotions.push(id);
+      }
+      set({
+        ...networkUpdate,
+        players: { ...state.players, [ownerId]: nextPlayer },
+        projectileIds: [...state.projectileIds, ...newMotions],
+      });
+      return true;
+    }
 
-    projectileMotion.register({
-      id: common.id,
-      ownerId,
-      spell,
-      position: origin,
-      direction,
-      createdAt: timestamp,
-      expiresAt: common.expiresAt,
-    });
+    // PROJECTILE / BEAM: 1+ projectiles fanned from origin toward targetPoint.
+    const newMotions: string[] = [];
+    const fanDeg = spell.count > 1 ? 6 : 0;
+    const baseDir = direction;
+    for (let i = 0; i < spell.count; i += 1) {
+      const offsetDeg = spell.count === 1 ? 0 : (i - (spell.count - 1) / 2) * fanDeg;
+      const dir = rotateAroundY(baseDir, (offsetDeg * Math.PI) / 180);
+      const id = `${baseId}-${i}`;
+      projectileMotion.register({
+        id,
+        ownerId,
+        ownerColliderHandle,
+        spell,
+        position: [origin[0], origin[1], origin[2]],
+        direction: dir,
+        createdAt: timestamp,
+        expiresAt,
+      });
+      newMotions.push(id);
+    }
 
     set({
-      ...localNetworkUpdate,
+      ...networkUpdate,
       players: { ...state.players, [ownerId]: nextPlayer },
-      projectileIds: [...state.projectileIds, common.id],
+      projectileIds: [...state.projectileIds, ...newMotions],
     });
     return true;
   },
 
-  castSlot: (slot, origin, direction) => {
+  castSlot: (slot, origin, direction, targetPoint) => {
     const player = get().players[get().localPlayerId];
     const spell = player?.spellSlots[slot];
     if (!spell) return false;
-    return get().castSpell(spell, origin, direction);
+    return get().castSpell(spell, origin, direction, targetPoint);
   },
 
   tickCooldowns: () => set((state) => ({ players: { ...state.players } })),

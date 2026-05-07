@@ -10,6 +10,7 @@ import { GameplaySystems } from "@/components/game/systems/GameplaySystems";
 import { LocalWizard } from "@/components/game/scene/LocalWizard";
 import { Meadow } from "@/components/game/scene/Meadow";
 import { RemoteWizards } from "@/components/game/scene/RemoteWizards";
+import { Reticle } from "@/components/game/scene/Reticle";
 import { Shrine } from "@/components/game/scene/Shrine";
 import { SpellEntities } from "@/components/game/scene/SpellEntities";
 import { Trees } from "@/components/game/scene/Trees";
@@ -57,6 +58,7 @@ export function ArenaScene() {
       <SpellEntities />
       <RemoteWizards />
       <LocalWizard />
+      <Reticle />
       <GameplaySystems />
       <ShaderPrewarm />
     </>

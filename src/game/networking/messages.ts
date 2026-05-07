@@ -30,6 +30,7 @@ export type PlayerCastSpellMessage = {
   spell: GeneratedSpell;
   origin: Vec3;
   direction: Vec3;
+  targetPoint: Vec3;
   timestamp: number;
 };
 

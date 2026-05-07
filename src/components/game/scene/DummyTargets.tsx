@@ -9,6 +9,7 @@ import type { Mesh } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
+import { DUMMY_GROUPS } from "@/game/physics/collisionGroups";
 
 export function DummyTargets() {
   const targetIds = useGameStore(useShallow((state) => state.dummyTargets.map((t) => t.id)));
@@ -61,7 +62,7 @@ function Dummy({ id }: { id: string }) {
           <cylinderGeometry args={[0.65, 0.8, 0.25, 7]} />
           <meshStandardMaterial color="#2c1b1b" roughness={0.9} />
         </mesh>
-        {active ? <BallCollider args={[1.05]} /> : null}
+        {active ? <BallCollider args={[1.05]} collisionGroups={DUMMY_GROUPS} /> : null}
       </RigidBody>
       <Billboard position={[target.position[0], target.position[1] + 1.45, target.position[2]]}>
         <mesh position={[0, 0, 0]}>

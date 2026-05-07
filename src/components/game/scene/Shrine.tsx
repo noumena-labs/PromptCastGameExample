@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Euler } from "three";
 import { CuboidCollider, CylinderCollider, RigidBody } from "@react-three/rapier";
 import { getGroundHeight } from "@/game/arena/terrain";
+import { ENVIRONMENT_GROUPS } from "@/game/physics/collisionGroups";
 
 const stoneColor = "#8a8273";
 const stoneShadow = "#5e574b";
@@ -82,7 +83,7 @@ export function Shrine() {
           <cylinderGeometry args={[2.2, 2.2, 0.02, 16]} />
           <meshStandardMaterial color={mossColor} roughness={1} />
         </mesh>
-        <CylinderCollider args={[0.45, 4.6]} position={[0, 0.45, 0]} />
+        <CylinderCollider args={[0.45, 4.6]} position={[0, 0.45, 0]} collisionGroups={ENVIRONMENT_GROUPS} />
       </RigidBody>
 
       {/* Standing stones — each is its own RigidBody, mesh + collider at local origin. */}
@@ -98,7 +99,7 @@ export function Shrine() {
             <boxGeometry args={[0.9, stone.height, 0.6]} />
             <meshStandardMaterial color={stoneColor} roughness={0.95} />
           </mesh>
-          <CuboidCollider args={[0.45, stone.height / 2, 0.3]} />
+          <CuboidCollider args={[0.45, stone.height / 2, 0.3]} collisionGroups={ENVIRONMENT_GROUPS} />
         </RigidBody>
       ))}
 
@@ -108,7 +109,7 @@ export function Shrine() {
           <boxGeometry args={[0.8, 4.4, 0.8]} />
           <meshStandardMaterial color={stoneShadow} roughness={0.95} />
         </mesh>
-        <CuboidCollider args={[0.4, 2.2, 0.4]} />
+        <CuboidCollider args={[0.4, 2.2, 0.4]} collisionGroups={ENVIRONMENT_GROUPS} />
       </RigidBody>
       <RigidBody
         type="fixed"
@@ -120,7 +121,7 @@ export function Shrine() {
           <boxGeometry args={[0.8, 4.0, 0.8]} />
           <meshStandardMaterial color={stoneShadow} roughness={0.95} />
         </mesh>
-        <CuboidCollider args={[0.4, 2.0, 0.4]} />
+        <CuboidCollider args={[0.4, 2.0, 0.4]} collisionGroups={ENVIRONMENT_GROUPS} />
       </RigidBody>
       <RigidBody
         type="fixed"
@@ -132,7 +133,7 @@ export function Shrine() {
           <boxGeometry args={[3.6, 0.6, 0.9]} />
           <meshStandardMaterial color={stoneColor} roughness={0.95} />
         </mesh>
-        <CuboidCollider args={[1.8, 0.3, 0.45]} />
+        <CuboidCollider args={[1.8, 0.3, 0.45]} collisionGroups={ENVIRONMENT_GROUPS} />
       </RigidBody>
 
       {/* Rubble — visual only (low and walkable). */}
@@ -160,7 +161,7 @@ export function Shrine() {
           <boxGeometry args={[1.2, 5.4, 1.2]} />
           <meshStandardMaterial color={stoneColor} roughness={0.95} />
         </mesh>
-        <CuboidCollider args={[0.6, 2.7, 0.6]} />
+        <CuboidCollider args={[0.6, 2.7, 0.6]} collisionGroups={ENVIRONMENT_GROUPS} />
       </RigidBody>
     </group>
   );

@@ -22,7 +22,6 @@ export function GameHud() {
   const roomCode = useGameStore((state) => state.roomCode);
   const mode = useGameStore((state) => state.mode);
   const sanctuaryEndsAt = useGameStore((state) => state.sanctuaryEndsAt);
-  const lastGenerationSource = useGameStore((state) => state.lastGenerationSource);
   const resetMatch = useGameStore((state) => state.resetMatch);
   const health = player ? Math.max(0, player.health / PLAYER_MAX_HEALTH) : 0;
   const mana = player ? Math.max(0, player.mana / PLAYER_MAX_MANA) : 0;
@@ -57,10 +56,6 @@ export function GameHud() {
         <Link href="/">Lobby</Link>
       </div>
 
-      <div className="crosshair">
-        <div className="crosshairDot" />
-      </div>
-
       <div className="leftPanel">
         <div className="panelHeader">~ Vitals ~</div>
         <div className="meterLabel">
@@ -83,7 +78,6 @@ export function GameHud() {
         </div>
         <div className="hint">
           Click to lock the camera. WASD to move, Space to leap, Left Click to loose Magic Missile, E to enter Sanctuary (3 Aura Crystals), I-IV to wield bound spells.
-          {lastGenerationSource ? <><br /><em>Last inscription: {lastGenerationSource}.</em></> : null}
         </div>
       </div>
 

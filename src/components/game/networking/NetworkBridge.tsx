@@ -41,6 +41,7 @@ export function NetworkBridge() {
           spell: state.lastLocalCast.spell,
           origin: state.lastLocalCast.origin,
           direction: state.lastLocalCast.direction,
+          targetPoint: state.lastLocalCast.targetPoint,
           timestamp,
         });
       }
@@ -102,7 +103,7 @@ function handleMessage(message: NetworkMessage) {
 
   if (message.type === "player_cast_spell") {
     if (message.playerId === state.localPlayerId) return;
-    state.castSpell(message.spell, message.origin, message.direction, message.playerId);
+    state.castSpell(message.spell, message.origin, message.direction, message.targetPoint, message.playerId);
     return;
   }
 

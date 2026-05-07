@@ -2,7 +2,21 @@ export type Vec3 = [number, number, number];
 
 export type SpellElement = "fire" | "ice" | "lightning" | "earth" | "arcane" | "shadow" | "nature";
 
-export type SpellShape = "projectile" | "beam" | "aoe" | "vortex" | "wall" | "trap" | "burst";
+/**
+ * High-level composition of a spell:
+ *  - delivery: how the spell reaches its target.
+ *  - impact: what happens at the destination.
+ *  - count: number of projectiles / impact points (e.g. meteor shower = 6).
+ *
+ * Examples:
+ *   bolt           → { delivery: "projectile", impact: "single", count: 1 }
+ *   meteor shower  → { delivery: "sky",        impact: "aoe",    count: 6 }
+ *   frost nova     → { delivery: "self",       impact: "burst",  count: 1 }
+ *   black hole     → { delivery: "projectile", impact: "vortex", count: 1 }
+ *   fire wall      → { delivery: "self",       impact: "wall",   count: 1 }
+ */
+export type SpellDelivery = "projectile" | "beam" | "sky" | "self";
+export type SpellImpact = "single" | "aoe" | "vortex" | "wall" | "trap" | "burst" | "none";
 
 export type SpellEffect = "burn" | "slow" | "stun" | "pull" | "knockback" | "shield_break" | "poison";
 
@@ -10,8 +24,11 @@ export type GeneratedSpell = {
   id: string;
   name: string;
   prompt: string;
+  reasoning?: string;
   element: SpellElement;
-  shape: SpellShape;
+  delivery: SpellDelivery;
+  impact: SpellImpact;
+  count: number;
   damage: number;
   speed: number;
   radius: number;
@@ -99,6 +116,7 @@ export type CastPayload = {
   spell: GeneratedSpell;
   origin: Vec3;
   direction: Vec3;
+  targetPoint: Vec3;
 };
 
 export type SequencedCastPayload = CastPayload & {
