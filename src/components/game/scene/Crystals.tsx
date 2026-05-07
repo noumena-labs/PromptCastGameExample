@@ -1,14 +1,14 @@
 "use client";
 
 import { useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { Group } from "three";
 import { useGameStore } from "@/game/state/gameStore";
 
 export function Crystals() {
   const crystals = useGameStore((state) => state.crystals);
   const group = useRef<Group>(null);
-  const activeCrystals = crystals.filter((crystal) => crystal.active);
+  const activeCrystals = useMemo(() => crystals.filter((crystal) => crystal.active), [crystals]);
 
   useFrame((_, delta) => {
     if (group.current) group.current.rotation.y += delta * 0.28;

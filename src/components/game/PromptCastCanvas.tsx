@@ -1,8 +1,7 @@
 "use client";
 
-import { KeyboardControls, PointerLockControls } from "@react-three/drei";
+import { KeyboardControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { Physics } from "@react-three/rapier";
 import { Suspense } from "react";
 import { ArenaScene } from "@/components/game/scene/ArenaScene";
 import { GameHud } from "@/components/game/ui/GameHud";
@@ -21,20 +20,12 @@ export function PromptCastCanvas() {
   return (
     <main className="gameShell">
       <KeyboardControls map={controls}>
-        <Canvas shadows camera={{ position: [0, 9, 14], fov: 55 }} dpr={[1, 1.6]}>
-          <color attach="background" args={["#07110f"]} />
-          <fog attach="fog" args={["#07110f", 28, 82]} />
+        <Canvas shadows camera={{ position: [0, 9, 28], fov: 60 }} dpr={[1, 1.6]}>
           <Suspense fallback={null}>
-            <Physics gravity={[0, -18, 0]}>
-              <ArenaScene />
-            </Physics>
+            <ArenaScene />
           </Suspense>
-          <PointerLockControls selector="#arena-lock-target" />
         </Canvas>
       </KeyboardControls>
-      <button id="arena-lock-target" className="lockButton" type="button">
-        Click to lock mouse and play
-      </button>
       <NetworkBridge />
       <GameHud />
       <PromptOverlay />

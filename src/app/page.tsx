@@ -1,13 +1,36 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { usePeerSession } from "@/game/networking/usePeerSession";
 import { useGameStore } from "@/game/state/gameStore";
 
-const colors = ["#74f7d0", "#b86cff", "#ffd36e", "#ff746c", "#8ae9ff", "#62e37b"];
+const colors = ["#7a1f1f", "#365a3a", "#2c4a7c", "#b88a2c", "#5a2470", "#8a4a1c"];
+
+function CornerFlourish() {
+  return (
+    <svg className="tomeCorner tl" viewBox="0 0 64 64" fill="none">
+      <path d="M0 32C0 14 14 0 32 0" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 32C8 18 18 8 32 8" stroke="currentColor" strokeWidth="1" opacity="0.6" />
+      <circle cx="14" cy="14" r="3" fill="currentColor" opacity="0.7" />
+      <path d="M22 4L26 8L22 12L18 8Z" fill="currentColor" opacity="0.7" />
+    </svg>
+  );
+}
+
+function HeroFlourish() {
+  return (
+    <svg className="heroFlourish" viewBox="0 0 420 32" fill="none">
+      <path d="M0 16H140" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M280 16H420" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M150 16C158 8 170 8 178 16C186 24 198 24 206 16C214 8 226 8 234 16C242 24 254 24 262 16C254 8 242 8 234 16" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="210" cy="16" r="3.5" fill="currentColor" />
+      <circle cx="148" cy="16" r="2" fill="currentColor" />
+      <circle cx="272" cy="16" r="2" fill="currentColor" />
+    </svg>
+  );
+}
 
 export default function Home() {
   const router = useRouter();
@@ -19,14 +42,6 @@ export default function Home() {
   const setLocalIdentity = useGameStore((state) => state.setLocalIdentity);
   const setLocalPlayerProfile = useGameStore((state) => state.setLocalPlayerProfile);
   const setMode = useGameStore((state) => state.setMode);
-  const featureCards = useMemo(
-    () => [
-      ["Prompt Magic", "Collect Aura Crystals, levitate inside a shield, and generate custom spells from natural language."],
-      ["Arena Combat", "A dusk low-poly ruin with vertical platforms, crystals, dummy targets, and glowing VFX."],
-      ["P2P Rooms", "PeerJS room scaffolding supports host/client data channels for transforms, casts, and pickups."],
-    ],
-    [],
-  );
 
   const startSolo = () => {
     setLocalPlayerProfile(name || "Apprentice", color);
@@ -69,31 +84,45 @@ export default function Home() {
 
   return (
     <main className="landing">
-      <section className="heroPanel">
-        <div className="heroCopy">
-          <div className="eyebrow">Low-poly browser spellcasting prototype</div>
-          <h1>PromptCast</h1>
-          <p>
-            Duel as a wizard in a glowing dusk arena. Cast reliable Magic Missiles, harvest Aura Crystals, then enter Sanctuary to prompt new match-local spells.
-          </p>
-          <div className="heroActions">
-            <button type="button" onClick={startSolo}>
-              Play Solo Vertical Slice
-            </button>
-            <Link href="/game">Open Arena</Link>
-          </div>
-        </div>
-        <div className="orbitalCard">
-          <div className="orbitalCore" />
-          <span className="orbit orbitOne" />
-          <span className="orbit orbitTwo" />
-          <span className="orbit orbitThree" />
+      <section className="tome">
+        <CornerFlourish />
+        <svg className="tomeCorner tr" viewBox="0 0 64 64" fill="none">
+          <path d="M0 32C0 14 14 0 32 0" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M8 32C8 18 18 8 32 8" stroke="currentColor" strokeWidth="1" opacity="0.6" />
+          <circle cx="14" cy="14" r="3" fill="currentColor" opacity="0.7" />
+        </svg>
+        <svg className="tomeCorner bl" viewBox="0 0 64 64" fill="none">
+          <path d="M0 32C0 14 14 0 32 0" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M8 32C8 18 18 8 32 8" stroke="currentColor" strokeWidth="1" opacity="0.6" />
+          <circle cx="14" cy="14" r="3" fill="currentColor" opacity="0.7" />
+        </svg>
+        <svg className="tomeCorner br" viewBox="0 0 64 64" fill="none">
+          <path d="M0 32C0 14 14 0 32 0" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M8 32C8 18 18 8 32 8" stroke="currentColor" strokeWidth="1" opacity="0.6" />
+          <circle cx="14" cy="14" r="3" fill="currentColor" opacity="0.7" />
+        </svg>
+
+        <div className="heroEyebrow">~ Codex of the Whispering Meadow ~</div>
+        <h1 className="heroTitle">PromptCast</h1>
+        <HeroFlourish />
+        <p className="heroBlurb">
+          Beneath the gilded sun of an endless meadow, wizards gather where ancient stones still hum with forgotten power.
+          Gather aura crystals, retreat to the sanctuary, and inscribe new spells with naught but words. Then return — and let the duel begin.
+        </p>
+        <div className="heroActions">
+          <button type="button" className="sealButton" onClick={startSolo}>
+            Enter the Meadow
+          </button>
+          <button type="button" className="sealButton ghost" onClick={() => router.push("/game")}>
+            Practice Grounds
+          </button>
         </div>
       </section>
 
-      <section className="setupGrid">
-        <div className="setupCard">
-          <h2>Wizard</h2>
+      <section className="cardGrid">
+        <div className="tomeCard">
+          <h2>The Wizard</h2>
+          <p>Choose thy name and the color of thy mantle, that allies and rivals may know thee in the field.</p>
           <label htmlFor="playerName">Name</label>
           <input id="playerName" value={name} onChange={(event) => setName(event.target.value)} maxLength={18} />
           <div className="colorGrid" aria-label="Wizard color">
@@ -110,58 +139,56 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="setupCard">
-          <h2>Host Room</h2>
-          <p>Create a PeerJS room. Share the room code with another browser tab or machine.</p>
-          <button type="button" onClick={createRoom} disabled={busy}>
-            Create Room
+        <div className="tomeCard">
+          <h2>Open a Circle</h2>
+          <p>Cast forth a sigil-room. Share its name with a fellow wizard and they may step through.</p>
+          <button type="button" className="sealButton" onClick={createRoom} disabled={busy}>
+            Inscribe Sigil
           </button>
           {session.role === "host" ? (
             <div className="roomPanel">
-              <span>Room Code</span>
+              <span>Sigil</span>
               <strong>{session.roomCode}</strong>
-              <button type="button" onClick={startHostedMatch} disabled={!session.connected}>
-                Start Hosted Match
+              <button type="button" className="sealButton" onClick={startHostedMatch} disabled={!session.connected}>
+                Begin the Duel
               </button>
             </div>
           ) : null}
         </div>
 
-        <form className="setupCard" onSubmit={joinRoom}>
-          <h2>Join Room</h2>
-          <label htmlFor="roomCode">Room code</label>
+        <form className="tomeCard" onSubmit={joinRoom}>
+          <h2>Answer a Sigil</h2>
+          <p>Hast thou received a sigil? Speak it here and walk to thy companion&apos;s meadow.</p>
+          <label htmlFor="roomCode">Sigil</label>
           <input id="roomCode" value={roomCode} onChange={(event) => setRoomCode(event.target.value.toUpperCase())} maxLength={8} placeholder="ABCDE" />
-          <button type="submit" disabled={busy || !roomCode.trim()}>
-            Join Room
+          <button type="submit" className="sealButton" disabled={busy || !roomCode.trim()}>
+            Cross the Threshold
           </button>
           {session.role === "client" ? (
-            <button type="button" onClick={() => router.push(`/game?mode=client&room=${session.roomCode}`)} disabled={!session.connected}>
-              Enter Client Match
+            <button
+              type="button"
+              className="sealButton ghost"
+              onClick={() => router.push(`/game?mode=client&room=${session.roomCode}`)}
+              disabled={!session.connected}
+              style={{ marginTop: 10 }}
+            >
+              Step Through
             </button>
           ) : null}
         </form>
       </section>
 
-      {session.error ? <div className="sessionError">PeerJS: {session.error}</div> : null}
+      {session.error ? <div className="sessionError">A disturbance in the weave: {session.error}</div> : null}
       {session.players.length > 0 ? (
         <section className="playerList">
-          <h2>Room Players</h2>
+          <h2>Wizards Gathered</h2>
           {session.players.map((player) => (
             <span key={player.id} style={{ borderColor: player.color }}>
-              {player.name} {player.isHost ? "(host)" : ""}
+              {player.name} {player.isHost ? "— Hostkeeper" : ""}
             </span>
           ))}
         </section>
       ) : null}
-
-      <section className="featureGrid">
-        {featureCards.map(([title, description]) => (
-          <article key={title}>
-            <h3>{title}</h3>
-            <p>{description}</p>
-          </article>
-        ))}
-      </section>
     </main>
   );
 }
