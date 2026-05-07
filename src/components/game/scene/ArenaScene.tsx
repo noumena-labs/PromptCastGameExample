@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { Sky } from "@react-three/drei";
+import { useThree } from "@react-three/fiber";
 import { Crystals } from "@/components/game/scene/Crystals";
 import { ManaMotes } from "@/components/game/scene/ManaMotes";
 import { DummyTargets } from "@/components/game/scene/DummyTargets";
@@ -56,6 +58,29 @@ export function ArenaScene() {
       <RemoteWizards />
       <LocalWizard />
       <GameplaySystems />
+      <ShaderPrewarm />
     </>
   );
+}
+
+/**
+ * Pre-compiles every shader permutation currently in the scene so we never pay
+ * a multi-hundred-millisecond compile cost mid-gameplay. Without this, the
+ * first time a unique material/light combination renders, Three.js blocks the
+ * main thread to compile its program. Combined with stable point-light counts
+ * (no entity-attached pointLights), this keeps frame times flat after load.
+ */
+function ShaderPrewarm() {
+  const gl = useThree((state) => state.gl);
+  const scene = useThree((state) => state.scene);
+  const camera = useThree((state) => state.camera);
+
+  useEffect(() => {
+    const handle = requestAnimationFrame(() => {
+      gl.compile(scene, camera);
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [gl, scene, camera]);
+
+  return null;
 }

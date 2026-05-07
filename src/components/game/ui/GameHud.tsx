@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { AURA_THRESHOLD, MAGIC_MISSILE, PLAYER_MAX_HEALTH, PLAYER_MAX_MANA, SANCTUARY_DURATION_MS } from "@/game/config/gameConfig";
 import { useGameStore } from "@/game/state/gameStore";
 
@@ -16,8 +17,8 @@ const slotKeys = ["I", "II", "III", "IV"];
 export function GameHud() {
   const [currentTime, setCurrentTime] = useState(0);
   const player = useGameStore((state) => state.players[state.localPlayerId]);
-  const playersById = useGameStore((state) => state.players);
-  const log = useGameStore((state) => state.log);
+  const playerIds = useGameStore(useShallow((state) => Object.keys(state.players)));
+  const log = useGameStore(useShallow((state) => state.log));
   const roomCode = useGameStore((state) => state.roomCode);
   const mode = useGameStore((state) => state.mode);
   const sanctuaryEndsAt = useGameStore((state) => state.sanctuaryEndsAt);
@@ -26,7 +27,6 @@ export function GameHud() {
   const health = player ? Math.max(0, player.health / PLAYER_MAX_HEALTH) : 0;
   const mana = player ? Math.max(0, player.mana / PLAYER_MAX_MANA) : 0;
   const sanctuaryRemaining = sanctuaryEndsAt ? Math.max(0, sanctuaryEndsAt - currentTime) : SANCTUARY_DURATION_MS;
-  const players = Object.values(playersById);
 
   useEffect(() => {
     const interval = window.setInterval(() => setCurrentTime(Date.now()), 100);
@@ -44,10 +44,8 @@ export function GameHud() {
           <small>{mode === "solo" ? "Solo Practice" : `${mode.toUpperCase()} ${roomCode ?? ""}`}</small>
         </div>
         <div className="scoreBoard">
-          {players.map((entry) => (
-            <span key={entry.id} style={{ borderColor: entry.color, color: entry.color }}>
-              {entry.name}: {entry.score}
-            </span>
+          {playerIds.map((id) => (
+            <ScoreEntry key={id} id={id} />
           ))}
         </div>
       </div>
@@ -140,3 +138,15 @@ export function GameHud() {
 }
 
 void formatCooldown;
+
+function ScoreEntry({ id }: { id: string }) {
+  const name = useGameStore((state) => state.players[id]?.name);
+  const color = useGameStore((state) => state.players[id]?.color);
+  const score = useGameStore((state) => state.players[id]?.score);
+  if (name == null) return null;
+  return (
+    <span style={{ borderColor: color, color }}>
+      {name}: {score}
+    </span>
+  );
+}

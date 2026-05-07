@@ -39,7 +39,7 @@ function Crystal({ id, phase }: { id: string; phase: number }) {
           <meshStandardMaterial
             color="#b890ff"
             emissive="#7a3df7"
-            emissiveIntensity={2.2}
+            emissiveIntensity={3.0}
             roughness={0.18}
             metalness={0.35}
           />
@@ -50,7 +50,7 @@ function Crystal({ id, phase }: { id: string; phase: number }) {
           <meshStandardMaterial
             color="#ffd76b"
             emissive="#f7b53a"
-            emissiveIntensity={2.4}
+            emissiveIntensity={3.2}
             roughness={0.25}
             metalness={0.55}
           />
@@ -59,10 +59,8 @@ function Crystal({ id, phase }: { id: string; phase: number }) {
       {/* Soft violet halo */}
       <mesh position={[0, 0.55, 0]}>
         <sphereGeometry args={[1.85, 14, 10]} />
-        <meshStandardMaterial color="#cda6ff" emissive="#8b4dff" emissiveIntensity={0.85} transparent opacity={0.18} />
+        <meshStandardMaterial color="#cda6ff" emissive="#8b4dff" emissiveIntensity={1.4} transparent opacity={0.28} />
       </mesh>
-      {/* Anchor light to call attention */}
-      <pointLight color="#c89bff" intensity={1.4} distance={6} decay={2} position={[0, 0.6, 0]} />
     </group>
   );
 }
