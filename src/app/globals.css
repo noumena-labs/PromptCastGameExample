@@ -1110,6 +1110,33 @@ h1, h2, h3 {
   box-shadow: 0 0 12px rgba(122, 31, 31, 0.45);
 }
 
+/* ---------- Bind block (preview phase) ---------- */
+
+.runeCardBindBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(184, 138, 44, 0.45);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 230, 0.55) 0%, rgba(216, 195, 147, 0.35) 100%);
+  box-shadow: inset 0 0 12px rgba(184, 138, 44, 0.18);
+}
+
+.runeCardBindLabel {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--crimson-deep);
+  text-align: center;
+}
+
+.runeCardBindBlock .runeCardInscribe {
+  align-self: stretch;
+}
+
 .runeCardExamples {
   display: flex;
   flex-wrap: wrap;
@@ -1166,6 +1193,184 @@ h1, h2, h3 {
 
 @keyframes rune-cursor {
   to { opacity: 0; }
+}
+
+/* ---------- Sage stream-of-thought transcript ---------- */
+
+.runeCardStream {
+  position: relative;
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  border-radius: 8px;
+  background: rgba(255, 250, 230, 0.55);
+  overflow: hidden;
+}
+
+.runeCardStreamScroll {
+  position: relative;
+  height: 132px;
+  overflow: hidden;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.runeCardStreamScroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.runeCardStreamEmpty {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--ink-soft);
+  opacity: 0.7;
+  font-size: 0.95rem;
+}
+
+.runeCardStreamHeader {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--crimson);
+  margin-top: 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px dashed rgba(122, 31, 31, 0.35);
+}
+
+.runeCardStreamHeader:first-child {
+  margin-top: 0;
+}
+
+.runeCardStreamTokens {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.98rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* Stage tonal variants */
+.runeCardStreamTokens[data-stage="concept"] {
+  color: var(--ink);
+}
+.runeCardStreamTokens[data-stage="balance"] {
+  color: #4a3520;
+  font-style: normal;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+}
+.runeCardStreamTokens[data-stage="form"] {
+  color: var(--crimson-deep);
+  font-style: normal;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+}
+.runeCardStreamTokens[data-stage="palette"] {
+  color: #6a3a0c;
+  font-style: normal;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+}
+
+/* Form-call retry tones (attempt 1 = base; 2..4 progressively warmer/dimmer) */
+.runeCardStreamTokens[data-stage="form"][data-attempt="2"] {
+  color: #8a3a14;
+  opacity: 0.88;
+}
+.runeCardStreamTokens[data-stage="form"][data-attempt="3"] {
+  color: #a04a18;
+  opacity: 0.78;
+}
+.runeCardStreamTokens[data-stage="form"][data-attempt="4"] {
+  color: #b85a1c;
+  opacity: 0.68;
+}
+
+.runeCardStreamCursor {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  color: var(--crimson);
+  font-size: 0.9rem;
+  animation: rune-cursor 0.9s steps(2, start) infinite;
+  pointer-events: none;
+}
+
+.runeCardStreamFadeTop,
+.runeCardStreamFadeBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18px;
+  pointer-events: none;
+}
+.runeCardStreamFadeTop {
+  top: 0;
+  background: linear-gradient(180deg, rgba(255, 250, 230, 0.92) 0%, rgba(255, 250, 230, 0) 100%);
+}
+.runeCardStreamFadeBottom {
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(255, 250, 230, 0.92) 0%, rgba(255, 250, 230, 0) 100%);
+}
+
+/* ---------- Per-stage debug panel (preview phase) ---------- */
+
+.runeCardStageOutput {
+  border: 1px solid rgba(184, 138, 44, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 250, 230, 0.42);
+  padding: 6px 10px;
+  font-family: var(--font-flavor);
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+
+.runeCardStageOutput + .runeCardStageOutput {
+  margin-top: 6px;
+}
+
+.runeCardStageOutput summary {
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--crimson-deep);
+  outline: none;
+}
+
+.runeCardStageOutput summary:hover {
+  color: var(--crimson);
+}
+
+.runeCardStageOutput[open] summary {
+  margin-bottom: 6px;
+  border-bottom: 1px dashed rgba(122, 31, 31, 0.3);
+  padding-bottom: 4px;
+}
+
+.runeCardStageOutput pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: rgba(42, 26, 12, 0.06);
+  border-radius: 4px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.82rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .runeCardError {
@@ -1610,4 +1815,119 @@ h1, h2, h3 {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Pipeline stage rail (multi-stage spell generation visualization)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.runeCardStageBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.runeCardStageRail {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+.runeCardStagePill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  background: rgba(255, 250, 230, 0.35);
+  color: var(--ink-soft);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  position: relative;
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.runeCardStagePill[data-status="pending"] {
+  opacity: 0.55;
+}
+
+.runeCardStagePill[data-status="active"] {
+  background: rgba(122, 31, 31, 0.12);
+  border-color: var(--crimson);
+  color: var(--crimson-deep);
+  box-shadow: 0 0 0 0 rgba(122, 31, 31, 0.45);
+  animation: rune-stage-pulse 1.4s ease-in-out infinite;
+}
+
+.runeCardStagePill[data-status="done"] {
+  background: rgba(122, 31, 31, 0.06);
+  border-color: rgba(122, 31, 31, 0.5);
+  color: var(--ink);
+}
+
+.runeCardStagePill[data-status="done"] .runeCardStagePillIndex::before {
+  content: "✓";
+}
+
+.runeCardStagePill[data-status="done"] .runeCardStagePillIndex {
+  color: var(--crimson-deep);
+  font-weight: 600;
+}
+
+.runeCardStagePillIndex {
+  display: inline-flex;
+  width: 1.1em;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+
+.runeCardStagePill[data-status="done"] .runeCardStagePillIndexNumber {
+  display: none;
+}
+
+.runeCardStagePillLabel {
+  font-weight: 500;
+}
+
+.runeCardStagePillDetail {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(122, 31, 31, 0.18);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+@keyframes rune-stage-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(122, 31, 31, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(122, 31, 31, 0);
+  }
+}
+
+.runeCardStageFlavor {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-flavor);
+  font-style: italic;
+  color: var(--crimson-deep);
+}
+
 

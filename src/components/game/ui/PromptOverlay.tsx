@@ -5,9 +5,11 @@ import { generateSpellFromPrompt } from "@/game/ai/cogentSpellGenerator";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import type { SpellStage } from "@/game/ai/spellLog";
 import type { FormAttempt } from "@/game/ai/pipeline/formCall";
+import type { PipelineStage } from "@/game/ai/pipeline";
 import { useGameStore } from "@/game/state/gameStore";
 import { SANCTUARY_DURATION_MS } from "@/game/config/gameConfig";
 import type { GeneratedSpell } from "@/game/types";
+import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
 
 const examplePrompts = [
   "A cage of obsidian bars that drops onto the target",
@@ -19,33 +21,90 @@ const examplePrompts = [
 ];
 
 const slotKeys = ["I", "II", "III", "IV"];
-const PREVIEW_HOLD_MS = 1200;
 const SHATTER_VFX_MS = 800;
 const TIMER_TICK_MS = 250;
 
+const PIPELINE_STAGES = ["concept", "balance", "form", "palette", "compose"] as const;
+type StageStatus = "pending" | "active" | "done";
+type StageProgress = Record<PipelineStage, StageStatus>;
+
+const STAGE_LABEL: Record<PipelineStage, string> = {
+  concept: "Concept",
+  balance: "Balance",
+  form: "Form",
+  palette: "Palette",
+  compose: "Compose",
+};
+
+function makeInitialStages(): StageProgress {
+  return {
+    concept: "active",
+    balance: "pending",
+    form: "pending",
+    palette: "pending",
+    compose: "pending",
+  };
+}
+
+function advanceStages(prev: StageProgress, nextStage: PipelineStage): StageProgress {
+  const next = { ...prev };
+  let crossed = false;
+  for (const s of PIPELINE_STAGES) {
+    if (s === nextStage) {
+      next[s] = "active";
+      crossed = true;
+    } else if (!crossed) {
+      next[s] = "done";
+    } else {
+      next[s] = "pending";
+    }
+  }
+  return next;
+}
+
+function asPipelineStage(stage: SpellStage): PipelineStage | null {
+  return (PIPELINE_STAGES as readonly string[]).includes(stage) ? (stage as PipelineStage) : null;
+}
+
+// ─── Transcript model ────────────────────────────────────────────────────────
+
+type TranscriptSegment =
+  | { kind: "header"; stage: PipelineStage; attempt?: number; key: number }
+  | { kind: "tokens"; stage: PipelineStage; attempt: number; text: string; key: number };
+
 type ErrorDetails = {
-  /** Player-facing message (lyrical). */
   message: string;
-  /** Stage at which the failure occurred. */
   stage: SpellStage;
-  /** Raw LLM output if available — surfaced behind "Show details". */
   rawOutput?: string;
-  /** Whether the pipeline indicated this can be repaired by re-rolling. */
   canRepair: boolean;
-  /** Underlying technical error message (cause chain). */
   technical?: string;
+};
+
+type PreviewMeta = {
+  elapsedMs: number;
+  formAttempts?: number;
+  outputs: Partial<Record<PipelineStage, string>>;
 };
 
 type Phase =
   | { kind: "compose" }
   | {
       kind: "thinking";
-      reasoning: string;
       startedAt: number;
-      stage: SpellStage;
+      currentStage: SpellStage;
+      stages: StageProgress;
       formAttempt?: FormAttempt;
+      maxFormAttempt: number;
+      transcript: TranscriptSegment[];
+      outputs: Partial<Record<PipelineStage, string>>;
+      reasoning: string;
     }
-  | { kind: "previewing"; spell: GeneratedSpell; reasoning: string }
+  | {
+      kind: "previewing";
+      spell: GeneratedSpell;
+      reasoning: string;
+      meta: PreviewMeta;
+    }
   | { kind: "bound"; spell: GeneratedSpell }
   | { kind: "error"; details: ErrorDetails; lastPrompt: string }
   | { kind: "shattering" };
@@ -63,12 +122,13 @@ export function PromptOverlay() {
   const [now, setNow] = useState(() => Date.now());
   const [thinkingElapsedMs, setThinkingElapsedMs] = useState(0);
   const [showDetails, setShowDetails] = useState(false);
+  const [showPreviewDetails, setShowPreviewDetails] = useState(false);
 
-  const bindTimer = useRef<number | null>(null);
   const shatterTimer = useRef<number | null>(null);
   const composeTickRef = useRef<number | null>(null);
   const thinkingTickRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const segmentKeyRef = useRef(0);
 
   const clearComposeTick = useCallback(() => {
     if (composeTickRef.current !== null) {
@@ -85,10 +145,6 @@ export function PromptOverlay() {
   }, []);
 
   const clearAllTimers = useCallback(() => {
-    if (bindTimer.current !== null) {
-      window.clearTimeout(bindTimer.current);
-      bindTimer.current = null;
-    }
     if (shatterTimer.current !== null) {
       window.clearTimeout(shatterTimer.current);
       shatterTimer.current = null;
@@ -101,18 +157,15 @@ export function PromptOverlay() {
     }
   }, [clearComposeTick, clearThinkingTick]);
 
-  // Reset internal state and tear down timers whenever the overlay closes so
-  // the next entry is clean.
   useEffect(() => {
     if (!promptOpen) {
       clearAllTimers();
       setPhase({ kind: "compose" });
       setThinkingElapsedMs(0);
+      setShowPreviewDetails(false);
     }
   }, [promptOpen, clearAllTimers]);
 
-  // Compose-phase shield countdown: while in compose, tick `now` so the timer
-  // ring + crack overlay re-render. Stop ticking the moment we leave compose.
   useEffect(() => {
     if (!promptOpen) return;
     if (phase.kind !== "compose") {
@@ -124,7 +177,6 @@ export function PromptOverlay() {
     return () => clearComposeTick();
   }, [promptOpen, phase.kind, clearComposeTick]);
 
-  // Thinking-phase elapsed counter (display only, no cap).
   useEffect(() => {
     if (phase.kind !== "thinking") {
       clearThinkingTick();
@@ -138,7 +190,6 @@ export function PromptOverlay() {
     return () => clearThinkingTick();
   }, [phase, clearThinkingTick]);
 
-  // Drive the shatter when the shield expires while still composing.
   const shieldRemainingMs =
     sanctuaryEndsAt !== null ? Math.max(0, sanctuaryEndsAt - now) : SANCTUARY_DURATION_MS;
   const shieldDecay =
@@ -152,7 +203,6 @@ export function PromptOverlay() {
     if (sanctuaryEndsAt === null) return;
     if (shieldRemainingMs > 0) return;
 
-    // Shield shatters: lock input, play VFX, then exit Sanctuary.
     clearComposeTick();
     setPhase({ kind: "shattering" });
     shatterTimer.current = window.setTimeout(() => {
@@ -161,7 +211,6 @@ export function PromptOverlay() {
     }, SHATTER_VFX_MS);
   }, [promptOpen, phase.kind, sanctuaryEndsAt, shieldRemainingMs, exitSanctuary, clearComposeTick]);
 
-  // Tear-down on unmount.
   useEffect(() => () => clearAllTimers(), [clearAllTimers]);
 
   if (!promptOpen) return null;
@@ -169,23 +218,91 @@ export function PromptOverlay() {
   const runChat = async (chatPrompt: string) => {
     const controller = new AbortController();
     abortRef.current = controller;
-    setPhase({ kind: "thinking", reasoning: "", startedAt: Date.now(), stage: "concept" });
+    const startedAt = Date.now();
+    segmentKeyRef.current = 0;
+    setPhase({
+      kind: "thinking",
+      startedAt,
+      currentStage: "concept",
+      stages: makeInitialStages(),
+      maxFormAttempt: 0,
+      transcript: [],
+      outputs: {},
+      reasoning: "",
+    });
     setShowDetails(false);
+    setShowPreviewDetails(false);
 
     try {
       const result = await generateSpellFromPrompt(
         chatPrompt,
         (progress) => {
-          setPhase((current) =>
-            current.kind === "thinking"
-              ? {
-                  ...current,
-                  reasoning: progress.reasoning,
-                  stage: progress.stage,
-                  formAttempt: progress.formAttempt,
-                }
-              : current,
-          );
+          setPhase((current) => {
+            if (current.kind !== "thinking") return current;
+
+            const pipelineStage = asPipelineStage(progress.stage);
+            const stages =
+              pipelineStage && current.currentStage !== progress.stage
+                ? advanceStages(current.stages, pipelineStage)
+                : current.stages;
+
+            const maxFormAttempt = progress.formAttempt
+              ? Math.max(current.maxFormAttempt, progress.formAttempt.n)
+              : current.maxFormAttempt;
+
+            let transcript = current.transcript;
+            if (progress.segmentStart) {
+              const k = ++segmentKeyRef.current;
+              transcript = [
+                ...transcript,
+                {
+                  kind: "header",
+                  stage: progress.segmentStart.stage,
+                  attempt: progress.segmentStart.attempt,
+                  key: k,
+                },
+              ];
+            }
+            if (progress.tokenDelta && pipelineStage) {
+              const attempt = progress.formAttempt?.n ?? 1;
+              const last = transcript[transcript.length - 1];
+              if (
+                last &&
+                last.kind === "tokens" &&
+                last.stage === pipelineStage &&
+                last.attempt === attempt
+              ) {
+                const updated: TranscriptSegment = {
+                  ...last,
+                  text: last.text + progress.tokenDelta,
+                };
+                transcript = [...transcript.slice(0, -1), updated];
+              } else {
+                const k = ++segmentKeyRef.current;
+                transcript = [
+                  ...transcript,
+                  {
+                    kind: "tokens",
+                    stage: pipelineStage,
+                    attempt,
+                    text: progress.tokenDelta,
+                    key: k,
+                  },
+                ];
+              }
+            }
+
+            return {
+              ...current,
+              currentStage: progress.stage,
+              stages,
+              formAttempt: progress.formAttempt,
+              maxFormAttempt,
+              transcript,
+              outputs: progress.outputs,
+              reasoning: progress.reasoning || current.reasoning,
+            };
+          });
         },
         controller.signal,
       );
@@ -195,21 +312,27 @@ export function PromptOverlay() {
 
       const spell = result.spell;
       const reasoning = spell.reasoning ?? result.reasoning ?? "";
-      setPhase({ kind: "previewing", spell, reasoning });
 
-      bindTimer.current = window.setTimeout(() => {
-        bindTimer.current = null;
-        saveGeneratedSpell(spell);
-        setPhase({ kind: "bound", spell });
-      }, PREVIEW_HOLD_MS);
+      setPhase((current) => {
+        const maxFormAttempt =
+          current.kind === "thinking" ? current.maxFormAttempt : 0;
+        const outputs =
+          current.kind === "thinking" ? current.outputs : {};
+        return {
+          kind: "previewing",
+          spell,
+          reasoning,
+          meta: {
+            elapsedMs: Date.now() - startedAt,
+            formAttempts: maxFormAttempt > 0 ? maxFormAttempt : undefined,
+            outputs,
+          },
+        };
+      });
     } catch (err) {
       if (controller.signal.aborted) return;
       abortRef.current = null;
 
-      // Pipeline always wraps failures in SpellGenerationError; non-typed
-      // errors render without a Repair affordance. Auto-repair is gone — the
-      // form call already retries 4× internally; if it still fails, the
-      // player chooses whether to Repair (re-roll), Retry, or Re-compose.
       const details: ErrorDetails =
         err instanceof SpellGenerationError
           ? {
@@ -237,8 +360,6 @@ export function PromptOverlay() {
   const handleInscribe = (event: FormEvent) => {
     event.preventDefault();
     if (phase.kind !== "compose") return;
-    // Submitting halts the compose-phase shield timer permanently for this
-    // session — the player has paid their tribute.
     clearComposeTick();
     void runChat(prompt);
   };
@@ -250,11 +371,7 @@ export function PromptOverlay() {
 
   const handleRepair = () => {
     if (phase.kind !== "error") return;
-    // Under the hood, Repair is a fresh roll: the model is non-deterministic
-    // so a re-attempt almost always fixes flaky parse failures, while feeding
-    // the broken JSON back in tends to make things worse. We mark it as
-    // fromAutoRepair so we don't spawn ANOTHER auto-repair on top.
-    void runChat(phase.lastPrompt, { fromAutoRepair: true });
+    void runChat(phase.lastPrompt);
   };
 
   const handleBackToCompose = () => {
@@ -262,12 +379,22 @@ export function PromptOverlay() {
     setPhase({ kind: "compose" });
   };
 
+  const handleBind = () => {
+    if (phase.kind !== "previewing") return;
+    saveGeneratedSpell(phase.spell);
+    setPhase({ kind: "bound", spell: phase.spell });
+  };
+
   const close = () => {
     clearAllTimers();
     exitSanctuary();
   };
 
-  const canDismiss = phase.kind === "compose" || phase.kind === "error" || phase.kind === "bound";
+  const canDismiss =
+    phase.kind === "compose" ||
+    phase.kind === "error" ||
+    phase.kind === "bound" ||
+    phase.kind === "previewing";
   const composing = phase.kind === "compose";
 
   const cardClassName =
@@ -290,7 +417,11 @@ export function PromptOverlay() {
         ) : null}
 
         <div className="runeCardHeader">
-          <span className="runeCardEyebrow">Sanctuary &middot; Runestone {slotKeys[selectedSlot]}</span>
+          <span className="runeCardEyebrow">
+            {phase.kind === "bound" || phase.kind === "previewing"
+              ? `Sanctuary · Runestone ${slotKeys[selectedSlot]}`
+              : "Sanctuary"}
+          </span>
           <h1 className="runeCardTitle">
             {phase.kind === "bound"
               ? `Bound: ${phase.spell.name}`
@@ -321,19 +452,6 @@ export function PromptOverlay() {
               rows={3}
             />
 
-            <div className="runeCardSlotPicker" aria-label="Spell slot">
-              {[0, 1, 2, 3].map((slot) => (
-                <button
-                  key={slot}
-                  type="button"
-                  className={slot === selectedSlot ? "selected" : ""}
-                  onClick={() => setSelectedSlot(slot)}
-                >
-                  {slotKeys[slot]}
-                </button>
-              ))}
-            </div>
-
             <div className="runeCardExamples">
               {examplePrompts.map((example) => (
                 <button
@@ -358,20 +476,12 @@ export function PromptOverlay() {
 
         {phase.kind === "thinking" ? (
           <div className="runeCardBody">
-            <div className="runeCardThinkingIndicator">
-              <span className="runeCardThinkingDots" aria-hidden>
-                <span /><span /><span />
-              </span>
-              <span>{stageMessage(phase.stage)}</span>
-              <span className="runeCardThinkingElapsed">{formatElapsed(thinkingElapsedMs)}</span>
-            </div>
-            <div className="runeCardReasoning">
-              <div className="runeCardReasoningLabel">Sage&rsquo;s Reasoning</div>
-              <div className="runeCardReasoningText">
-                {phase.reasoning || "The Sage gathers their thoughts..."}
-                <span className="runeCardCursor">▌</span>
-              </div>
-            </div>
+            <StageRail
+              stages={phase.stages}
+              formAttempt={phase.formAttempt}
+              elapsedMs={thinkingElapsedMs}
+            />
+            <SageStream transcript={phase.transcript} />
           </div>
         ) : null}
 
@@ -384,8 +494,35 @@ export function PromptOverlay() {
               </div>
             ) : null}
             <SpellPreviewCard spell={phase.spell} />
-            <div className="runeCardBindingHint">
-              Binding to runestone {slotKeys[selectedSlot]}…
+
+            <button
+              type="button"
+              className="runeCardErrorDetailsToggle"
+              onClick={() => setShowPreviewDetails((v) => !v)}
+            >
+              {showPreviewDetails ? "Hide details" : "Show details"}
+            </button>
+            {showPreviewDetails ? (
+              <SpellDebugPanel spell={phase.spell} meta={phase.meta} />
+            ) : null}
+
+            <div className="runeCardBindBlock">
+              <div className="runeCardBindLabel">Choose a Runestone</div>
+              <div className="runeCardSlotPicker" aria-label="Spell slot">
+                {[0, 1, 2, 3].map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    className={slot === selectedSlot ? "selected" : ""}
+                    onClick={() => setSelectedSlot(slot)}
+                  >
+                    {slotKeys[slot]}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="runeCardInscribe" onClick={handleBind}>
+                Bind to Runestone {slotKeys[selectedSlot]}
+              </button>
             </div>
           </div>
         ) : null}
@@ -407,10 +544,7 @@ export function PromptOverlay() {
           <div className="runeCardBody">
             <div className="runeCardError">
               <div className="runeCardErrorMessage">{phase.details.message}</div>
-              <div className="runeCardErrorStage">
-                Stage: {phase.details.stage}
-                {phase.autoRepaired ? " · auto-repair attempted once" : ""}
-              </div>
+              <div className="runeCardErrorStage">Stage: {phase.details.stage}</div>
               {phase.details.technical || phase.details.rawOutput ? (
                 <button
                   type="button"
@@ -483,31 +617,108 @@ function formatElapsed(ms: number): string {
   return `${mm}:${ss.toString().padStart(2, "0")}`;
 }
 
-/** Maps a pipeline stage to a player-facing flavor line. */
-function stageMessage(stage: SpellStage): string {
-  switch (stage) {
-    case "concept":
-      return "Sage is divining the shape…";
-    case "mechanics":
-      return "Sage is balancing the forces…";
-    case "visual":
-      return "Sage is choosing the colors…";
-    case "compose":
-      return "Sage is binding the runes…";
-    case "repair":
-      return "Sage is mending the cracks…";
-    default:
-      return "Sage is divining…";
-  }
+function StageRail({
+  stages,
+  formAttempt,
+  elapsedMs,
+}: {
+  stages: StageProgress;
+  formAttempt?: FormAttempt;
+  elapsedMs: number;
+}) {
+  return (
+    <div className="runeCardStageBlock">
+      <ol className="runeCardStageRail" aria-label="Spell generation pipeline">
+        {PIPELINE_STAGES.map((stage, i) => {
+          const status = stages[stage];
+          const isForm = stage === "form";
+          const detail =
+            isForm && status === "active" && formAttempt && formAttempt.n > 1
+              ? `${formAttempt.n}/${formAttempt.total}`
+              : null;
+          return (
+            <li
+              key={stage}
+              className="runeCardStagePill"
+              data-status={status}
+              aria-current={status === "active" ? "step" : undefined}
+            >
+              <span className="runeCardStagePillIndex">{i + 1}</span>
+              <span className="runeCardStagePillLabel">{STAGE_LABEL[stage]}</span>
+              {detail ? <span className="runeCardStagePillDetail">{detail}</span> : null}
+            </li>
+          );
+        })}
+      </ol>
+      <div className="runeCardStageElapsed">
+        <span className="runeCardThinkingDots" aria-hidden>
+          <span /><span /><span />
+        </span>
+        <span className="runeCardThinkingElapsed">{formatElapsed(elapsedMs)}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sage's Stream — small fixed-height viewport that always pins to the latest
+ * tokens as they stream in. No scrollbars; gradient fades on top & bottom soften
+ * the edges so older lines just dissolve out of view.
+ */
+function SageStream({ transcript }: { transcript: TranscriptSegment[] }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Always pin to the bottom on every update.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [transcript]);
+
+  return (
+    <div className="runeCardStream" aria-label="Sage's stream of thought">
+      <div className="runeCardStreamScroll" ref={scrollRef}>
+        {transcript.length === 0 ? (
+          <div className="runeCardStreamEmpty">The Sage gathers their thoughts…</div>
+        ) : (
+          transcript.map((seg) => {
+            if (seg.kind === "header") {
+              const label = seg.attempt && seg.attempt > 1
+                ? `[${seg.stage} · retry ${seg.attempt}]`
+                : `[${seg.stage}]`;
+              return (
+                <div key={seg.key} className="runeCardStreamHeader">
+                  {label}
+                </div>
+              );
+            }
+            return (
+              <span
+                key={seg.key}
+                className="runeCardStreamTokens"
+                data-stage={seg.stage}
+                data-attempt={seg.attempt}
+              >
+                {seg.text}
+              </span>
+            );
+          })
+        )}
+        <span className="runeCardStreamCursor" aria-hidden>▌</span>
+      </div>
+      <div className="runeCardStreamFadeTop" aria-hidden />
+      <div className="runeCardStreamFadeBottom" aria-hidden />
+    </div>
+  );
 }
 
 function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
   const composition =
-    spell.delivery === "self"
+    spell.deliveryFamily === "self"
       ? `self · ${spell.impact}`
       : spell.count > 1
-        ? `${spell.count}× ${spell.delivery} · ${spell.impact}`
-        : `${spell.delivery} · ${spell.impact}`;
+        ? `${spell.count}× ${spell.deliveryFamily} · ${spell.impact}`
+        : `${spell.deliveryFamily} · ${spell.impact}`;
 
   return (
     <div className="runeCardSpell" style={{ borderColor: spell.color }}>
@@ -539,4 +750,73 @@ function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
       ) : null}
     </div>
   );
+}
+
+function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: PreviewMeta }) {
+  const sceneSummary = describeScene(spell.scene);
+  return (
+    <div className="runeCardErrorDetails">
+      <div className="runeCardErrorTechnical">
+        <strong>Pipeline:</strong>{" "}
+        elapsed {(meta.elapsedMs / 1000).toFixed(1)}s
+        {meta.formAttempts && meta.formAttempts > 1
+          ? ` · form attempts: ${meta.formAttempts}`
+          : ""}
+      </div>
+      <div className="runeCardErrorTechnical">
+        <strong>Delivery:</strong> {spell.deliveryFamily} · <strong>Impact:</strong> {spell.impact}
+        {" · "}<strong>Count:</strong> {spell.count}
+      </div>
+      <div className="runeCardErrorTechnical">
+        <strong>Scene tree:</strong>
+      </div>
+      <pre className="runeCardErrorRaw">{sceneSummary}</pre>
+
+      {(["concept", "balance", "form", "palette"] as const).map((stage) => {
+        const out = meta.outputs[stage];
+        if (!out) return null;
+        return (
+          <details key={stage} className="runeCardStageOutput">
+            <summary>{STAGE_LABEL[stage]} output</summary>
+            <pre className="runeCardErrorRaw">{out}</pre>
+          </details>
+        );
+      })}
+
+      <details className="runeCardStageOutput">
+        <summary>Full spell JSON</summary>
+        <pre className="runeCardErrorRaw">{JSON.stringify(spell, null, 2)}</pre>
+      </details>
+    </div>
+  );
+}
+
+function describeScene(scene: SpellScene): string {
+  const lines: string[] = [];
+  lines.push(describeNode(scene, 0));
+  for (const child of scene.children ?? []) {
+    lines.push(describeNode(child, 1));
+  }
+  return lines.join("\n");
+}
+
+function describeNode(node: SceneLeaf, depth: number): string {
+  const pad = depth === 0 ? "▸ " : "  ├─ ";
+  const parts = [
+    `${node.shape}`,
+    node.color,
+    `emit=${node.emissiveIntensity.toFixed(2)}`,
+    `size=${node.size.toFixed(2)}`,
+    `motion=${node.motion}@${node.motionSpeed.toFixed(1)}`,
+  ];
+  if (node.arrange !== "single") {
+    parts.push(`arrange=${node.arrange}×${node.arrangeCount}/r${node.arrangeRadius.toFixed(1)}`);
+  }
+  if (node.shape === "particle_cloud") {
+    parts.push(`particles=${node.particleCount}`);
+  }
+  if (node.opacity < 1) {
+    parts.push(`alpha=${node.opacity.toFixed(2)}`);
+  }
+  return pad + parts.join("  ");
 }

@@ -1,5 +1,6 @@
 import type { CogentEngine } from "cogentlm";
-import { runSpellPipeline, type PipelineProgress } from "@/game/ai/pipeline";
+import { runSpellPipeline, type PipelineProgress, type PipelineStage } from "@/game/ai/pipeline";
+import type { FormAttempt } from "@/game/ai/pipeline/formCall";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import { spellLog } from "@/game/ai/spellLog";
 import type { GeneratedSpell } from "@/game/types";
@@ -53,12 +54,20 @@ function broadcastProgress(progress: ModelLoadProgress): void {
  * PromptOverlay contract (`reasoning`, `phase`) keeps working.
  */
 export type SpellGenerationProgress = {
-  /** Reasoning tokens streamed from the concept call. */
+  /** Reasoning tokens accumulated from the concept call. */
   reasoning: string;
   /** Phase of the streaming response. */
   phase: "thinking" | "writing" | "done";
-  /** Pipeline stage emitting this update (concept | mechanics | visual | compose). */
+  /** Pipeline stage emitting this update. */
   stage: PipelineProgress["stage"];
+  /** Newly emitted tokens since the last progress event. */
+  tokenDelta: string;
+  /** Set on stage start or form retry — UI inserts a header/separator. */
+  segmentStart?: { stage: PipelineStage; attempt?: number };
+  /** Populated only during the form stage; absent on other stages. */
+  formAttempt?: FormAttempt;
+  /** Snapshot of every completed stage's final raw buffer. */
+  outputs: Partial<Record<PipelineStage, string>>;
 };
 
 export type SpellGenerationResult = {
@@ -128,10 +137,20 @@ export async function generateSpellFromPrompt(
           reasoning: progress.reasoning,
           phase: progress.phase,
           stage: progress.stage,
+          tokenDelta: progress.tokenDelta,
+          segmentStart: progress.segmentStart,
+          formAttempt: progress.formAttempt,
+          outputs: progress.outputs,
         });
       },
     });
-    onProgress?.({ reasoning, phase: "done", stage: "compose" });
+    onProgress?.({
+      reasoning,
+      phase: "done",
+      stage: "compose",
+      tokenDelta: "",
+      outputs: {},
+    });
     return { spell, reasoning };
   } catch (err) {
     if (err instanceof SpellGenerationError) {
