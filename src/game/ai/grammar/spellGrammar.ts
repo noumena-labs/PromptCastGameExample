@@ -68,7 +68,7 @@ const arrangeLit = lit(["single", "ring", "line", "stack", "random"]);
 
 export const CONCEPT_GRAMMAR = `
 ${COMMON}
-root ::= ws "{" ws "\\"name\\"" ws ":" ws string ws "," ws "\\"element\\"" ws ":" ws element ws "," ws "\\"deliveryFamily\\"" ws ":" ws delivery ws "," ws "\\"impact\\"" ws ":" ws impact ws "," ws "\\"intent_summary\\"" ws ":" ws string ws "," ws "\\"effects\\"" ws ":" ws effect-array ws "," ws "\\"count\\"" ws ":" ws number ws "}" ws
+root ::= ws "{" ws "\\"name\\"" ws ":" ws string ws "," ws "\\"element\\"" ws ":" ws element ws "," ws "\\"deliveryFamily\\"" ws ":" ws delivery ws "," ws "\\"impact\\"" ws ":" ws impact ws "," ws "\\"intent_summary\\"" ws ":" ws string ws "," ws "\\"cast_imagery\\"" ws ":" ws string ws "," ws "\\"impact_imagery\\"" ws ":" ws string ws "," ws "\\"effects\\"" ws ":" ws effect-array ws "," ws "\\"count\\"" ws ":" ws number ws "}" ws
 element ::= ${elementLit}
 delivery ::= ${deliveryLit}
 impact ::= ${impactLit}

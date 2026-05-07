@@ -4,7 +4,7 @@ import { runBalanceCall } from "@/game/ai/pipeline/balanceCall";
 import { runFormCall, type FormAttempt } from "@/game/ai/pipeline/formCall";
 import { runPaletteCall } from "@/game/ai/pipeline/paletteCall";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
-import { spellLog, type SpellStage } from "@/game/ai/spellLog";
+import { spellLog } from "@/game/ai/spellLog";
 import { composeSpell, type SpellBalance } from "@/game/spells/spellSchema";
 import type { GeneratedSpell } from "@/game/types";
 
@@ -23,10 +23,10 @@ import type { GeneratedSpell } from "@/game/types";
  * the UI can render a header/separator in its transcript.
  */
 
-export type PipelineStage = "concept" | "balance" | "form" | "palette" | "compose";
+export type PipelineStage = "concept" | "balance" | "form-cast" | "form-impact" | "palette" | "compose";
 
 export type PipelineProgress = {
-  stage: SpellStage;
+  stage: PipelineStage;
   /** "thinking" while inside <think>; "writing" once JSON tokens emit. */
   phase: "thinking" | "writing" | "done";
   /** Cumulative reasoning text (only populated during the concept stage). */
@@ -35,7 +35,7 @@ export type PipelineProgress = {
   tokenDelta: string;
   /** Set on stage start or form retry — UI uses this to insert a header. */
   segmentStart?: { stage: PipelineStage; attempt?: number };
-  /** Populated only during the form stage; null on other stages. */
+  /** Populated only during the form stages; null otherwise. */
   formAttempt?: FormAttempt;
   /** Snapshot of every completed stage's final raw buffer. */
   outputs: Partial<Record<PipelineStage, string>>;
@@ -116,7 +116,7 @@ export async function runSpellPipeline(opts: {
       reasoning: conceptReasoning,
       tokenDelta: "",
       segmentStart: { stage, attempt },
-      formAttempt: stage === "form" ? currentFormAttempt : undefined,
+      formAttempt: stage === "form-cast" || stage === "form-impact" ? currentFormAttempt : undefined,
       outputs: { ...outputs },
     });
   };
@@ -175,9 +175,10 @@ export async function runSpellPipeline(opts: {
     balance = { powerTier: 3 };
   }
 
-  // ── Form ─────────────────────────────────────────────────────────────────
-  currentStage = "form";
-  emitSegmentStart("form", 1);
+  // ── Form (cast + impact) ─────────────────────────────────────────────────
+  currentStage = "form-cast";
+  emitSegmentStart("form-cast", 1);
+  let lastFormStage: PipelineStage = "form-cast";
   const formResult = await runFormCall({
     engine,
     prompt: cleanPrompt,
@@ -185,8 +186,12 @@ export async function runSpellPipeline(opts: {
     signal,
     onAttempt: (attempt) => {
       currentFormAttempt = attempt;
-      if (attempt.n > 1) {
-        emitSegmentStart("form", attempt.n);
+      const stageId: PipelineStage = attempt.scene === "cast" ? "form-cast" : "form-impact";
+      // Emit a fresh segment header on stage transition or on every retry.
+      if (stageId !== lastFormStage || attempt.n > 1) {
+        currentStage = stageId;
+        lastFormStage = stageId;
+        emitSegmentStart(stageId, attempt.n);
       }
     },
     onToken: (token) => {
@@ -194,7 +199,8 @@ export async function runSpellPipeline(opts: {
       scheduleFlush();
     },
   });
-  outputs.form = formResult.rawOutput;
+  outputs["form-cast"] = formResult.rawOutput.cast;
+  outputs["form-impact"] = formResult.rawOutput.impact;
   if (pending) flush();
 
   // ── Palette ──────────────────────────────────────────────────────────────
@@ -205,7 +211,7 @@ export async function runSpellPipeline(opts: {
     engine,
     prompt: cleanPrompt,
     concept: conceptResult.concept,
-    form: formResult.form,
+    form: formResult.castForm,
     signal,
     onToken: (token) => {
       pending += token;
@@ -225,7 +231,8 @@ export async function runSpellPipeline(opts: {
       reasoning: conceptResult.reasoning,
       concept: conceptResult.concept,
       balance,
-      form: formResult.form,
+      castForm: formResult.castForm,
+      impactForm: formResult.impactForm,
       palette: paletteResult.palette,
     });
   } catch (err) {
@@ -255,6 +262,7 @@ export async function runSpellPipeline(opts: {
     impact: spell.impact,
     manaCost: spell.manaCost,
     cooldownMs: spell.cooldownMs,
+    impactDurationMs: spell.impactDurationMs,
     formAttempts: formResult.attempts,
   });
 

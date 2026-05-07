@@ -24,14 +24,22 @@ const slotKeys = ["I", "II", "III", "IV"];
 const SHATTER_VFX_MS = 800;
 const TIMER_TICK_MS = 250;
 
-const PIPELINE_STAGES = ["concept", "balance", "form", "palette", "compose"] as const;
+const PIPELINE_STAGES = [
+  "concept",
+  "balance",
+  "form-cast",
+  "form-impact",
+  "palette",
+  "compose",
+] as const;
 type StageStatus = "pending" | "active" | "done";
 type StageProgress = Record<PipelineStage, StageStatus>;
 
 const STAGE_LABEL: Record<PipelineStage, string> = {
   concept: "Concept",
   balance: "Balance",
-  form: "Form",
+  "form-cast": "Form · Cast",
+  "form-impact": "Form · Impact",
   palette: "Palette",
   compose: "Compose",
 };
@@ -40,7 +48,8 @@ function makeInitialStages(): StageProgress {
   return {
     concept: "active",
     balance: "pending",
-    form: "pending",
+    "form-cast": "pending",
+    "form-impact": "pending",
     palette: "pending",
     compose: "pending",
   };
@@ -60,10 +69,6 @@ function advanceStages(prev: StageProgress, nextStage: PipelineStage): StageProg
     }
   }
   return next;
-}
-
-function asPipelineStage(stage: SpellStage): PipelineStage | null {
-  return (PIPELINE_STAGES as readonly string[]).includes(stage) ? (stage as PipelineStage) : null;
 }
 
 // ─── Transcript model ────────────────────────────────────────────────────────
@@ -91,7 +96,7 @@ type Phase =
   | {
       kind: "thinking";
       startedAt: number;
-      currentStage: SpellStage;
+      currentStage: PipelineStage;
       stages: StageProgress;
       formAttempt?: FormAttempt;
       maxFormAttempt: number;
@@ -112,9 +117,12 @@ type Phase =
 export function PromptOverlay() {
   const promptOpen = useGameStore((state) => state.promptOpen);
   const sanctuaryEndsAt = useGameStore((state) => state.sanctuaryEndsAt);
+  const sanctuaryPausedRemainingMs = useGameStore((state) => state.sanctuaryPausedRemainingMs);
   const selectedSlot = useGameStore((state) => state.selectedSlot);
   const setSelectedSlot = useGameStore((state) => state.setSelectedSlot);
   const saveGeneratedSpell = useGameStore((state) => state.saveGeneratedSpell);
+  const pauseSanctuaryTimer = useGameStore((state) => state.pauseSanctuaryTimer);
+  const resumeSanctuaryTimer = useGameStore((state) => state.resumeSanctuaryTimer);
   const exitSanctuary = useGameStore((state) => state.exitSanctuary);
 
   const [prompt, setPrompt] = useState(examplePrompts[0]);
@@ -168,6 +176,20 @@ export function PromptOverlay() {
 
   useEffect(() => {
     if (!promptOpen) return;
+    if (phase.kind === "compose") {
+      resumeSanctuaryTimer();
+    } else if (
+      phase.kind === "thinking" ||
+      phase.kind === "previewing" ||
+      phase.kind === "bound" ||
+      phase.kind === "error"
+    ) {
+      pauseSanctuaryTimer();
+    }
+  }, [promptOpen, phase.kind, pauseSanctuaryTimer, resumeSanctuaryTimer]);
+
+  useEffect(() => {
+    if (!promptOpen) return;
     if (phase.kind !== "compose") {
       clearComposeTick();
       return;
@@ -191,11 +213,10 @@ export function PromptOverlay() {
   }, [phase, clearThinkingTick]);
 
   const shieldRemainingMs =
-    sanctuaryEndsAt !== null ? Math.max(0, sanctuaryEndsAt - now) : SANCTUARY_DURATION_MS;
-  const shieldDecay =
     sanctuaryEndsAt !== null
-      ? Math.max(0, Math.min(1, 1 - shieldRemainingMs / SANCTUARY_DURATION_MS))
-      : 0;
+      ? Math.max(0, sanctuaryEndsAt - now)
+      : sanctuaryPausedRemainingMs ?? SANCTUARY_DURATION_MS;
+  const shieldDecay = Math.max(0, Math.min(1, 1 - shieldRemainingMs / SANCTUARY_DURATION_MS));
 
   useEffect(() => {
     if (!promptOpen) return;
@@ -240,9 +261,9 @@ export function PromptOverlay() {
           setPhase((current) => {
             if (current.kind !== "thinking") return current;
 
-            const pipelineStage = asPipelineStage(progress.stage);
+            const pipelineStage = progress.stage;
             const stages =
-              pipelineStage && current.currentStage !== progress.stage
+              current.currentStage !== pipelineStage
                 ? advanceStages(current.stages, pipelineStage)
                 : current.stages;
 
@@ -263,7 +284,7 @@ export function PromptOverlay() {
                 },
               ];
             }
-            if (progress.tokenDelta && pipelineStage) {
+            if (progress.tokenDelta) {
               const attempt = progress.formAttempt?.n ?? 1;
               const last = transcript[transcript.length - 1];
               if (
@@ -294,7 +315,7 @@ export function PromptOverlay() {
 
             return {
               ...current,
-              currentStage: progress.stage,
+              currentStage: pipelineStage,
               stages,
               formAttempt: progress.formAttempt,
               maxFormAttempt,
@@ -360,6 +381,7 @@ export function PromptOverlay() {
   const handleInscribe = (event: FormEvent) => {
     event.preventDefault();
     if (phase.kind !== "compose") return;
+    pauseSanctuaryTimer();
     clearComposeTick();
     void runChat(prompt);
   };
@@ -631,7 +653,7 @@ function StageRail({
       <ol className="runeCardStageRail" aria-label="Spell generation pipeline">
         {PIPELINE_STAGES.map((stage, i) => {
           const status = stages[stage];
-          const isForm = stage === "form";
+          const isForm = stage === "form-cast" || stage === "form-impact";
           const detail =
             isForm && status === "active" && formAttempt && formAttempt.n > 1
               ? `${formAttempt.n}/${formAttempt.total}`
@@ -753,7 +775,8 @@ function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
 }
 
 function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: PreviewMeta }) {
-  const sceneSummary = describeScene(spell.scene);
+  const castSummary = describeScene(spell.scenes.cast);
+  const impactSummary = describeScene(spell.scenes.impact);
   return (
     <div className="runeCardErrorDetails">
       <div className="runeCardErrorTechnical">
@@ -766,13 +789,18 @@ function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: Preview
       <div className="runeCardErrorTechnical">
         <strong>Delivery:</strong> {spell.deliveryFamily} · <strong>Impact:</strong> {spell.impact}
         {" · "}<strong>Count:</strong> {spell.count}
+        {" · "}<strong>Impact dur:</strong> {spell.impactDurationMs}ms
       </div>
       <div className="runeCardErrorTechnical">
-        <strong>Scene tree:</strong>
+        <strong>Cast scene:</strong>
       </div>
-      <pre className="runeCardErrorRaw">{sceneSummary}</pre>
+      <pre className="runeCardErrorRaw">{castSummary}</pre>
+      <div className="runeCardErrorTechnical">
+        <strong>Impact scene:</strong>
+      </div>
+      <pre className="runeCardErrorRaw">{impactSummary}</pre>
 
-      {(["concept", "balance", "form", "palette"] as const).map((stage) => {
+      {(["concept", "balance", "form-cast", "form-impact", "palette"] as const).map((stage) => {
         const out = meta.outputs[stage];
         if (!out) return null;
         return (

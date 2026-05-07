@@ -68,6 +68,7 @@ export type GameStore = {
   promptOpen: boolean;
   selectedSlot: number;
   sanctuaryEndsAt: number | null;
+  sanctuaryPausedRemainingMs: number | null;
   networkSequence: number;
   lastLocalCast: SequencedCastPayload | null;
   lastCrystalCollect: SequencedCrystalPayload | null;
@@ -90,6 +91,8 @@ export type GameStore = {
   respawnManaMotes: () => void;
   dropManaMotesAt: (position: Vec3, count?: number) => void;
   enterSanctuary: () => boolean;
+  pauseSanctuaryTimer: () => void;
+  resumeSanctuaryTimer: () => void;
   exitSanctuary: () => void;
   setSelectedSlot: (slot: number) => void;
   saveGeneratedSpell: (spell: GeneratedSpell) => void;
@@ -121,6 +124,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   promptOpen: false,
   selectedSlot: 0,
   sanctuaryEndsAt: null,
+  sanctuaryPausedRemainingMs: null,
   networkSequence: 0,
   lastLocalCast: null,
   lastCrystalCollect: null,
@@ -309,6 +313,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       promptOpen: true,
       sanctuaryEndsAt: now() + SANCTUARY_DURATION_MS,
+      sanctuaryPausedRemainingMs: null,
       players: {
         ...state.players,
         [player.id]: { ...player, aura: player.aura - AURA_THRESHOLD, status: "sanctuary", isShielded: true, velocity: [0, 0, 0] },
@@ -318,13 +323,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return true;
   },
 
+  pauseSanctuaryTimer: () =>
+    set((state) => {
+      if (state.sanctuaryEndsAt === null) return state;
+      return {
+        sanctuaryEndsAt: null,
+        sanctuaryPausedRemainingMs: Math.max(0, state.sanctuaryEndsAt - now()),
+      };
+    }),
+
+  resumeSanctuaryTimer: () =>
+    set((state) => {
+      if (state.sanctuaryPausedRemainingMs === null) return state;
+      return {
+        sanctuaryEndsAt: now() + state.sanctuaryPausedRemainingMs,
+        sanctuaryPausedRemainingMs: null,
+      };
+    }),
+
   exitSanctuary: () =>
     set((state) => {
       const player = state.players[state.localPlayerId];
-      if (!player) return { promptOpen: false, sanctuaryEndsAt: null };
+      if (!player) return { promptOpen: false, sanctuaryEndsAt: null, sanctuaryPausedRemainingMs: null };
       return {
         promptOpen: false,
         sanctuaryEndsAt: null,
+        sanctuaryPausedRemainingMs: null,
         players: {
           ...state.players,
           [player.id]: { ...player, status: player.health > 0 ? "alive" : "dead", isShielded: false },
@@ -343,6 +367,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return {
         promptOpen: false,
         sanctuaryEndsAt: null,
+        sanctuaryPausedRemainingMs: null,
         players: {
           ...state.players,
           [player.id]: { ...player, status: "alive", isShielded: false, spellSlots: slots },
@@ -378,6 +403,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // SELF: AOE/wall/burst centered on caster.
     if (spell.deliveryFamily === "self") {
+      // Normalize the cast direction so the renderer can orient walls/beams
+      // perpendicular to the player's aim. Self-cast walls face whichever
+      // way the caster was looking when they triggered the spell.
+      const dirLen = Math.hypot(direction[0], direction[1], direction[2]) || 1;
+      const forward: Vec3 = [direction[0] / dirLen, direction[1] / dirLen, direction[2] / dirLen];
       set({
         ...networkUpdate,
         players: { ...state.players, [ownerId]: nextPlayer },
@@ -388,6 +418,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             ownerId,
             spell,
             position: [player.position[0], player.position[1] + 0.05, player.position[2]],
+            forward,
             createdAt: timestamp,
             expiresAt,
             tickedAt: {},
@@ -559,6 +590,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       promptOpen: false,
       selectedSlot: 0,
       sanctuaryEndsAt: null,
+      sanctuaryPausedRemainingMs: null,
       log: ["Match reset."],
     });
   },

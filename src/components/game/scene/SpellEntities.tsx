@@ -8,14 +8,15 @@ import { useShallow } from "zustand/react/shallow";
 import { useGameStore } from "@/game/state/gameStore";
 import { projectileMotion } from "@/game/state/projectileMotion";
 import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
+import type { Vec3 } from "@/game/types";
 
 /**
  * SpellEntities renders both projectiles (motion-driven) and area spells
  * (static-position-with-radius) using the SceneNode DSL via SceneNodeRenderer.
  *
- * The spell's `scene` field is always present post-pipeline; there is no
- * fallback path. If a spell ever arrives without a scene the renderer simply
- * omits it.
+ * Each spell carries two scenes: `scenes.cast` (used during travel/cast) and
+ * `scenes.impact` (used during the impact area's lifetime). Projectiles render
+ * the cast scene; area spells render the impact scene.
  */
 
 export function SpellEntities() {
@@ -50,7 +51,7 @@ function Projectile({ id }: { id: string }) {
   return (
     <group ref={groupRef} position={motionSnapshot.position}>
       <SceneNodeRenderer
-        scene={spell.scene}
+        scene={spell.scenes.cast}
         spellId={spell.id}
         spawnedAt={createdAt}
         lifetimeSeconds={Math.max(0.4, spell.durationMs / 1000)}
@@ -75,13 +76,13 @@ function AreaSpell({ areaId }: { areaId: string }) {
   // assuming a ~1m unit scene; the renderer's local 1.0 is mapped onto the
   // actual radius here.
   const radius = area.spell.radius;
-  const rotation = deterministicRotation(area.id);
+  const rotation = orientationFor(area);
 
   return (
     <group position={area.position} rotation-y={rotation}>
       <group scale={[radius, 1, radius]}>
         <SceneNodeRenderer
-          scene={area.spell.scene}
+          scene={area.spell.scenes.impact}
           spellId={area.spell.id}
           spawnedAt={area.createdAt}
           lifetimeSeconds={Math.max(0.6, (area.expiresAt - area.createdAt) / 1000)}
@@ -94,6 +95,32 @@ function AreaSpell({ areaId }: { areaId: string }) {
       </Billboard>
     </group>
   );
+}
+
+/**
+ * Choose a Y-axis rotation for the area's geometry. Walls and beams should
+ * face perpendicular to / along the cast direction so they actually feel
+ * like a barrier or a line of force. Other impacts get a stable random
+ * rotation so identical spells don't all line up the same way.
+ */
+function orientationFor(area: { id: string; forward: Vec3; spell: { impact: string } }): number {
+  const impact = area.spell.impact;
+  const f = area.forward;
+  const fwLen = Math.hypot(f[0], f[2]);
+  if (fwLen > 1e-3 && impact === "wall") {
+    // Walls should BLOCK the cast direction: their long axis (segments laid
+    // along local +X by arrange='line') runs perpendicular to forward, so
+    // the broad face faces the caster. atan2(forward.x, forward.z) yaws so
+    // local +Z aligns with forward; offsetting by +π/2 puts local +X
+    // perpendicular to forward — exactly what we want.
+    return Math.atan2(f[0], f[2]) + Math.PI / 2;
+  }
+  if (fwLen > 1e-3 && impact === "trap") {
+    // Traps are flat sigils on the ground; align their local +X with
+    // forward so any directional artwork reads correctly to the caster.
+    return Math.atan2(f[0], f[2]);
+  }
+  return deterministicRotation(area.id);
 }
 
 function deterministicRotation(value: string) {

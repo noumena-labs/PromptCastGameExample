@@ -15,11 +15,11 @@ import { conceptSchema, type SpellConcept } from "@/game/spells/spellSchema";
  * the post-`</think>` body.
  */
 
-const SYSTEM_PROMPT = `You are the Sage of the Sanctuary. The player describes a spell. In this step you grasp the SHAPE of their intent — not the numbers, not the visuals.
+const SYSTEM_PROMPT = `You are the Sage of the Sanctuary. The player describes a spell. In this step you grasp the SHAPE of their intent — not the numbers, but the imagery.
 
 Think briefly inside <think>...</think>, then output a single strict JSON object on its own line:
 
-{ "name": "...", "element": "...", "deliveryFamily": "...", "impact": "...", "intent_summary": "...", "effects": [], "count": 1 }
+{ "name": "...", "element": "...", "deliveryFamily": "...", "impact": "...", "intent_summary": "...", "cast_imagery": "...", "impact_imagery": "...", "effects": [], "count": 1 }
 
 FIELDS:
 - name: short evocative title, 2-4 words, max 32 chars.
@@ -31,12 +31,25 @@ FIELDS:
     self       — centered on the wizard (nova, shield, aura, vine eruption)
 - impact — what happens at the destination:
     single | aoe | vortex | wall | trap | burst | none
-- intent_summary: one sentence, max ~140 chars, capturing the player's vision.
+- intent_summary: one sentence, ≤180 chars, capturing the player's vision.
+- cast_imagery: vivid description of the TRAVEL stage — what the player sees while the spell is in flight (the projectile's body, the beam's core, the falling meteor's shape, the self-cast root). Be concrete: shapes, colors, motion, trailing details. ≤220 chars.
+- impact_imagery: vivid description of the IMPACT stage — what ERUPTS at the destination point: pillars of flame, expanding shockwave rings, crackling shards, ground sigils, vortex columns, walls of force. The impact must be DRAMATIC and visibly distinct from the cast. ≤220 chars.
 - effects: 0-3 of burn, slow, stun, pull, knockback, shield_break, poison.
 - count: number of projectiles or impact points.
     sky:        1-10 (4-8 for showers/storms/rain, 1-3 for single strikes)
     projectile: 1-5  (1 for a bolt; 3-5 for a volley)
     beam, self: always 1
+
+EXAMPLES of cast_imagery vs impact_imagery:
+  prompt: "black flame"
+    cast_imagery:   "A coal-black sphere wreathed in violet smoke, trailing wisps of dark fire as it streaks forward."
+    impact_imagery: "A column of black flame erupts upward 3m tall, ringed by a low circle of guttering shadow-fire and curling smoke."
+  prompt: "icy meteor shower"
+    cast_imagery:   "Jagged shards of pale-blue ice falling from the sky, leaving frost trails behind."
+    impact_imagery: "Each shard shatters into a wide ring of frost; a cracked-ice sigil glows on the ground beneath drifting cold mist."
+  prompt: "wall of thorns"
+    cast_imagery:   "A green pulse of nature energy travelling forward along the ground, low and fast."
+    impact_imagery: "A jagged wall of dark-green thorned vines erupts vertically from the earth, spanning 4m wide, twisting in place."
 
 After </think>, output ONLY the JSON object. No fences, no commentary.`;
 
@@ -117,6 +130,8 @@ export async function runConceptCall(opts: {
     element: parsed.data.element,
     deliveryFamily: parsed.data.deliveryFamily,
     impact: parsed.data.impact,
+    cast_imagery: parsed.data.cast_imagery,
+    impact_imagery: parsed.data.impact_imagery,
   });
 
   return { concept: parsed.data, reasoning, rawOutput: buffer };

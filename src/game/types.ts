@@ -36,11 +36,25 @@ export type GeneratedSpell = {
   speed: number;
   radius: number;
   durationMs: number;
+  /**
+   * How long the impact area lingers after the spell resolves. Derived from
+   * the impact taxonomy: short flashes for single/burst, full durationMs for
+   * lingering impacts (aoe/vortex/wall/trap), 0 for none.
+   */
+  impactDurationMs: number;
   cooldownMs: number;
   manaCost: number;
   effects: SpellEffect[];
   color: string;
-  scene: SpellScene;
+  /**
+   * Two-stage visuals. `cast` is what the player sees while the spell
+   * travels (projectile body, beam core, sky-meteor, self-cast root). `impact`
+   * is the eruption / lingering field that spawns at the resolution point.
+   */
+  scenes: {
+    cast: SpellScene;
+    impact: SpellScene;
+  };
 };
 
 export type SpellSlot = GeneratedSpell | null;
@@ -91,6 +105,12 @@ export type AreaSpellState = {
   ownerId: string;
   spell: GeneratedSpell;
   position: Vec3;
+  /**
+   * Unit vector pointing in the direction the caster aimed when the area was
+   * spawned. Used by the renderer to orient impact-shape-aware geometry —
+   * e.g. walls face perpendicular to this, beams stretch along it.
+   */
+  forward: Vec3;
   createdAt: number;
   expiresAt: number;
   tickedAt: Record<string, number>;

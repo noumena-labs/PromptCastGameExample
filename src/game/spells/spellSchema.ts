@@ -29,7 +29,9 @@ export const conceptSchema = z.object({
   element: z.enum(spellElements).catch("arcane"),
   deliveryFamily: z.enum(spellDeliveryFamilies).catch("projectile"),
   impact: z.enum(spellImpacts).catch("single"),
-  intent_summary: z.string().max(160).catch(""),
+  intent_summary: z.string().max(200).catch(""),
+  cast_imagery: z.string().max(240).catch(""),
+  impact_imagery: z.string().max(240).catch(""),
   effects: z.array(z.enum(spellEffects)).max(3).catch([]),
   count: z.coerce.number().int().min(1).max(10).catch(1),
 });
@@ -74,7 +76,8 @@ export type ComposeInput = {
   reasoning?: string;
   concept: SpellConcept;
   balance: SpellBalance;
-  form: SpellForm;
+  castForm: SpellForm;
+  impactForm: SpellForm;
   palette: SpellPalette;
 };
 
@@ -85,29 +88,21 @@ const titleCase = (value: string) =>
     .slice(0, 32);
 
 export function composeSpell(input: ComposeInput): GeneratedSpell {
-  const { concept, balance, form, palette, prompt, reasoning } = input;
+  const { concept, balance, castForm, impactForm, palette, prompt, reasoning } = input;
 
   const tier: PowerTier = clampTier(balance.powerTier);
   const derived = deriveStats(tier, concept.deliveryFamily);
+  const impactDurationMs = impactDurationFor(concept.impact, derived.durationMs);
 
   const countCap =
     concept.deliveryFamily === "sky" ? 10 : concept.deliveryFamily === "projectile" ? 5 : 1;
   const count = Math.max(1, Math.min(countCap, concept.count));
 
-  // Apply palette boost to every node's emissiveIntensity, then enforce hard
-  // caps via clampScene. Palette never recolors per-node hues — those are
-  // the form call's responsibility.
-  const boosted: SpellScene = {
-    ...form,
-    emissiveIntensity: clamp01x4(form.emissiveIntensity * palette.emissiveBoost),
-    children: form.children.map((child) => ({
-      ...child,
-      emissiveIntensity: clamp01x4(child.emissiveIntensity * palette.emissiveBoost),
-    })),
-  };
-  const scene = clampScene(boosted);
+  const castScene = clampScene(applyEmissiveBoost(castForm, palette.emissiveBoost));
+  const impactScene = clampScene(applyEmissiveBoost(impactForm, palette.emissiveBoost));
 
-  const color = palette.primary || form.color || elementColors[concept.element];
+  const color =
+    palette.primary || castForm.color || impactForm.color || elementColors[concept.element];
 
   return {
     id: `spell-${nanoid(8)}`,
@@ -122,11 +117,39 @@ export function composeSpell(input: ComposeInput): GeneratedSpell {
     speed: derived.speed,
     radius: derived.radius,
     durationMs: derived.durationMs,
+    impactDurationMs,
     cooldownMs: derived.cooldownMs,
     manaCost: derived.manaCost,
     effects: [...new Set(concept.effects)].slice(0, 3),
     color,
-    scene,
+    scenes: { cast: castScene, impact: impactScene },
+  };
+}
+
+function impactDurationFor(impact: SpellConcept["impact"], spellDurationMs: number): number {
+  switch (impact) {
+    case "single":
+      return 800;
+    case "burst":
+      return 1000;
+    case "none":
+      return 0;
+    case "aoe":
+    case "vortex":
+    case "wall":
+    case "trap":
+      return spellDurationMs;
+  }
+}
+
+function applyEmissiveBoost(form: SpellForm, boost: number): SpellScene {
+  return {
+    ...form,
+    emissiveIntensity: clamp01x4(form.emissiveIntensity * boost),
+    children: form.children.map((child) => ({
+      ...child,
+      emissiveIntensity: clamp01x4(child.emissiveIntensity * boost),
+    })),
   };
 }
 

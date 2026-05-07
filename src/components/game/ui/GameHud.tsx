@@ -22,10 +22,13 @@ export function GameHud() {
   const roomCode = useGameStore((state) => state.roomCode);
   const mode = useGameStore((state) => state.mode);
   const sanctuaryEndsAt = useGameStore((state) => state.sanctuaryEndsAt);
+  const sanctuaryPausedRemainingMs = useGameStore((state) => state.sanctuaryPausedRemainingMs);
   const resetMatch = useGameStore((state) => state.resetMatch);
   const health = player ? Math.max(0, player.health / PLAYER_MAX_HEALTH) : 0;
   const mana = player ? Math.max(0, player.mana / PLAYER_MAX_MANA) : 0;
-  const sanctuaryRemaining = sanctuaryEndsAt ? Math.max(0, sanctuaryEndsAt - currentTime) : SANCTUARY_DURATION_MS;
+  const sanctuaryRemaining = sanctuaryEndsAt
+    ? Math.max(0, sanctuaryEndsAt - currentTime)
+    : sanctuaryPausedRemainingMs ?? SANCTUARY_DURATION_MS;
 
   useEffect(() => {
     const interval = window.setInterval(() => setCurrentTime(Date.now()), 100);

@@ -157,7 +157,14 @@ function advanceProjectiles(delta: number, world: World) {
   }
 
   for (const burst of bursts) {
-    spawnBurst(burst.motion.id, burst.motion.ownerId, burst.motion.spell, burst.position, burst.reason);
+    spawnBurst(
+      burst.motion.id,
+      burst.motion.ownerId,
+      burst.motion.spell,
+      burst.position,
+      burst.motion.direction,
+      burst.reason,
+    );
   }
 }
 
@@ -166,17 +173,34 @@ function spawnBurst(
   ownerId: string,
   spell: GeneratedSpell,
   position: Vec3,
+  direction: Vec3,
   reason: "hit" | "expire",
 ) {
   const timestamp = Date.now();
   const isLingering = spell.impact === "aoe" || spell.impact === "vortex" || spell.impact === "wall" || spell.impact === "trap";
-  // Single-target spells leave only a small visual flash on impact. Lingering
-  // impacts spawn a real area that ticks damage for the spell's duration.
-  const durationMs = isLingering ? spell.durationMs : reason === "hit" ? 380 : 260;
-  const radius = isLingering ? spell.radius : Math.max(0.7, spell.radius * 1.4);
-  // Skip pure single-target "expire" bursts (they hit nothing) so we don't
-  // litter the meadow with empty rings.
+  // Compose stage encodes the visual lifetime of the impact scene:
+  //   single  → 800ms, burst → 1000ms, none → 0ms, lingering → spell.durationMs.
+  const durationMs = spell.impactDurationMs;
+  // Skip "expire" bursts that have no impact stage (none-impact spells) and
+  // non-lingering "expire" bursts (projectile hit nothing — no impact to draw).
+  if (durationMs <= 0) return;
   if (!isLingering && reason === "expire") return;
+  const radius = isLingering ? spell.radius : Math.max(0.7, spell.radius * 1.4);
+  // Normalize the projectile's direction so the renderer can orient walls /
+  // beams perpendicular to / along the cast axis.
+  const dirLen = Math.hypot(direction[0], direction[1], direction[2]) || 1;
+  // For sky-fall spells the projectile is travelling straight down. That's
+  // a useless "forward" for orienting a wall — use world +z so walls land
+  // facing the player rather than flat on the ground.
+  const isVerticalFall = Math.abs(direction[1]) > 0.95;
+  const forward: Vec3 = isVerticalFall
+    ? [0, 0, 1]
+    : [direction[0] / dirLen, 0, direction[2] / dirLen];
+  // Re-normalize horizontal projection (y-stripped) to keep |forward|=1.
+  const fLen = Math.hypot(forward[0], forward[1], forward[2]) || 1;
+  forward[0] /= fLen;
+  forward[1] /= fLen;
+  forward[2] /= fLen;
   useGameStore.setState((state) => ({
     areas: [
       ...state.areas,
@@ -185,6 +209,7 @@ function spawnBurst(
         ownerId,
         spell: { ...spell, durationMs, radius },
         position,
+        forward,
         createdAt: timestamp,
         expiresAt: timestamp + durationMs,
         tickedAt: {},
