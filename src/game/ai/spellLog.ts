@@ -17,8 +17,9 @@ const STORAGE_KEY = "promptcast.spellLog.lastFailure";
 export type SpellStage =
   | "load"
   | "concept"
-  | "mechanics"
-  | "visual"
+  | "balance"
+  | "form"
+  | "palette"
   | "compose"
   | "validate"
   | "repair";

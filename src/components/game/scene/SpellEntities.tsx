@@ -2,21 +2,20 @@
 
 import { Billboard, Text } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Group } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { useGameStore } from "@/game/state/gameStore";
 import { projectileMotion } from "@/game/state/projectileMotion";
-import { recipeForArchetype } from "@/game/spells/archetypeDefaults";
-import { EffectComposer } from "./effects/EffectComposer";
+import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
 
 /**
  * SpellEntities renders both projectiles (motion-driven) and area spells
- * (static-position-with-radius) using the recipe-driven `EffectComposer`.
+ * (static-position-with-radius) using the SceneNode DSL via SceneNodeRenderer.
  *
- * Per design: the composer reads the spell's `visualRecipe` (always present
- * post-pipeline) and dispatches to primitive R3F components. Legacy spells
- * without a recipe fall back to `recipeForArchetype(archetype)`.
+ * The spell's `scene` field is always present post-pipeline; there is no
+ * fallback path. If a spell ever arrives without a scene the renderer simply
+ * omits it.
  */
 
 export function SpellEntities() {
@@ -46,19 +45,15 @@ function Projectile({ id }: { id: string }) {
   });
 
   if (!motionSnapshot) return null;
-  const { spell, direction, createdAt } = motionSnapshot;
-  // Recipe is required on `GeneratedSpell` post-pipeline; the fallback is
-  // defensive in case an upstream consumer (e.g. test harness, network sync)
-  // strips it.
-  const recipe = spell.visualRecipe ?? recipeForArchetype(spell.archetype);
+  const { spell, createdAt } = motionSnapshot;
 
   return (
     <group ref={groupRef} position={motionSnapshot.position}>
-      <EffectComposer
-        recipe={recipe}
+      <SceneNodeRenderer
+        scene={spell.scene}
+        spellId={spell.id}
         spawnedAt={createdAt}
         lifetimeSeconds={Math.max(0.4, spell.durationMs / 1000)}
-        direction={direction}
       />
     </group>
   );
@@ -66,41 +61,34 @@ function Projectile({ id }: { id: string }) {
 
 function AreaSpell({ areaId }: { areaId: string }) {
   const area = useGameStore((state) => state.areas.find((item) => item.id === areaId));
-  // `now` ticks once a frame so age-driven effects (shockwave, ring pulse)
-  // re-render their internal timing inside the composer. The composer itself
-  // already reads age via useFrame, so we don't actually need to force renders
-  // — but we DO need the visual to track the area's lifetime in case a
-  // future enhancement wants to fade it on expiry.
+  // Lightweight tick so the billboard label re-evaluates if the spell expires
+  // mid-frame. The renderer drives its own per-frame motion via useFrame.
   const [, setTick] = useState(0);
   useEffect(() => {
     const handle = setInterval(() => setTick((n) => (n + 1) & 0xffff), 250);
     return () => clearInterval(handle);
   }, []);
 
-  const recipe = useMemo(() => {
-    if (!area) return null;
-    return area.spell.visualRecipe ?? recipeForArchetype(area.spell.archetype);
-  }, [area]);
+  if (!area) return null;
 
-  if (!area || !recipe) return null;
-
-  // Scale the composer's local 1.0 unit primitives (rings, discs) to the
-  // area's actual radius. We do this on the parent group so primitive code
-  // stays radius-agnostic.
+  // Scale the scene to the area's radius. Authored sizes are in meters
+  // assuming a ~1m unit scene; the renderer's local 1.0 is mapped onto the
+  // actual radius here.
   const radius = area.spell.radius;
   const rotation = deterministicRotation(area.id);
 
   return (
     <group position={area.position} rotation-y={rotation}>
       <group scale={[radius, 1, radius]}>
-        <EffectComposer
-          recipe={recipe}
+        <SceneNodeRenderer
+          scene={area.spell.scene}
+          spellId={area.spell.id}
           spawnedAt={area.createdAt}
           lifetimeSeconds={Math.max(0.6, (area.expiresAt - area.createdAt) / 1000)}
         />
       </group>
       <Billboard position={[0, 0.18, 0]}>
-        <Text fontSize={0.32} color={recipe.palette.primary} anchorX="center" anchorY="middle">
+        <Text fontSize={0.32} color={area.spell.color} anchorX="center" anchorY="middle">
           {area.spell.name}
         </Text>
       </Billboard>

@@ -1,26 +1,26 @@
 import type { CogentEngine } from "cogentlm";
 import { runConceptCall } from "@/game/ai/pipeline/conceptCall";
-import { runMechanicsCall } from "@/game/ai/pipeline/mechanicsCall";
-import { runVisualCall } from "@/game/ai/pipeline/visualCall";
+import { runBalanceCall } from "@/game/ai/pipeline/balanceCall";
+import { runFormCall, type FormAttempt } from "@/game/ai/pipeline/formCall";
+import { runPaletteCall } from "@/game/ai/pipeline/paletteCall";
 import type { StreamSink } from "@/game/ai/pipeline/callRunner";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import { spellLog, type SpellStage } from "@/game/ai/spellLog";
-import { composeSpell } from "@/game/spells/spellSchema";
+import { composeSpell, type SpellBalance } from "@/game/spells/spellSchema";
 import type { GeneratedSpell } from "@/game/types";
 
 /**
  * Pipeline orchestrator.
  *
- * Chains: concept → mechanics → visual → composeSpell. Each call is grammar-
- * constrained so failures are localised to a single stage. On stage failure
- * we throw a `SpellGenerationError` carrying the offending raw output — the
- * UI can show diagnostics and offer a Repair retry.
+ * Chains: concept → balance → form → palette → composeSpell. Each call is
+ * grammar-constrained so failures are localised. The form call retries up to
+ * 4 times internally; the balance call silently falls back to tier 3 on
+ * failure (the player would never notice). All other stages surface a
+ * SpellGenerationError on failure.
  *
- * Repair semantics: callers wanting a "try again with the cracked output"
- * loop can simply re-invoke `runSpellPipeline` after surfacing the error.
- * The model is non-deterministic; a fresh roll usually fixes it. We do NOT
- * implement auto-correction by feeding the broken JSON back in — empirically
- * that's worse than just re-rolling.
+ * Repair semantics: callers wanting a top-level "try again" loop simply
+ * re-invoke `runSpellPipeline`. We do NOT auto-feed broken JSON back in —
+ * empirically that's worse than a fresh re-roll.
  */
 
 export type PipelineProgress = {
@@ -29,6 +29,8 @@ export type PipelineProgress = {
   reasoning: string;
   /** "thinking" while inside <think>; "writing" once JSON tokens emit. */
   phase: "thinking" | "writing" | "done";
+  /** Populated only during the form stage; null on other stages. */
+  formAttempt?: FormAttempt;
 };
 
 export type PipelineResult = {
@@ -60,7 +62,6 @@ export async function runSpellPipeline(opts: {
   let conceptPhase: PipelineProgress["phase"] = "thinking";
   const conceptSink: StreamSink = (token) => {
     conceptBuffer += token;
-    // Switch to "writing" once the model closes its think block.
     if (conceptPhase === "thinking" && conceptBuffer.includes(THINK_CLOSE)) {
       conceptPhase = "writing";
     }
@@ -72,27 +73,57 @@ export async function runSpellPipeline(opts: {
       phase: conceptPhase,
     });
   };
-  const conceptResult = await runConceptCall({ engine, prompt: cleanPrompt, signal, onToken: conceptSink });
+  const conceptResult = await runConceptCall({
+    engine,
+    prompt: cleanPrompt,
+    signal,
+    onToken: conceptSink,
+  });
 
-  // ── Mechanics ────────────────────────────────────────────────────────────
-  onProgress?.({ stage: "mechanics", reasoning: conceptResult.reasoning, phase: "writing" });
-  const mechanicsResult = await runMechanicsCall({
+  // ── Balance ──────────────────────────────────────────────────────────────
+  // Balance failure is non-fatal; default to tier 3.
+  onProgress?.({ stage: "balance", reasoning: conceptResult.reasoning, phase: "writing" });
+  let balance: SpellBalance;
+  try {
+    const result = await runBalanceCall({
+      engine,
+      prompt: cleanPrompt,
+      concept: conceptResult.concept,
+      signal,
+    });
+    balance = result.balance;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    spellLog.warn("balance", "balance call failed; defaulting to tier 3", {
+      cause: (err as Error).message,
+    });
+    balance = { powerTier: 3 };
+  }
+
+  // ── Form ─────────────────────────────────────────────────────────────────
+  onProgress?.({ stage: "form", reasoning: conceptResult.reasoning, phase: "writing" });
+  const formResult = await runFormCall({
     engine,
     prompt: cleanPrompt,
     concept: conceptResult.concept,
     signal,
-    onToken: () => {
-      // No reasoning to stream — UI keeps showing the concept-stage thoughts.
+    onAttempt: (attempt) => {
+      onProgress?.({
+        stage: "form",
+        reasoning: conceptResult.reasoning,
+        phase: "writing",
+        formAttempt: attempt,
+      });
     },
   });
 
-  // ── Visual ───────────────────────────────────────────────────────────────
-  onProgress?.({ stage: "visual", reasoning: conceptResult.reasoning, phase: "writing" });
-  const visualResult = await runVisualCall({
+  // ── Palette ──────────────────────────────────────────────────────────────
+  onProgress?.({ stage: "palette", reasoning: conceptResult.reasoning, phase: "writing" });
+  const paletteResult = await runPaletteCall({
     engine,
     prompt: cleanPrompt,
     concept: conceptResult.concept,
-    mechanics: mechanicsResult.mechanics,
+    form: formResult.form,
     signal,
   });
 
@@ -103,8 +134,9 @@ export async function runSpellPipeline(opts: {
       prompt: cleanPrompt,
       reasoning: conceptResult.reasoning,
       concept: conceptResult.concept,
-      mechanics: mechanicsResult.mechanics,
-      visualRecipe: visualResult.visualRecipe,
+      balance,
+      form: formResult.form,
+      palette: paletteResult.palette,
     });
   } catch (err) {
     spellLog.failure({
@@ -123,10 +155,11 @@ export async function runSpellPipeline(opts: {
   onProgress?.({ stage: "compose", reasoning: conceptResult.reasoning, phase: "done" });
   spellLog.info("compose", "spell ready", {
     name: spell.name,
-    archetype: spell.archetype,
-    delivery: spell.delivery,
+    deliveryFamily: spell.deliveryFamily,
+    impact: spell.impact,
     manaCost: spell.manaCost,
     cooldownMs: spell.cooldownMs,
+    formAttempts: formResult.attempts,
   });
 
   return { spell, reasoning: conceptResult.reasoning };

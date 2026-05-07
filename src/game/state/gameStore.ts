@@ -377,7 +377,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const ownerColliderHandle = colliderRegistry.findWizardHandle(ownerId);
 
     // SELF: AOE/wall/burst centered on caster.
-    if (spell.delivery === "self") {
+    if (spell.deliveryFamily === "self") {
       set({
         ...networkUpdate,
         players: { ...state.players, [ownerId]: nextPlayer },
@@ -398,7 +398,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     // SKY: spawn N projectiles falling from above the targetPoint.
-    if (spell.delivery === "sky") {
+    if (spell.deliveryFamily === "sky") {
       const newMotions: string[] = [];
       const skyHeight = 28;
       for (let i = 0; i < spell.count; i += 1) {

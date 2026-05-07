@@ -6,42 +6,39 @@ import { spellLog } from "@/game/ai/spellLog";
 import { conceptSchema, type SpellConcept } from "@/game/spells/spellSchema";
 
 /**
- * Concept call: free-form thinking + tiny JSON tail. The LLM picks an
- * archetype, an element, a rough scale, and writes a 1-line intent summary.
+ * Concept call: free-form thinking + tiny JSON tail. The LLM names the spell,
+ * picks element + delivery family + impact, lists status effects, and chooses
+ * a count for sky / projectile spells.
  *
  * This is the ONLY call where reasoning runs unconstrained — we want the model
- * to think out loud about the player's intent. Grammar is applied to the
- * post-`</think>` body via `assistantPrefix`.
+ * to think out loud about the player's intent. The grammar applies only to
+ * the post-`</think>` body.
  */
 
-const SYSTEM_PROMPT = `You are the Sage of the Sanctuary. The player describes a spell. Your job in this step is to grasp the SHAPE of their intent — not the numbers.
+const SYSTEM_PROMPT = `You are the Sage of the Sanctuary. The player describes a spell. In this step you grasp the SHAPE of their intent — not the numbers, not the visuals.
 
-Think briefly inside <think>...</think>, then output a single strict JSON object with these fields:
+Think briefly inside <think>...</think>, then output a single strict JSON object on its own line:
 
-{ "archetype": "...", "element": "...", "intent_summary": "...", "scale": "..." }
+{ "name": "...", "element": "...", "deliveryFamily": "...", "impact": "...", "intent_summary": "...", "effects": [], "count": 1 }
 
-ARCHETYPE — choose the closest visual archetype:
-  meteor_strike     — single fiery rock from sky
-  meteor_shower     — multiple rocks rain down
-  lightning_bolt    — single lightning strike
-  lightning_storm   — multiple lightning strikes
-  blackhole         — swirling vortex pulling things in (visual only)
-  fireball          — classic forward-flying fire orb
-  fire_tornado      — vertical column of swirling flame
-  frost_nova        — radial ice burst from caster
-  ice_shard         — sharp ice projectile(s)
-  shadow_orb        — dark sphere of cursed energy
-  nature_thorns     — vines / thorns erupting from ground
-  arcane_beam       — straight beam of pure magic
-  arcane_orb        — slow heavy orb of arcane power
-  shield            — defensive aura around caster
-  custom            — none of the above fit cleanly
+FIELDS:
+- name: short evocative title, 2-4 words, max 32 chars.
+- element: fire | ice | lightning | earth | arcane | shadow | nature
+- deliveryFamily — how the spell reaches its target:
+    projectile — fired forward from the wizard
+    beam       — fast straight line from the wizard
+    sky        — falls from above onto the aimed point (meteors, lightning storms, hail, judgment)
+    self       — centered on the wizard (nova, shield, aura, vine eruption)
+- impact — what happens at the destination:
+    single | aoe | vortex | wall | trap | burst | none
+- intent_summary: one sentence, max ~140 chars, capturing the player's vision.
+- effects: 0-3 of burn, slow, stun, pull, knockback, shield_break, poison.
+- count: number of projectiles or impact points.
+    sky:        1-10 (4-8 for showers/storms/rain, 1-3 for single strikes)
+    projectile: 1-5  (1 for a bolt; 3-5 for a volley)
+    beam, self: always 1
 
-ELEMENT: fire | ice | lightning | earth | arcane | shadow | nature
-SCALE:   small | medium | large | epic   (visual size hint, not damage)
-INTENT_SUMMARY: one sentence, max ~140 chars, capturing the player's vision.
-
-After </think>, output ONLY the JSON object on its own line. No fences, no commentary.`;
+After </think>, output ONLY the JSON object. No fences, no commentary.`;
 
 export type ConceptCallResult = {
   concept: SpellConcept;
@@ -52,7 +49,6 @@ export type ConceptCallResult = {
 const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
 
-/** Extracts the inner reasoning between <think>...</think> if present. */
 function extractReasoning(buffer: string): string {
   const open = buffer.indexOf(THINK_OPEN);
   const close = buffer.indexOf(THINK_CLOSE);
@@ -69,10 +65,6 @@ export async function runConceptCall(opts: {
 }): Promise<ConceptCallResult> {
   spellLog.info("concept", "start", { promptLen: opts.prompt.length });
 
-  // We let reasoning run free; the grammar is loaded for the whole call but
-  // GBNF is only consulted once the model starts emitting characters that the
-  // grammar accepts. With LFM2.5-Thinking, the chat template wraps reasoning
-  // in <think>...</think> automatically — the JSON portion comes after.
   const { buffer } = await runChatCall({
     engine: opts.engine,
     systemPrompt: SYSTEM_PROMPT,
@@ -85,8 +77,6 @@ export async function runConceptCall(opts: {
   });
 
   const reasoning = extractReasoning(buffer);
-  // The JSON body lives after </think>, or — if the runtime stripped the
-  // wrapper — could be the entire buffer. extractJson() handles both.
   const closeIdx = buffer.indexOf(THINK_CLOSE);
   const tail = closeIdx === -1 ? buffer : buffer.slice(closeIdx + THINK_CLOSE.length);
 
@@ -123,9 +113,10 @@ export async function runConceptCall(opts: {
   }
 
   spellLog.info("concept", "ok", {
-    archetype: parsed.data.archetype,
+    name: parsed.data.name,
     element: parsed.data.element,
-    scale: parsed.data.scale,
+    deliveryFamily: parsed.data.deliveryFamily,
+    impact: parsed.data.impact,
   });
 
   return { concept: parsed.data, reasoning, rawOutput: buffer };

@@ -34,10 +34,12 @@ function defaultUserMessage(stage: SpellStage): string {
       return "The Sage is still gathering breath. Try again in a moment.";
     case "concept":
       return "The Sage could not grasp the shape of your intent.";
-    case "mechanics":
-      return "The Sage glimpsed the form but failed to balance the forces.";
-    case "visual":
-      return "The Sage saw the spell but the colors slipped through their fingers.";
+    case "balance":
+      return "The Sage glimpsed the form but failed to weigh its forces.";
+    case "form":
+      return "The Sage saw the spell but its shape would not hold.";
+    case "palette":
+      return "The Sage shaped the spell but the colors slipped away.";
     case "compose":
       return "The Sage assembled the runes but they refused to lock together.";
     case "validate":

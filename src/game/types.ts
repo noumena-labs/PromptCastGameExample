@@ -1,23 +1,24 @@
-import type { ArchetypeKind, VisualRecipe } from "@/game/spells/visualRecipe";
+import type { SpellScene } from "@/game/spells/sceneNode";
 
 export type Vec3 = [number, number, number];
 
 export type SpellElement = "fire" | "ice" | "lightning" | "earth" | "arcane" | "shadow" | "nature";
 
 /**
- * High-level composition of a spell:
- *  - delivery: how the spell reaches its target.
- *  - impact: what happens at the destination.
- *  - count: number of projectiles / impact points (e.g. meteor shower = 6).
+ * Delivery family — how the spell reaches its target. Drives spawn behavior
+ * and the speed component of derived stats. Replaces the old `delivery` field.
  *
- * Examples:
- *   bolt           → { delivery: "projectile", impact: "single", count: 1 }
- *   meteor shower  → { delivery: "sky",        impact: "aoe",    count: 6 }
- *   frost nova     → { delivery: "self",       impact: "burst",  count: 1 }
- *   black hole     → { delivery: "projectile", impact: "vortex", count: 1 }
- *   fire wall      → { delivery: "self",       impact: "wall",   count: 1 }
+ *   projectile → travels along the cast ray from the caster.
+ *   beam       → near-instant line; brief travel time.
+ *   sky        → spawns above the reticle target point and falls.
+ *   self       → originates at the caster, stationary or expanding.
  */
-export type SpellDelivery = "projectile" | "beam" | "sky" | "self";
+export type SpellDeliveryFamily = "projectile" | "beam" | "sky" | "self";
+
+/**
+ * Impact family — what happens when the spell resolves. Used by the gameplay
+ * layer (damage / status / shape of effect), independent of the visual scene.
+ */
 export type SpellImpact = "single" | "aoe" | "vortex" | "wall" | "trap" | "burst" | "none";
 
 export type SpellEffect = "burn" | "slow" | "stun" | "pull" | "knockback" | "shield_break" | "poison";
@@ -27,9 +28,8 @@ export type GeneratedSpell = {
   name: string;
   prompt: string;
   reasoning?: string;
-  archetype: ArchetypeKind;
   element: SpellElement;
-  delivery: SpellDelivery;
+  deliveryFamily: SpellDeliveryFamily;
   impact: SpellImpact;
   count: number;
   damage: number;
@@ -40,7 +40,7 @@ export type GeneratedSpell = {
   manaCost: number;
   effects: SpellEffect[];
   color: string;
-  visualRecipe: VisualRecipe;
+  scene: SpellScene;
 };
 
 export type SpellSlot = GeneratedSpell | null;

@@ -3,17 +3,16 @@
  *
  * Cogentlm's `ChatOptions.grammar` accepts a GBNF string (llama.cpp dialect).
  * We constrain each call to a tight JSON shape so the model physically cannot
- * emit prose, fenced code blocks, or trailing commentary. This is the primary
- * defense against the "Sage spoke in tongues" failure.
+ * emit prose, fenced code blocks, or trailing commentary.
  *
  * Notes:
- *   - GBNF is permissive about whitespace; we always allow optional `ws`
- *     between tokens.
+ *   - GBNF is permissive about whitespace; we always allow optional `ws`.
  *   - Numbers are kept loose (signed integers + floats) — Zod re-clamps.
+ *   - llama.cpp GBNF requires single-line rule bodies. The `root ::=` for each
+ *     grammar MUST be on one line — do NOT line-wrap rule bodies.
  *   - The reasoning <think>...</think> block lives BEFORE the JSON. We do NOT
- *     constrain reasoning. We only constrain the post-think JSON body, by
- *     pre-feeding the model with the closing `</think>` and starting the
- *     grammar at `{`. See `pipeline/index.ts` for that strategy.
+ *     constrain reasoning. The grammar starts at `{`; the pipeline pre-feeds
+ *     the closing `</think>` so the model jumps straight into JSON.
  */
 
 const COMMON = `
@@ -29,77 +28,106 @@ hexcolor ::= "\\"#" hexdigit hexdigit hexdigit hexdigit hexdigit hexdigit "\\""
 bool ::= "true" | "false"
 `.trim();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Concept call grammar
-// ─────────────────────────────────────────────────────────────────────────────
-const archetypeLiteral = [
-  "meteor_strike",
-  "meteor_shower",
-  "lightning_bolt",
-  "lightning_storm",
-  "blackhole",
-  "fireball",
-  "fire_tornado",
-  "frost_nova",
-  "ice_shard",
-  "shadow_orb",
-  "nature_thorns",
-  "arcane_beam",
-  "arcane_orb",
-  "shield",
-  "custom",
-]
-  .map((s) => `"\\"${s}\\""`)
-  .join(" | ");
+const lit = (xs: readonly string[]) => xs.map((s) => `"\\"${s}\\""`).join(" | ");
 
-const elementLiteral = ["fire", "ice", "lightning", "earth", "arcane", "shadow", "nature"]
-  .map((s) => `"\\"${s}\\""`)
-  .join(" | ");
+const elementLit = lit(["fire", "ice", "lightning", "earth", "arcane", "shadow", "nature"]);
+const deliveryLit = lit(["projectile", "beam", "sky", "self"]);
+const impactLit = lit(["single", "aoe", "vortex", "wall", "trap", "burst", "none"]);
+const effectLit = lit(["burn", "slow", "stun", "pull", "knockback", "shield_break", "poison"]);
+const shapeLit = lit([
+  "sphere",
+  "box",
+  "cylinder",
+  "cone",
+  "torus",
+  "ring",
+  "plane",
+  "tetra",
+  "octa",
+  "bar",
+  "disc",
+  "particle_cloud",
+]);
+const motionLit = lit([
+  "static",
+  "spin",
+  "orbit",
+  "pulse",
+  "drift",
+  "fall",
+  "rise",
+  "swirl",
+  "expand",
+  "shake",
+]);
+const arrangeLit = lit(["single", "ring", "line", "stack", "random"]);
 
-const scaleLiteral = ["small", "medium", "large", "epic"].map((s) => `"\\"${s}\\""`).join(" | ");
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 1 — concept
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const CONCEPT_GRAMMAR = `
 ${COMMON}
-root ::= ws "{" ws "\\"archetype\\"" ws ":" ws archetype ws "," ws "\\"element\\"" ws ":" ws element ws "," ws "\\"intent_summary\\"" ws ":" ws string ws "," ws "\\"scale\\"" ws ":" ws scale ws "}" ws
-archetype ::= ${archetypeLiteral}
-element ::= ${elementLiteral}
-scale ::= ${scaleLiteral}
-`.trim();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mechanics call grammar
-// ─────────────────────────────────────────────────────────────────────────────
-const deliveryLiteral = ["projectile", "beam", "sky", "self"].map((s) => `"\\"${s}\\""`).join(" | ");
-const impactLiteral = ["single", "aoe", "vortex", "wall", "trap", "burst", "none"]
-  .map((s) => `"\\"${s}\\""`)
-  .join(" | ");
-const effectLiteral = ["burn", "slow", "stun", "pull", "knockback", "shield_break", "poison"]
-  .map((s) => `"\\"${s}\\""`)
-  .join(" | ");
-
-export const MECHANICS_GRAMMAR = `
-${COMMON}
-root ::= ws "{" ws "\\"name\\"" ws ":" ws string ws "," ws "\\"delivery\\"" ws ":" ws delivery ws "," ws "\\"impact\\"" ws ":" ws impact ws "," ws "\\"count\\"" ws ":" ws number ws "," ws "\\"damage\\"" ws ":" ws number ws "," ws "\\"speed\\"" ws ":" ws number ws "," ws "\\"radius\\"" ws ":" ws number ws "," ws "\\"durationMs\\"" ws ":" ws number ws "," ws "\\"effects\\"" ws ":" ws effect-array ws "}" ws
-delivery ::= ${deliveryLiteral}
-impact ::= ${impactLiteral}
-effect ::= ${effectLiteral}
+root ::= ws "{" ws "\\"name\\"" ws ":" ws string ws "," ws "\\"element\\"" ws ":" ws element ws "," ws "\\"deliveryFamily\\"" ws ":" ws delivery ws "," ws "\\"impact\\"" ws ":" ws impact ws "," ws "\\"intent_summary\\"" ws ":" ws string ws "," ws "\\"effects\\"" ws ":" ws effect-array ws "," ws "\\"count\\"" ws ":" ws number ws "}" ws
+element ::= ${elementLit}
+delivery ::= ${deliveryLit}
+impact ::= ${impactLit}
+effect ::= ${effectLit}
 effect-array ::= "[" ws "]" | "[" ws effect (ws "," ws effect)* ws "]"
 `.trim();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Visual call grammar (palette + optional motion + optional param overrides)
-//
-// Kept INTENTIONALLY narrow: we don't let the LLM compose primitives from
-// scratch. It only chooses palette colors + motion + an emissive intensity.
-// Primitives come from the archetype default. This shrinks the LLM's output
-// surface ~10x.
+// Stage 2 — balance
 // ─────────────────────────────────────────────────────────────────────────────
-const motionLiteral = ["fall", "rise", "spiral", "implode", "explode", "linger", "travel"]
-  .map((s) => `"\\"${s}\\""`)
-  .join(" | ");
 
-export const VISUAL_GRAMMAR = `
+export const BALANCE_GRAMMAR = `
 ${COMMON}
-root ::= ws "{" ws "\\"primary\\"" ws ":" ws hexcolor ws "," ws "\\"secondary\\"" ws ":" ws hexcolor ws "," ws "\\"accent\\"" ws ":" ws hexcolor ws "," ws "\\"emissive\\"" ws ":" ws number ws "," ws "\\"motion\\"" ws ":" ws motion ws "}" ws
-motion ::= ${motionLiteral}
+root ::= ws "{" ws "\\"powerTier\\"" ws ":" ws number ws "}" ws
+`.trim();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 3 — form (SceneNode DSL, depth ≤ 1)
+//
+// Root has all leaf fields plus optional "children" array (≤ 6 leaves). Leaves
+// have no children. We model both with a `node-body` rule for the per-field
+// content and split root vs leaf at the top level (children only on root).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VEC3_RULE = `vec3 ::= "[" ws number ws "," ws number ws "," ws number ws "]"`;
+
+// All shared leaf fields, in fixed order. Single-line.
+const NODE_FIELDS = [
+  `"\\"shape\\"" ws ":" ws shape`,
+  `"\\"color\\"" ws ":" ws hexcolor`,
+  `"\\"emissiveIntensity\\"" ws ":" ws number`,
+  `"\\"size\\"" ws ":" ws number`,
+  `"\\"position\\"" ws ":" ws vec3`,
+  `"\\"rotation\\"" ws ":" ws vec3`,
+  `"\\"motion\\"" ws ":" ws motion`,
+  `"\\"motionSpeed\\"" ws ":" ws number`,
+  `"\\"arrange\\"" ws ":" ws arrange`,
+  `"\\"arrangeCount\\"" ws ":" ws number`,
+  `"\\"arrangeRadius\\"" ws ":" ws number`,
+  `"\\"particleCount\\"" ws ":" ws number`,
+  `"\\"opacity\\"" ws ":" ws number`,
+].join(` ws "," ws `);
+
+export const FORM_GRAMMAR = `
+${COMMON}
+${VEC3_RULE}
+root ::= ws "{" ws ${NODE_FIELDS} ws "," ws "\\"children\\"" ws ":" ws children-array ws "}" ws
+leaf ::= "{" ws ${NODE_FIELDS} ws "}"
+children-array ::= "[" ws "]" | "[" ws leaf (ws "," ws leaf)* ws "]"
+shape ::= ${shapeLit}
+motion ::= ${motionLit}
+arrange ::= ${arrangeLit}
+`.trim();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 4 — palette
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const PALETTE_GRAMMAR = `
+${COMMON}
+root ::= ws "{" ws "\\"primary\\"" ws ":" ws hexcolor ws "," ws "\\"emissiveBoost\\"" ws ":" ws number ws "}" ws
 `.trim();

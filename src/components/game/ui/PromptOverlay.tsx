@@ -4,17 +4,18 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { generateSpellFromPrompt } from "@/game/ai/cogentSpellGenerator";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import type { SpellStage } from "@/game/ai/spellLog";
+import type { FormAttempt } from "@/game/ai/pipeline/formCall";
 import { useGameStore } from "@/game/state/gameStore";
 import { SANCTUARY_DURATION_MS } from "@/game/config/gameConfig";
 import type { GeneratedSpell } from "@/game/types";
 
 const examplePrompts = [
-  "A meteor strike — one giant burning rock from the sky",
-  "A blackhole that pulls enemies into a swirling vortex",
-  "A lightning storm — branching bolts crashing down",
-  "A spinning pillar of fire that scorches everyone near it",
+  "A cage of obsidian bars that drops onto the target",
+  "Three orbiting violet shards that crackle with shadow",
+  "A pillar of black flame that vents straight up",
+  "A wall of thorns rising in a curved row",
   "A frost nova that bursts outward and slows the whole arena",
-  "Cursed thorns that erupt from the ground in a ring",
+  "A meteor shower of small bright rocks raining down",
 ];
 
 const slotKeys = ["I", "II", "III", "IV"];
@@ -37,10 +38,16 @@ type ErrorDetails = {
 
 type Phase =
   | { kind: "compose" }
-  | { kind: "thinking"; reasoning: string; startedAt: number; stage: SpellStage }
+  | {
+      kind: "thinking";
+      reasoning: string;
+      startedAt: number;
+      stage: SpellStage;
+      formAttempt?: FormAttempt;
+    }
   | { kind: "previewing"; spell: GeneratedSpell; reasoning: string }
   | { kind: "bound"; spell: GeneratedSpell }
-  | { kind: "error"; details: ErrorDetails; lastPrompt: string; autoRepaired: boolean }
+  | { kind: "error"; details: ErrorDetails; lastPrompt: string }
   | { kind: "shattering" };
 
 export function PromptOverlay() {
@@ -159,7 +166,7 @@ export function PromptOverlay() {
 
   if (!promptOpen) return null;
 
-  const runChat = async (chatPrompt: string, opts?: { fromAutoRepair?: boolean }) => {
+  const runChat = async (chatPrompt: string) => {
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase({ kind: "thinking", reasoning: "", startedAt: Date.now(), stage: "concept" });
@@ -171,7 +178,12 @@ export function PromptOverlay() {
         (progress) => {
           setPhase((current) =>
             current.kind === "thinking"
-              ? { ...current, reasoning: progress.reasoning, stage: progress.stage }
+              ? {
+                  ...current,
+                  reasoning: progress.reasoning,
+                  stage: progress.stage,
+                  formAttempt: progress.formAttempt,
+                }
               : current,
           );
         },
@@ -195,7 +207,9 @@ export function PromptOverlay() {
       abortRef.current = null;
 
       // Pipeline always wraps failures in SpellGenerationError; non-typed
-      // errors are conservatively rendered without auto-repair.
+      // errors render without a Repair affordance. Auto-repair is gone — the
+      // form call already retries 4× internally; if it still fails, the
+      // player chooses whether to Repair (re-roll), Retry, or Re-compose.
       const details: ErrorDetails =
         err instanceof SpellGenerationError
           ? {
@@ -212,24 +226,10 @@ export function PromptOverlay() {
               technical: err instanceof Error ? err.message : String(err),
             };
 
-      // Auto-repair once on parse-class stages (concept / mechanics / visual)
-      // — a single fresh roll usually fixes flaky JSON. We only retry once
-      // and only if the pipeline says we can.
-      const canAutoRepair =
-        !opts?.fromAutoRepair &&
-        details.canRepair &&
-        (details.stage === "concept" || details.stage === "mechanics" || details.stage === "visual");
-
-      if (canAutoRepair) {
-        void runChat(chatPrompt, { fromAutoRepair: true });
-        return;
-      }
-
       setPhase({
         kind: "error",
         details,
         lastPrompt: chatPrompt,
-        autoRepaired: opts?.fromAutoRepair ?? false,
       });
     }
   };
