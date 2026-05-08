@@ -1,15 +1,18 @@
 import type { CogentEngine } from "cogentlm";
-import { CONCEPT_GRAMMAR } from "@/game/ai/grammar/spellGrammar";
+import { buildConceptGrammar } from "@/game/ai/grammar/spellGrammar";
 import { extractJson, runChatCall, type StreamSink } from "@/game/ai/pipeline/callRunner";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import { spellLog } from "@/game/ai/spellLog";
 import { conceptSchema, type SpellConcept } from "@/game/spells/spellSchema";
 import { normalizeSpellBuildSpec } from "@/game/spells/modules/spellBuildSpec";
+import { applyIntentConstraints, describeIntentForPrompt, inferSpellIntent, type IntentCorrection, type SpellIntent } from "@/game/spells/modules/spellIntent";
 
 const SYSTEM_PROMPT = `You are the Sage of the Sanctuary. The player describes a fantasy spell. Select ONLY from the engine's modular spell catalogs and output one strict JSON object.
 
 Output shape:
 { "name": "...", "alignment": "...", "deliveryVehicle": "...", "vfx": { "coreMesh": "...", "travel": [], "impact": [], "shaders": { "core": "...", "trail": "...", "impact": "...", "decal": "...", "aura": "..." } }, "modifiers": { "scale": 1, "speed": 1, "duration": 1, "intensity": 1 }, "count": 1, "intentSummary": "...", "castImagery": "...", "impactImagery": "..." }
+
+Keep name short: 1-32 display characters. If the player prompt is long, summarize it into a compact spell name.
 
 ALIGNMENTS:
 - fire: orange/red/yellow, fast damage, burn. Use flame, ember, smoke, molten shaders.
@@ -52,15 +55,35 @@ MODIFIERS:
 
 Rules:
 - Match prompt intent first, but stay inside the catalogs.
+- The intent constraints in the user message are HARD rules. Obey them even if another interpretation sounds plausible.
+- Meteor/comet/asteroid/starfall/falling-star prompts MUST use meteor_cosmic + skyfall. Never use instant_hitscan for meteors.
+- Meteor shower/raining rocks prompts MUST use meteor_cosmic + skyfall with multiple impacts.
+- Holy ray/sunbeam/laser/beam/lash prompts use instant_hitscan unless the prompt explicitly says it falls from the sky.
+- Chain lightning uses lightning + instant_hitscan. Lightning called from the sky uses lightning + skyfall.
+- Aura/orbit/shield prompts use aura_orbit. Wall/cage/spikes/sigil-under-target prompts use ground_eruption.
 - The LLM never writes raw scene JSON or shader code.
-- Use strong common fantasy spell tropes: fireball, frost lance, chain lightning, rock spike, shadow orb, holy beam, meteor strike, poison cloud, force shield, healing aura.
+- Canonical examples: "Meteor Strike" = meteor_cosmic + skyfall. "Holy Ray" = light + instant_hitscan. "Lightning Strike from the sky" = lightning + skyfall. "Meteor shower of small bright rocks" = meteor_cosmic + skyfall.
 - Output ONLY JSON. First character must be {.`;
 
 export type ConceptCallResult = {
   concept: SpellConcept;
   reasoning: string;
   rawOutput: string;
+  intent: SpellIntent;
+  corrections: IntentCorrection[];
 };
+
+function buildUserMessage(prompt: string, intent: SpellIntent): string {
+  return [
+    `Player prompt: ${prompt}`,
+    "",
+    "INTENT CONSTRAINTS:",
+    describeIntentForPrompt(intent),
+    "",
+    "If constraints force an alignment or deliveryVehicle, output exactly that value.",
+    "Output the concept JSON now. The first character must be {.",
+  ].join("\n");
+}
 
 export async function runConceptCall(opts: {
   engine: CogentEngine;
@@ -68,13 +91,23 @@ export async function runConceptCall(opts: {
   signal?: AbortSignal;
   onToken?: StreamSink;
 }): Promise<ConceptCallResult> {
-  spellLog.info("concept", "start", { promptLen: opts.prompt.length });
+  const intent = inferSpellIntent(opts.prompt);
+  const grammar = buildConceptGrammar({
+    allowedAlignments: intent.allowedAlignments,
+    allowedDeliveryVehicles: intent.allowedDeliveryVehicles,
+  });
+  spellLog.info("concept", "start", {
+    promptLen: opts.prompt.length,
+    intent: intent.label,
+    allowedAlignments: intent.allowedAlignments,
+    allowedDeliveryVehicles: intent.allowedDeliveryVehicles,
+  });
   const { buffer } = await runChatCall({
     engine: opts.engine,
     systemPrompt: SYSTEM_PROMPT,
-    prompt: opts.prompt,
+    prompt: buildUserMessage(opts.prompt, intent),
     maxTokens: 1536,
-    grammar: CONCEPT_GRAMMAR,
+    grammar,
     signal: opts.signal,
     stage: "concept",
     onToken: (token) => opts.onToken?.(token, "concept"),
@@ -90,18 +123,27 @@ export async function runConceptCall(opts: {
     throw new SpellGenerationError({ stage: "concept", message: `concept zod parse failed: ${parsed.error.message}`, rawOutput: buffer, canRepair: true });
   }
   let concept: SpellConcept;
+  const constrained = applyIntentConstraints(opts.prompt, parsed.data);
   try {
-    concept = normalizeSpellBuildSpec(parsed.data);
+    concept = normalizeSpellBuildSpec(constrained.spec);
   } catch (err) {
     const message = (err as Error).message;
     spellLog.failure({ stage: "concept", message: "concept compatibility failed", rawOutput: buffer, cause: message });
     throw new SpellGenerationError({ stage: "concept", message: `concept compatibility failed: ${message}`, rawOutput: buffer, canRepair: true });
+  }
+  if (constrained.corrections.length > 0) {
+    spellLog.warn("concept", "intent corrected concept", {
+      intent: constrained.intent.label,
+      corrections: constrained.corrections,
+    });
   }
   spellLog.info("concept", "ok", {
     name: concept.name,
     alignment: concept.alignment,
     deliveryVehicle: concept.deliveryVehicle,
     coreMesh: concept.vfx.coreMesh,
+    intent: constrained.intent.label,
+    correctionCount: constrained.corrections.length,
   });
-  return { concept, reasoning: "", rawOutput: buffer };
+  return { concept, reasoning: "", rawOutput: buffer, intent: constrained.intent, corrections: constrained.corrections };
 }

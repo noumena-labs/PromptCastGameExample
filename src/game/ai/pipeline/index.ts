@@ -153,6 +153,8 @@ export async function runSpellPipeline(opts: {
     spell = composeSpell({
       prompt: cleanPrompt,
       reasoning: conceptResult.reasoning,
+      intentLabel: conceptResult.intent.label,
+      intentCorrections: conceptResult.corrections,
       concept: conceptResult.concept,
       balance,
     });
@@ -185,6 +187,8 @@ export async function runSpellPipeline(opts: {
     impactDurationMs: spell.impactDurationMs,
     alignment: spell.alignment,
     deliveryVehicle: spell.deliveryVehicle,
+    intent: conceptResult.intent.label,
+    correctionCount: conceptResult.corrections.length,
   });
 
   return { spell, reasoning: conceptResult.reasoning };

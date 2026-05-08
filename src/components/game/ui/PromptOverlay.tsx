@@ -765,6 +765,15 @@ function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: Preview
         {" · "}<strong>Count:</strong> {spell.count}
         {" · "}<strong>Impact dur:</strong> {spell.impactDurationMs}ms
       </div>
+      {spell.intentLabel && (
+        <div className="runeCardErrorTechnical">
+          <strong>Intent:</strong> {spell.intentLabel}
+          {spell.intentCorrections?.length ? ` · Corrections: ${spell.intentCorrections.length}` : ""}
+        </div>
+      )}
+      {spell.intentCorrections?.length ? (
+        <pre className="runeCardErrorRaw">{JSON.stringify(spell.intentCorrections, null, 2)}</pre>
+      ) : null}
       <div className="runeCardErrorTechnical">
         <strong>Build spec:</strong>
       </div>

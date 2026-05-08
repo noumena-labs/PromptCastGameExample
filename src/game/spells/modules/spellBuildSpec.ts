@@ -31,7 +31,7 @@ export const spellVfxPayloadSchema = z.object({
 });
 
 export const spellBuildSpecSchema = z.object({
-  name: z.string().min(1).max(32),
+  name: z.string().min(1).max(96),
   alignment: z.enum(spellAlignmentIds),
   deliveryVehicle: z.enum(deliveryVehicleIds),
   vfx: spellVfxPayloadSchema,

@@ -8,6 +8,7 @@ import { clampScene } from "@/game/spells/sceneNode";
 import { compileVfxPayload } from "@/game/spells/vfx/compileVfxPayload";
 import type { GeneratedSpell } from "@/game/types";
 import type { SpellBuildSpec } from "@/game/spells/modules/spellIds";
+import { applyIntentConstraints, type IntentCorrection } from "@/game/spells/modules/spellIntent";
 
 export const conceptSchema = spellBuildSpecSchema;
 export type SpellConcept = z.infer<typeof conceptSchema>;
@@ -20,6 +21,8 @@ export type SpellBalance = z.infer<typeof balanceSchema>;
 export type ComposeInput = {
   prompt: string;
   reasoning?: string;
+  intentLabel?: string;
+  intentCorrections?: IntentCorrection[];
   concept: SpellConcept;
   balance: SpellBalance;
 };
@@ -43,6 +46,8 @@ export function composeSpell(input: ComposeInput): GeneratedSpell {
     name: spec.name,
     prompt: input.prompt,
     reasoning: input.reasoning,
+    intentLabel: input.intentLabel,
+    intentCorrections: input.intentCorrections,
     buildSpec: spec,
     alignment: spec.alignment,
     deliveryVehicle: spec.deliveryVehicle,
@@ -85,10 +90,14 @@ export function validateGeneratedSpell(value: unknown): GeneratedSpell {
     throw new Error("Invalid generated spell power tier");
   }
   const reasoning = typeof incoming.reasoning === "string" ? incoming.reasoning : undefined;
+  const constrained = applyIntentConstraints(incoming.prompt, spec.data);
+  const incomingCorrections = Array.isArray(incoming.intentCorrections) ? incoming.intentCorrections : undefined;
   const compiled = composeSpell({
     prompt: incoming.prompt,
     reasoning,
-    concept: spec.data,
+    intentLabel: constrained.intent.label,
+    intentCorrections: constrained.corrections.length > 0 ? constrained.corrections : incomingCorrections,
+    concept: constrained.spec,
     balance: { powerTier: incoming.powerTier as 1 | 2 | 3 | 4 | 5 },
   });
   return {

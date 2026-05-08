@@ -6,6 +6,7 @@ import type {
   SpellImpactShape,
   SpellStatusEffectId,
 } from "@/game/spells/modules/spellIds";
+import type { IntentCorrection } from "@/game/spells/modules/spellIntent";
 
 export type {
   DeliveryVehicleId,
@@ -22,6 +23,8 @@ export type GeneratedSpell = {
   name: string;
   prompt: string;
   reasoning?: string;
+  intentLabel?: string;
+  intentCorrections?: IntentCorrection[];
   buildSpec: SpellBuildSpec;
   alignment: SpellAlignmentId;
   deliveryVehicle: DeliveryVehicleId;

@@ -2,8 +2,10 @@
 
 import {
   coreVisualMeshIds,
+  type DeliveryVehicleId,
   deliveryVehicleIds,
   impactVfxIds,
+  type SpellAlignmentId,
   spellAlignmentIds,
   spellShaderIds,
   travelVfxIds,
@@ -35,14 +37,22 @@ function boundedArray(itemRule: string, min: number, max: number): string {
   return alternatives.join(" | ");
 }
 
-const alignmentLit = lit(spellAlignmentIds);
-const deliveryLit = lit(deliveryVehicleIds);
 const coreMeshLit = lit(coreVisualMeshIds);
 const travelLit = lit(travelVfxIds);
 const impactLit = lit(impactVfxIds);
 const shaderLit = lit(spellShaderIds);
 
-export const CONCEPT_GRAMMAR = [
+export type ConceptGrammarOptions = {
+  allowedAlignments?: readonly SpellAlignmentId[];
+  allowedDeliveryVehicles?: readonly DeliveryVehicleId[];
+};
+
+export function buildConceptGrammar(options: ConceptGrammarOptions = {}): string {
+  const alignments = options.allowedAlignments?.length ? options.allowedAlignments : spellAlignmentIds;
+  const deliveries = options.allowedDeliveryVehicles?.length ? options.allowedDeliveryVehicles : deliveryVehicleIds;
+  const alignmentLit = lit(alignments);
+  const deliveryLit = lit(deliveries);
+  return [
   COMMON,
   `root ::= ws ${token("{")} ws ${prop("name")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("alignment")} ws ${token(":")} ws alignment ws ${token(",")} ws ${prop("deliveryVehicle")} ws ${token(":")} ws delivery ws ${token(",")} ws ${prop("vfx")} ws ${token(":")} ws vfx ws ${token(",")} ws ${prop("modifiers")} ws ${token(":")} ws modifiers ws ${token(",")} ws ${prop("count")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("intentSummary")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("castImagery")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("impactImagery")} ws ${token(":")} ws string ws ${token("}")} ws`,
   `vfx ::= ${token("{")} ws ${prop("coreMesh")} ws ${token(":")} ws coremesh ws ${token(",")} ws ${prop("travel")} ws ${token(":")} ws travel-array ws ${token(",")} ws ${prop("impact")} ws ${token(":")} ws impact-array ws ${token(",")} ws ${prop("shaders")} ws ${token(":")} ws shaders ws ${token("}")}`,
@@ -56,7 +66,10 @@ export const CONCEPT_GRAMMAR = [
   `travel ::= ${travelLit}`,
   `impact ::= ${impactLit}`,
   `shader ::= ${shaderLit}`,
-].join("\n");
+  ].join("\n");
+}
+
+export const CONCEPT_GRAMMAR = buildConceptGrammar();
 
 export const BALANCE_GRAMMAR = [
   COMMON,
