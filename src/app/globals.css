@@ -214,22 +214,28 @@ h1, h2, h3 {
   font-style: italic;
 }
 
-.heroBlurb::first-letter {
-  font-family: var(--font-display);
-  font-size: 3.2rem;
-  font-weight: 900;
-  float: left;
-  line-height: 0.85;
-  margin: 4px 8px 0 0;
-  color: var(--crimson);
-}
-
 .heroActions {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 16px;
   margin-top: 32px;
+}
+
+.heroHelper {
+  max-width: 640px;
+  margin: 18px auto 0;
+  font-family: var(--font-flavor);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  text-align: center;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.heroHelper strong {
+  color: var(--crimson-deep);
 }
 
 .sealButton {
@@ -257,6 +263,22 @@ h1, h2, h3 {
     inset 0 1px 0 rgba(255, 220, 150, 0.4),
     inset 0 -2px 6px rgba(0, 0, 0, 0.4),
     0 8px 22px rgba(77, 16, 16, 0.7);
+}
+
+.sealButton:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 150, 0.35),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.4),
+    0 0 0 3px var(--gold-light),
+    0 6px 18px rgba(77, 16, 16, 0.6);
+}
+
+a.sealButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .sealButton.ghost {
@@ -337,6 +359,7 @@ h1, h2, h3 {
 
 .colorGrid {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 14px 0;
 }
@@ -353,6 +376,37 @@ h1, h2, h3 {
 .colorGrid button.active {
   border-color: var(--crimson);
   box-shadow: 0 0 0 3px var(--gold-light), inset 0 -2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.colorGrid button:focus-visible {
+  outline: none;
+  border-color: var(--crimson);
+  box-shadow: 0 0 0 3px var(--gold-light), inset 0 -2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.fieldLabel {
+  display: block;
+  margin: 14px 0 6px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--crimson-deep);
+}
+
+.tomeCard kbd,
+.howToPlaySteps kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  margin: 0 2px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--parchment-light), var(--parchment-dark));
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25), inset 0 -2px 0 rgba(122, 80, 30, 0.25);
 }
 
 .roomPanel {
@@ -1021,6 +1075,16 @@ h1, h2, h3 {
     flex-direction: column;
     align-items: stretch;
   }
+
+  .heroActions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .heroActions .sealButton {
+    width: 100%;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1028,6 +1092,156 @@ h1, h2, h3 {
   .rightPanel,
   .eventLog {
     display: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   How To Play modal
+   ───────────────────────────────────────────────────────────────────────── */
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background: radial-gradient(circle at 50% 40%, rgba(20, 12, 6, 0.82), rgba(10, 6, 3, 0.94));
+  backdrop-filter: blur(4px);
+  animation: modal-fade-in 0.18s ease-out;
+}
+
+.modalPanel {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 44px 44px 36px;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(255, 235, 180, 0.55), transparent 55%),
+    radial-gradient(ellipse at 70% 80%, rgba(170, 120, 50, 0.18), transparent 60%),
+    radial-gradient(circle at center, var(--parchment-light) 0%, var(--parchment) 60%, var(--parchment-dark) 100%);
+  color: var(--ink);
+  border: 3px double var(--gold);
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 80px rgba(122, 80, 30, 0.25),
+    0 16px 60px rgba(0, 0, 0, 0.6);
+  animation: modal-rise 0.22s ease-out;
+}
+
+.modalPanel::-webkit-scrollbar {
+  display: none;
+}
+
+.modalPanel::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  border: 1px solid rgba(184, 138, 44, 0.5);
+  pointer-events: none;
+}
+
+.modalClose {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--crimson-deep);
+  background: rgba(255, 245, 215, 0.6);
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.modalClose:hover {
+  background: var(--parchment-light);
+  transform: rotate(90deg);
+}
+
+.modalClose:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--gold-light);
+}
+
+.modalHeader {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.modalTitle {
+  margin: 6px 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  text-shadow: 1px 1px 0 var(--gold-light);
+}
+
+.howToPlaySteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+
+.howToPlaySteps li {
+  padding: 16px 20px;
+  background: rgba(255, 245, 215, 0.45);
+  border: 1px solid rgba(184, 138, 44, 0.5);
+  border-radius: 4px;
+}
+
+.howToPlaySteps h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  letter-spacing: 0.06em;
+  color: var(--crimson-deep);
+}
+
+.howToPlaySteps p {
+  margin: 0;
+  font-family: var(--font-flavor);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 640px) {
+  .modalPanel {
+    padding: 36px 22px 28px;
   }
 }
 
