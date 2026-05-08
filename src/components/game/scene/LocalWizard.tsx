@@ -206,7 +206,6 @@ export function LocalWizard() {
         const slot =
           event.code === "Digit1" ? 0 : event.code === "Digit2" ? 1 : event.code === "Digit3" ? 2 : 3;
         const cast = buildCastGeometry();
-        console.debug("[CastTarget] slot", { slot, source: cast.targetSource, point: cast.targetPoint });
         const blinded = current?.statusEffects.some((effect) => effect.effect === "blind") ?? false;
         castSlot(slot, cast.origin, cast.direction, blinded ? jitterTarget(cast.targetPoint) : cast.targetPoint);
       }
@@ -454,7 +453,6 @@ export function LocalWizard() {
       const t = Date.now();
       if (t - lastMagicMissileAt.current > MAGIC_MISSILE.cooldownMs) {
         const cast = buildCastGeometry();
-        console.debug("[CastTarget] mouse", { source: cast.targetSource, point: cast.targetPoint });
         if (castSpell(MAGIC_MISSILE, cast.origin, cast.direction, blind ? jitterTarget(cast.targetPoint) : cast.targetPoint)) lastMagicMissileAt.current = t;
       }
     }

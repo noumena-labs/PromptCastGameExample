@@ -641,14 +641,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       createdAt: timestamp,
       expiresAt: timestamp + castVfxDuration(spell),
     };
-    console.debug("[CastPlacement]", {
-      spell: spell.name,
-      alignment: spell.alignment,
-      deliveryVehicle: spell.deliveryVehicle,
-      impactShape: spell.impactShape,
-      targetPoint,
-      resolvedPoint,
-    });
     // Resolve the caster's Rapier collider handle once per cast. Used by the
     // projectile raycast to exclude the wizard's own capsule so the projectile
     // doesn't self-collide on spawn.

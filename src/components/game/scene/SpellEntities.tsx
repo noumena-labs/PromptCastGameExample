@@ -53,6 +53,7 @@ function CastVfx({ id }: { id: string }) {
         spawnedAt={cast.createdAt}
         lifetimeSeconds={Math.max(0.2, (cast.expiresAt - cast.createdAt) / 1000)}
         variant="cast"
+        effectScale={effectScaleForSpell(cast.spell)}
       />
     </group>
   );
@@ -89,6 +90,7 @@ function Projectile({ id }: { id: string }) {
           spawnedAt={createdAt}
           lifetimeSeconds={travelLifetimeSeconds}
           variant="travel"
+          effectScale={effectScaleForSpell(spell)}
         />
       </group>
     </>
@@ -142,6 +144,7 @@ function HitscanBeam({ motion }: { motion: ProjectileMotion }) {
           spawnedAt={motion.createdAt}
           lifetimeSeconds={lifetimeSeconds}
           variant="travel"
+          effectScale={effectScaleForSpell(motion.spell)}
         />
       </group>
     </group>
@@ -220,6 +223,7 @@ function AreaSpell({ areaId }: { areaId: string }) {
         spawnedAt={area.createdAt}
         lifetimeSeconds={Math.max(0.6, (area.expiresAt - area.createdAt) / 1000)}
         variant="impact"
+        effectScale={effectScaleForSpell(area.spell)}
       />
       <Billboard position={[0, 0.18, 0]}>
         <Text fontSize={0.32} color={area.spell.color} anchorX="center" anchorY="middle">
@@ -276,7 +280,7 @@ function orientationFor(area: { id: string; forward: Vec3; spell: { impactShape:
     // along local +X by arrange='line') runs perpendicular to forward, so
     // the broad face faces the caster. atan2(forward.x, forward.z) yaws so
     // local +Z aligns with forward; offsetting by +π/2 puts local +X
-    // perpendicular to forward — exactly what we want.
+    // perpendicular to forward; exactly what we want.
     return Math.atan2(f[0], f[2]) + Math.PI / 2;
   }
   if (fwLen > 1e-3 && impact === "line") {
@@ -284,6 +288,10 @@ function orientationFor(area: { id: string; forward: Vec3; spell: { impactShape:
     return Math.atan2(f[0], f[2]);
   }
   return deterministicRotation(area.id);
+}
+
+function effectScaleForSpell(spell: { count: number }): number {
+  return Math.max(0.28, 1 / Math.sqrt(Math.max(1, spell.count)));
 }
 
 function deterministicRotation(value: string) {

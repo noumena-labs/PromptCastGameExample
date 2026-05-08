@@ -109,7 +109,9 @@ export function validateGeneratedSpell(value: unknown): GeneratedSpell {
 
 function impactDurationFor(spec: SpellBuildSpec, spellDurationMs: number): number {
   if (spec.deliveryVehicle === "aura_orbit") return spellDurationMs;
-  if (spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal")) return spellDurationMs;
+  if (spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal")) {
+    return Math.min(spellDurationMs, 2600);
+  }
   return 1200;
 }
 

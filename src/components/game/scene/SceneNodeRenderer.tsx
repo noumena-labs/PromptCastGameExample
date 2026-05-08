@@ -24,7 +24,7 @@ import {
   tickRockMaterial,
 } from "@/components/game/scene/materials/rockMaterials";
 import { QuarksEmitterNode } from "@/components/game/scene/quarks/QuarksEmitterNode";
-import type { QuarksPresetId } from "@/components/game/scene/quarks/presets";
+import { shouldLoopQuarksPreset, type QuarksPresetId } from "@/components/game/scene/quarks/presets";
 
 /**
  * Recursive renderer for the SceneNode DSL.
@@ -40,8 +40,8 @@ import type { QuarksPresetId } from "@/components/game/scene/quarks/presets";
  * just picks the strongest two.
  */
 
-const LIGHT_CAP = 2;
-const IMPACT_LIGHT_CAP = 4;
+const LIGHT_CAP = 1;
+const IMPACT_LIGHT_CAP = 2;
 const LIGHT_THRESHOLD = 0.5;
 
 export function SceneNodeRenderer({
@@ -50,12 +50,14 @@ export function SceneNodeRenderer({
   spawnedAt,
   lifetimeSeconds,
   variant = "cast",
+  effectScale = 1,
 }: {
   scene: SpellScene;
   spellId: string;
   spawnedAt?: number;
   lifetimeSeconds?: number;
   variant?: "cast" | "travel" | "impact";
+  effectScale?: number;
 }) {
   const seed = useMemo(() => seedFromId(spellId), [spellId]);
   const groupRef = useRef<Group>(null);
@@ -74,6 +76,11 @@ export function SceneNodeRenderer({
   }, [scene, variant]);
 
   const opacityMultiplier = impactOpacityMultiplier(variant, spawnedAt, lifetimeSeconds);
+  const quarksIntensityMultiplier = Math.max(
+    0.08,
+    effectScale * impactParticleMultiplier(variant, spawnedAt, lifetimeSeconds),
+  );
+  const quarksEmissionScale = impactParticleMultiplier(variant, spawnedAt, lifetimeSeconds);
 
   useFrame(() => {
     if (!groupRef.current || variant !== "impact" || spawnedAt === undefined) return;
@@ -90,6 +97,9 @@ export function SceneNodeRenderer({
         hostsLight={lightNodeIds.has(-1)}
         variant={variant}
         opacityMultiplier={opacityMultiplier}
+        effectScale={effectScale}
+        quarksIntensityMultiplier={quarksIntensityMultiplier}
+        quarksEmissionScale={quarksEmissionScale}
       />
       {scene.children.map((child, i) => (
         <NodeInstance
@@ -99,10 +109,25 @@ export function SceneNodeRenderer({
           hostsLight={lightNodeIds.has(i)}
           variant={variant}
           opacityMultiplier={opacityMultiplier}
+          effectScale={effectScale}
+          quarksIntensityMultiplier={quarksIntensityMultiplier}
+          quarksEmissionScale={quarksEmissionScale}
         />
       ))}
     </group>
   );
+}
+
+function impactParticleMultiplier(
+  variant: "cast" | "travel" | "impact",
+  spawnedAt?: number,
+  lifetimeSeconds?: number,
+): number {
+  if (variant !== "impact" || spawnedAt === undefined || !lifetimeSeconds) return 1;
+  const age = (Date.now() - spawnedAt) / 1000;
+  const fadeStart = lifetimeSeconds * 0.35;
+  if (age <= fadeStart) return 1;
+  return Math.max(0, 1 - (age - fadeStart) / Math.max(0.15, lifetimeSeconds - fadeStart));
 }
 
 function impactOpacityMultiplier(
@@ -129,12 +154,18 @@ function NodeInstance({
   hostsLight,
   variant,
   opacityMultiplier,
+  effectScale,
+  quarksIntensityMultiplier,
+  quarksEmissionScale,
 }: {
   node: SceneLeaf;
   seed: number;
   hostsLight: boolean;
   variant: "cast" | "travel" | "impact";
   opacityMultiplier: number;
+  effectScale: number;
+  quarksIntensityMultiplier: number;
+  quarksEmissionScale: number;
 }) {
   const groupRef = useRef<Group>(null);
   const elapsedRef = useRef(0);
@@ -167,14 +198,20 @@ function NodeInstance({
       {hostsLight && (
         <pointLight
           color={node.color}
-          intensity={Math.min(node.emissiveIntensity, 4) * (variant === "impact" ? 3.0 : 1.6)}
+          intensity={Math.min(node.emissiveIntensity, 4) * (variant === "impact" ? 2.2 : 1.2) * Math.min(1, effectScale)}
           distance={Math.max(2, node.size * (variant === "impact" ? 10 : 6))}
           decay={2}
         />
       )}
       {offsets.map((offset, i) => (
         <group key={i} position={offset}>
-          <ShapePrimitive node={node} variant={variant} opacityMultiplier={opacityMultiplier} />
+          <ShapePrimitive
+            node={node}
+            variant={variant}
+            opacityMultiplier={opacityMultiplier}
+            quarksIntensityMultiplier={quarksIntensityMultiplier}
+            quarksEmissionScale={quarksEmissionScale}
+          />
         </group>
       ))}
     </group>
@@ -191,10 +228,14 @@ function ShapePrimitive({
   node,
   variant,
   opacityMultiplier,
+  quarksIntensityMultiplier,
+  quarksEmissionScale,
 }: {
   node: SceneLeaf;
   variant: "cast" | "travel" | "impact";
   opacityMultiplier: number;
+  quarksIntensityMultiplier: number;
+  quarksEmissionScale: number;
 }) {
   if (node.shape === "particle_cloud") {
     return <ParticleEmitterNode node={node} opacityMultiplier={opacityMultiplier} burst={variant === "impact"} />;
@@ -294,26 +335,36 @@ function ShapePrimitive({
       return <CrystalCluster node={node} />;
     case "rock_chunks":
       return <RockChunks node={node} />;
-    case "quarks_emitter":
+    case "quarks_emitter": {
+      const preset = (node.quarksPreset ?? "smoke_plume_dark") as QuarksPresetId;
       return (
         <QuarksEmitterNode
-          preset={(node.quarksPreset ?? "smoke_plume_dark") as QuarksPresetId}
+          preset={preset}
           config={{
             colorA: node.color,
             colorB: node.colorB ?? node.color,
-            intensity: node.intensity ?? 1,
+            intensity: Math.max(0.01, (node.intensity ?? 1) * quarksIntensityMultiplier),
             scale: Math.max(0.1, s),
-            looping: variant === "travel" ? true : undefined,
+            lifetime: variant === "impact" ? impactParticleLifetime(preset) : undefined,
+            looping: variant === "travel" && shouldLoopQuarksPreset(preset) ? true : undefined,
             // Forward optional world-space override; when undefined, the
             // preset chooses its own default (production presets default to
             // worldSpace=true so trails persist where spawned).
             worldSpace: node.quarksWorldSpace,
           }}
+          emissionScale={quarksEmissionScale}
         />
       );
+    }
     default:
       return null;
   }
+}
+
+function impactParticleLifetime(preset: QuarksPresetId): [number, number] | undefined {
+  if (preset === "smoke_plume_dark" || preset === "smoke_plume_dust") return [0.7, 1.25];
+  if (preset === "embers_rising" || preset === "fire_core") return [0.45, 0.9];
+  return undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

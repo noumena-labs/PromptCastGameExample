@@ -11,12 +11,22 @@
 //     scene graph for one Canvas, and must be re-created if the Canvas remounts.
 //   - We tick it from useFrame, which only works inside <Canvas>.
 
-import { createContext, useContext, useMemo, useRef } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { BatchedRenderer } from "three.quarks";
 
+const LIVE_QUARKS_BUDGET = 900;
+const MIN_RESERVATION_SCALE = 0.15;
+
+export type QuarksBudgetReservation = {
+  scale: number;
+  cost: number;
+};
+
 type QuarksContextValue = {
   renderer: BatchedRenderer;
+  reserveBudget: (requestedCost: number) => QuarksBudgetReservation;
+  releaseBudget: (reservation: QuarksBudgetReservation) => void;
 };
 
 const QuarksContext = createContext<QuarksContextValue | null>(null);
@@ -29,6 +39,16 @@ export function useQuarksRenderer(): BatchedRenderer {
     );
   }
   return ctx.renderer;
+}
+
+export function useQuarksRuntime(): QuarksContextValue {
+  const ctx = useContext(QuarksContext);
+  if (!ctx) {
+    throw new Error(
+      "useQuarksRuntime must be used inside <QuarksProviderRoot>"
+    );
+  }
+  return ctx;
 }
 
 /**
@@ -47,7 +67,29 @@ export function QuarksProviderRoot({
 }) {
   // One renderer per Canvas lifetime.
   const renderer = useMemo(() => new BatchedRenderer(), []);
-  const value = useMemo<QuarksContextValue>(() => ({ renderer }), [renderer]);
+  const liveBudget = useRef(0);
+
+  const reserveBudget = useCallback((requestedCost: number): QuarksBudgetReservation => {
+    if (requestedCost <= 0) return { scale: 1, cost: 0 };
+
+    const remaining = Math.max(0, LIVE_QUARKS_BUDGET - liveBudget.current);
+    const scale = Math.min(1, remaining / requestedCost);
+    if (scale < MIN_RESERVATION_SCALE) return { scale: 0, cost: 0 };
+
+    const cost = requestedCost * scale;
+    liveBudget.current += cost;
+    return { scale, cost };
+  }, []);
+
+  const releaseBudget = useCallback((reservation: QuarksBudgetReservation) => {
+    if (reservation.cost <= 0) return;
+    liveBudget.current = Math.max(0, liveBudget.current - reservation.cost);
+  }, []);
+
+  const value = useMemo<QuarksContextValue>(
+    () => ({ renderer, reserveBudget, releaseBudget }),
+    [renderer, reserveBudget, releaseBudget],
+  );
 
   // Tick all registered systems once per frame.
   // BatchedRenderer.update(delta) advances every system it owns.

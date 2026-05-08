@@ -28,9 +28,10 @@ import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { ConstantValue, type ParticleSystem } from "three.quarks";
-import { useQuarksRenderer } from "./QuarksProviderRoot";
+import { useQuarksRuntime } from "./QuarksProviderRoot";
 import {
   buildQuarksPreset,
+  estimateQuarksPresetCost,
   type QuarksPresetConfig,
   type QuarksPresetId,
 } from "./presets";
@@ -47,6 +48,8 @@ export type QuarksEmitterNodeProps = {
   position?: [number, number, number];
   rotation?: [number, number, number];
   scale?: number | [number, number, number];
+  /** Dynamic multiplier for emissionOverTime without rebuilding the system. */
+  emissionScale?: number;
 };
 
 export function QuarksEmitterNode({
@@ -55,9 +58,15 @@ export function QuarksEmitterNode({
   position,
   rotation,
   scale,
+  emissionScale = 1,
 }: QuarksEmitterNodeProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const renderer = useQuarksRenderer();
+  const runtime = useQuarksRuntime();
+  const emissionScaleRef = useRef(emissionScale);
+
+  useEffect(() => {
+    emissionScaleRef.current = emissionScale;
+  }, [emissionScale]);
 
   // The ParticleSystem is owned imperatively via a ref. It is built in the
   // mount effect below and torn down on unmount. Storing it in a ref (instead
@@ -77,11 +86,17 @@ export function QuarksEmitterNode({
     const group = groupRef.current;
     if (!group) return;
 
-    const system = buildQuarksPreset(preset, config);
+    const reservation = runtime.reserveBudget(estimateQuarksPresetCost(preset, config));
+    if (reservation.scale <= 0) return;
+
+    const system = buildQuarksPreset(preset, {
+      ...config,
+      intensity: Math.max(0.01, (config?.intensity ?? 1) * reservation.scale),
+    });
     systemRef.current = system;
 
     group.add(system.emitter);
-    renderer.addSystem(system);
+    runtime.renderer.addSystem(system);
 
     // Snapshot baseline rate. ConstantValue.genValue() returns its constant.
     const eot = system.emissionOverTime as unknown as
@@ -92,7 +107,7 @@ export function QuarksEmitterNode({
 
     return () => {
       try {
-        renderer.deleteSystem(system);
+        runtime.renderer.deleteSystem(system);
       } catch {
         // BatchedRenderer.deleteSystem throws if system was already removed;
         // safe to ignore.
@@ -114,11 +129,12 @@ export function QuarksEmitterNode({
       ).rendererEmitterSettings;
       settings?.geometry?.dispose?.();
       systemRef.current = null;
+      runtime.releaseBudget(reservation);
     };
     // We intentionally don't depend on `config` — composers pass fresh objects
     // each render; SceneNode lifecycle remounts on real changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preset, renderer]);
+  }, [preset, runtime]);
 
   // Per-frame distance-based LOD.
   useFrame((state) => {
@@ -146,7 +162,7 @@ export function QuarksEmitterNode({
         1 - (dist - LOD_FAR) / (LOD_CULL - LOD_FAR),
       );
     }
-    const target = baseline * scaleFactor;
+    const target = baseline * scaleFactor * Math.max(0, emissionScaleRef.current);
     // Replace the generator only if the target meaningfully changed.
     const eot = system.emissionOverTime as unknown as
       | { genValue?: () => number }
