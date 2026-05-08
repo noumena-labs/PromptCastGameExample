@@ -1,4 +1,5 @@
 import type { CogentEngine } from "cogentlm";
+import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import { spellLog, type SpellStage } from "@/game/ai/spellLog";
 
 /**
@@ -88,14 +89,48 @@ export async function runChatCall(opts: PipelineCallOptions): Promise<PipelineCa
     reply = await chat(undefined);
   }
 
-  if (opts.stage && buffer.length >= budgetChars) {
-    spellLog.error(opts.stage, "token budget exceeded; output likely truncated", {
-      maxTokens: opts.maxTokens,
-      bufferChars: buffer.length,
+  const output = buffer.trim().length > 0 ? buffer : reply || "";
+
+  if (output.trim().length === 0) {
+    if (opts.grammar) {
+      if (opts.stage) {
+        spellLog.warn(opts.stage, "empty grammar-constrained output; retrying without grammar", {
+          maxTokens: opts.maxTokens,
+          grammarChars: opts.grammar.length,
+        });
+      }
+      buffer = "";
+      warned = false;
+      reply = await chat(undefined);
+    }
+
+    const retryOutput = buffer.trim().length > 0 ? buffer : reply || "";
+    if (retryOutput.trim().length > 0) {
+      if (opts.stage && retryOutput.length >= budgetChars) {
+        spellLog.error(opts.stage, "token budget exceeded; output likely truncated", {
+          maxTokens: opts.maxTokens,
+          bufferChars: retryOutput.length,
+        });
+      }
+      return { text: retryOutput, buffer: retryOutput };
+    }
+
+    if (opts.stage) spellLog.failure({ stage: opts.stage, message: "model emitted no tokens", data: { maxTokens: opts.maxTokens } });
+    throw new SpellGenerationError({
+      stage: opts.stage ?? "concept",
+      message: "model emitted no tokens",
+      canRepair: true,
     });
   }
 
-  return { text: reply || buffer, buffer };
+  if (opts.stage && output.length >= budgetChars) {
+    spellLog.error(opts.stage, "token budget exceeded; output likely truncated", {
+      maxTokens: opts.maxTokens,
+      bufferChars: output.length,
+    });
+  }
+
+  return { text: output, buffer: output };
 }
 
 function isGrammarSamplerFailure(err: unknown): boolean {

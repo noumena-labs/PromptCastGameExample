@@ -95,8 +95,17 @@ export const spellLog = {
       t: full.t,
       level: "error",
       stage: full.stage,
-      msg: `failure: ${full.message}`,
-      data: { rawOutputLen: full.rawOutput?.length, cause: full.cause },
+      // Fold `cause` into the message string so the Next.js dev overlay (and
+      // any console viewer that collapses object args to `{}`) still surfaces
+      // the real reason. Mirror a short raw-output preview into `data` for
+      // post-mortem inspection without flooding the console.
+      msg: `failure: ${full.message}${full.cause ? ` — cause: ${full.cause}` : ""}`,
+      data: {
+        ...full.data,
+        rawOutputLen: full.rawOutput?.length ?? 0,
+        rawPreview: full.rawOutput?.slice(0, 200),
+        cause: full.cause,
+      },
     });
     return full;
   },

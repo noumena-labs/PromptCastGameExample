@@ -53,19 +53,19 @@ export function buildConceptGrammar(options: ConceptGrammarOptions = {}): string
   const alignmentLit = lit(alignments);
   const deliveryLit = lit(deliveries);
   return [
-  COMMON,
-  `root ::= ws ${token("{")} ws ${prop("name")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("alignment")} ws ${token(":")} ws alignment ws ${token(",")} ws ${prop("deliveryVehicle")} ws ${token(":")} ws delivery ws ${token(",")} ws ${prop("vfx")} ws ${token(":")} ws vfx ws ${token(",")} ws ${prop("modifiers")} ws ${token(":")} ws modifiers ws ${token(",")} ws ${prop("count")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("intentSummary")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("castImagery")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("impactImagery")} ws ${token(":")} ws string ws ${token("}")} ws`,
-  `vfx ::= ${token("{")} ws ${prop("coreMesh")} ws ${token(":")} ws coremesh ws ${token(",")} ws ${prop("travel")} ws ${token(":")} ws travel-array ws ${token(",")} ws ${prop("impact")} ws ${token(":")} ws impact-array ws ${token(",")} ws ${prop("shaders")} ws ${token(":")} ws shaders ws ${token("}")}`,
-  `shaders ::= ${token("{")} ws ${prop("core")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("trail")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("impact")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("decal")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("aura")} ws ${token(":")} ws shader ws ${token("}")}`,
-  `modifiers ::= ${token("{")} ws ${prop("scale")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("speed")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("duration")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("intensity")} ws ${token(":")} ws number ws ${token("}")}`,
-  `travel-array ::= ${boundedArray("travel", 0, 3)}`,
-  `impact-array ::= ${boundedArray("impact", 1, 4)}`,
-  `alignment ::= ${alignmentLit}`,
-  `delivery ::= ${deliveryLit}`,
-  `coremesh ::= ${coreMeshLit}`,
-  `travel ::= ${travelLit}`,
-  `impact ::= ${impactLit}`,
-  `shader ::= ${shaderLit}`,
+    COMMON,
+    `root ::= ws ${token("{")} ws ${prop("name")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("alignment")} ws ${token(":")} ws alignment ws ${token(",")} ws ${prop("deliveryVehicle")} ws ${token(":")} ws delivery ws ${token(",")} ws ${prop("vfx")} ws ${token(":")} ws vfx ws ${token(",")} ws ${prop("modifiers")} ws ${token(":")} ws modifiers ws ${token(",")} ws ${prop("count")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("intentSummary")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("castImagery")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("impactImagery")} ws ${token(":")} ws string ws ${token("}")} ws`,
+    `vfx ::= ${token("{")} ws ${prop("coreMesh")} ws ${token(":")} ws coremesh ws ${token(",")} ws ${prop("travel")} ws ${token(":")} ws travel-array ws ${token(",")} ws ${prop("impact")} ws ${token(":")} ws impact-array ws ${token(",")} ws ${prop("shaders")} ws ${token(":")} ws shaders ws ${token("}")}`,
+    `shaders ::= ${token("{")} ws ${prop("core")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("trail")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("impact")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("decal")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("aura")} ws ${token(":")} ws shader ws ${token("}")}`,
+    `modifiers ::= ${token("{")} ws ${prop("scale")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("speed")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("duration")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("intensity")} ws ${token(":")} ws number ws ${token("}")}`,
+    `travel-array ::= ${boundedArray("travel", 0, 3)}`,
+    `impact-array ::= ${boundedArray("impact", 1, 4)}`,
+    `alignment ::= ${alignmentLit}`,
+    `delivery ::= ${deliveryLit}`,
+    `coremesh ::= ${coreMeshLit}`,
+    `travel ::= ${travelLit}`,
+    `impact ::= ${impactLit}`,
+    `shader ::= ${shaderLit}`,
   ].join("\n");
 }
 
