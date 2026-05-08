@@ -41,7 +41,7 @@ let engineDiagnosticsAttached = false;
 type BrowserNavigator = Navigator & {
   deviceMemory?: number;
   gpu?: unknown;
-  storage?: StorageManager & { getDirectory?: unknown };
+  storage?: StorageManager & { getDirectory?: () => Promise<FileSystemDirectoryHandle> };
 };
 
 type CogentDiagnosticEntry = {
@@ -62,6 +62,42 @@ const DIAGNOSTIC_ENABLE_STORAGE_KEY = "promptcast.cogentDebug";
 const DIAGNOSTIC_ENTRY_LIMIT = 80;
 const PROGRESS_LOG_INTERVAL_MS = 10_000;
 const PROGRESS_LOG_PERCENT_STEP = 10;
+const COGENT_STORAGE_DIR = "cogent-models";
+const COGENT_REGISTRY_FILE = "registry.json";
+
+type RemoteModelMetadata = {
+  canonicalUrl: string;
+  name: string;
+  bytes: number;
+  etag: string;
+  lastModified: string;
+};
+
+type CogentAssetRecord = {
+  id: string;
+  kind: "model" | "projector" | "shard";
+  name: string;
+  hash: string;
+  bytes: number;
+  storagePath: string;
+  sourceUrl?: string;
+  sourceEtag?: string;
+  sourceLastModified?: string;
+  refCount: number;
+  createdAt: string;
+  inspection?: unknown;
+};
+
+type CogentRegistryManifest = {
+  version: 3;
+  projectorIndexRevision: number;
+  assets: Record<string, CogentAssetRecord>;
+  models: Record<string, unknown>;
+};
+
+type IterableDirectoryHandle = FileSystemDirectoryHandle & {
+  entries?: () => AsyncIterable<[string, FileSystemHandle]>;
+};
 
 let diagnosticEntries: CogentDiagnosticEntry[] = [];
 let diagnosticLoggingEnabled: boolean | null = null;
@@ -138,6 +174,245 @@ function getBrowserDiagnostics(): Record<string, unknown> {
     hardwareConcurrency: navigator.hardwareConcurrency,
     deviceMemory: nav.deviceMemory,
   };
+}
+
+function normalizeAssetName(name: string): string {
+  const trimmed = name.trim();
+  return (trimmed.length > 0 ? trimmed : "model.gguf").replace(/[\\/:*?"<>|]+/g, "-");
+}
+
+function fileNameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url, typeof window !== "undefined" ? window.location.href : undefined);
+    return normalizeAssetName(decodeURIComponent(parsed.pathname.split("/").pop() || "model.gguf"));
+  } catch {
+    return normalizeAssetName(url.split("/").pop()?.split("?")[0] ?? "model.gguf");
+  }
+}
+
+function syntheticAssetHash(metadata: RemoteModelMetadata): string {
+  return `remote-${metadata.bytes}-${metadata.etag || metadata.lastModified}`.replace(/[^a-zA-Z0-9_-]+/g, "-");
+}
+
+function emptyCogentManifest(): CogentRegistryManifest {
+  return { version: 3, projectorIndexRevision: 0, assets: {}, models: {} };
+}
+
+function parseCogentManifest(text: string | null): CogentRegistryManifest {
+  if (!text) return emptyCogentManifest();
+  const parsed = JSON.parse(text) as CogentRegistryManifest;
+  if (parsed.version !== 3 || typeof parsed.assets !== "object" || typeof parsed.models !== "object") {
+    throw new Error("Cogent registry is not manifest version 3.");
+  }
+  return parsed;
+}
+
+async function readTextFile(dir: FileSystemDirectoryHandle, fileName: string): Promise<string | null> {
+  try {
+    const handle = await dir.getFileHandle(fileName);
+    return await (await handle.getFile()).text();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+async function writeTextFile(dir: FileSystemDirectoryHandle, fileName: string, text: string): Promise<void> {
+  const handle = await dir.getFileHandle(fileName, { create: true });
+  const writable = await handle.createWritable();
+  try {
+    await writable.write(text);
+    await writable.close();
+  } catch (err) {
+    try {
+      await writable.abort();
+    } catch {
+      // ignore abort failure
+    }
+    throw err;
+  }
+}
+
+async function getCogentStorageRoot(): Promise<FileSystemDirectoryHandle> {
+  const getDirectory = (navigator as BrowserNavigator).storage?.getDirectory;
+  if (!getDirectory) throw new Error("OPFS is unavailable.");
+  const root = await getDirectory.call(navigator.storage);
+  return root.getDirectoryHandle(COGENT_STORAGE_DIR, { create: true });
+}
+
+async function resolveRemoteModelMetadata(signal?: AbortSignal): Promise<RemoteModelMetadata> {
+  let response: Response;
+  try {
+    response = await fetch(MODEL_URL, { method: "HEAD", signal });
+  } catch (err) {
+    throw new Error("Unable to read model metadata.", { cause: err });
+  }
+  if (!response.ok) throw new Error(`Unable to read model metadata (HTTP ${response.status}).`);
+
+  const bytes = Number.parseInt(response.headers.get("Content-Length") ?? "", 10);
+  const etag = response.headers.get("ETag")?.trim() ?? "";
+  const lastModified = response.headers.get("Last-Modified")?.trim() ?? "";
+  if (!Number.isFinite(bytes) || bytes <= 0 || (etag.length === 0 && lastModified.length === 0)) {
+    throw new Error("Model metadata is missing Content-Length, ETag, or Last-Modified.");
+  }
+
+  return {
+    canonicalUrl: new URL(MODEL_URL, window.location.href).toString(),
+    name: fileNameFromUrl(MODEL_URL),
+    bytes,
+    etag,
+    lastModified,
+  };
+}
+
+function findRegisteredRemoteAsset(
+  manifest: CogentRegistryManifest,
+  metadata: RemoteModelMetadata,
+): CogentAssetRecord | null {
+  return Object.values(manifest.assets).find((asset) => (
+    asset.kind === "model" &&
+    asset.sourceUrl === metadata.canonicalUrl &&
+    asset.sourceEtag === metadata.etag &&
+    asset.sourceLastModified === metadata.lastModified &&
+    asset.bytes === metadata.bytes
+  )) ?? null;
+}
+
+async function getOpfsFile(dir: FileSystemDirectoryHandle, fileName: string): Promise<File | null> {
+  try {
+    return await (await dir.getFileHandle(fileName)).getFile();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "NotFoundError") return null;
+    throw err;
+  }
+}
+
+async function findReusableOpfsModelFile(
+  dir: FileSystemDirectoryHandle,
+  metadata: RemoteModelMetadata,
+): Promise<string | null> {
+  const entries = (dir as IterableDirectoryHandle).entries;
+  if (!entries) return null;
+
+  for await (const [fileName, handle] of entries.call(dir)) {
+    if (handle.kind !== "file" || !fileName.endsWith(metadata.name)) continue;
+    const file = await (handle as FileSystemFileHandle).getFile();
+    if (file.size === metadata.bytes) {
+      recordCogentDiagnostic("asset:direct-register:reuse-opfs-file", { fileName, bytes: file.size });
+      return fileName;
+    }
+  }
+
+  return null;
+}
+
+async function streamRemoteModelToOpfs(
+  dir: FileSystemDirectoryHandle,
+  storagePath: string,
+  metadata: RemoteModelMetadata,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(metadata.canonicalUrl, { signal });
+  } catch (err) {
+    throw new Error("Failed to download model.", { cause: err });
+  }
+  if (!response.ok || !response.body) throw new Error(`Failed to download model (HTTP ${response.status}).`);
+
+  const handle = await dir.getFileHandle(storagePath, { create: true });
+  const writable = await handle.createWritable();
+  try {
+    let written = 0;
+    const reader = response.body.getReader();
+    while (true) {
+      if (signal?.aborted) throw new DOMException("Model download aborted.", "AbortError");
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      await writable.write(value);
+      written += value.byteLength;
+      broadcastProgress({
+        phase: "download",
+        loadedBytes: written,
+        totalBytes: metadata.bytes,
+        percent: Math.min(100, Math.round((written / metadata.bytes) * 100)),
+        assetName: metadata.name,
+      });
+    }
+    await writable.close();
+  } catch (err) {
+    try {
+      await writable.abort();
+    } catch {
+      // ignore abort failure
+    }
+    try {
+      await dir.removeEntry(storagePath);
+    } catch {
+      // ignore cleanup failure
+    }
+    throw err;
+  }
+}
+
+async function ensureRemoteModelRegistered(signal?: AbortSignal): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  recordCogentDiagnostic("asset:direct-register:start");
+  broadcastProgress({ phase: "metadata", loadedBytes: 0, totalBytes: null, percent: null, assetName: MODEL_URL });
+
+  const metadata = await resolveRemoteModelMetadata(signal);
+  const dir = await getCogentStorageRoot();
+  const manifest = parseCogentManifest(await readTextFile(dir, COGENT_REGISTRY_FILE));
+  const existing = findRegisteredRemoteAsset(manifest, metadata);
+  if (existing) {
+    const existingFile = await getOpfsFile(dir, existing.storagePath);
+    if (existingFile?.size === existing.bytes) {
+      recordCogentDiagnostic("asset:direct-register:existing", {
+        storagePath: existing.storagePath,
+        bytes: existing.bytes,
+      });
+      return true;
+    }
+  }
+
+  const id = `asset-${syntheticAssetHash(metadata)}`;
+  let storagePath = `${id}-${metadata.name}`;
+  const cachedFile = await getOpfsFile(dir, storagePath);
+  if (cachedFile?.size !== metadata.bytes) {
+    storagePath = await findReusableOpfsModelFile(dir, metadata) ?? storagePath;
+    const reusableFile = await getOpfsFile(dir, storagePath);
+    if (reusableFile?.size !== metadata.bytes) {
+      await streamRemoteModelToOpfs(dir, storagePath, metadata, signal);
+    }
+  }
+
+  broadcastProgress({
+    phase: "store",
+    loadedBytes: metadata.bytes,
+    totalBytes: metadata.bytes,
+    percent: 100,
+    assetName: metadata.name,
+  });
+
+  const now = new Date().toISOString();
+  manifest.assets[id] = {
+    id,
+    kind: "model",
+    name: metadata.name,
+    hash: syntheticAssetHash(metadata),
+    bytes: metadata.bytes,
+    storagePath,
+    sourceUrl: metadata.canonicalUrl,
+    sourceEtag: metadata.etag,
+    sourceLastModified: metadata.lastModified,
+    refCount: manifest.assets[id]?.refCount ?? 0,
+    createdAt: manifest.assets[id]?.createdAt ?? now,
+  };
+  await writeTextFile(dir, COGENT_REGISTRY_FILE, JSON.stringify(manifest, null, 2));
+  recordCogentDiagnostic("asset:direct-register:done", { id, storagePath, bytes: metadata.bytes });
+  return true;
 }
 
 function summarizeModelInfo(model: ReturnType<CogentEngine["models"]["current"]>): Record<string, unknown> | null {
@@ -313,6 +588,7 @@ export async function ensureModelLoaded(onProgress?: ProgressListener): Promise<
             modelUrlHost: new URL(MODEL_URL).host,
             elapsedMs: elapsedSince(modelLoadStartedAt),
           });
+          await ensureRemoteModelRegistered();
           await engine.models.load(MODEL_URL, { onProgress: broadcastProgress });
           recordCogentDiagnostic("model:load:done", {
             model: summarizeModelInfo(engine.models.current()),
