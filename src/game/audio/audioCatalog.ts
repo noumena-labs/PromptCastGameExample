@@ -34,7 +34,8 @@ export type AudioCueId =
   | "music_menu_loop"
   | "music_arena_loop"
   | "music_sanctuary_loop"
-  | "ambience_meadow_loop";
+  | "ambience_meadow_loop"
+  | "ambience_meadow_loop_song";
 
 export type SpellAudioPhase = "cast" | "travel_loop" | "impact" | "linger_loop";
 export type SpellAudioCueId = `spell_${SpellAlignmentId}_${SpellAudioPhase}`;
@@ -122,6 +123,7 @@ const baseCues = [
   musicCue("music_arena_loop", "/audio/music/music_arena_loop.ogg", "Arena music loop.", "loopable light fantasy duel music, meadow percussion, not too intense, 90 seconds"),
   musicCue("music_sanctuary_loop", "/audio/music/music_sanctuary_loop.ogg", "Sanctuary music loop.", "loopable mystical sanctuary music, soft choir, arcane writing, 60 seconds"),
   ambienceCue("ambience_meadow_loop", "/audio/ambience/ambience_meadow_loop.ogg", "Meadow ambience loop.", "loopable meadow ambience, soft wind, distant birds, subtle magical hum, 90 seconds"),
+  ambienceCue("ambience_meadow_loop_song", "/audio/ambience/ambience_meadow_loop_song.ogg", "Meadow ambience loop.", "loopable meadow ambience, soft wind, distant birds, subtle magical hum, 90 seconds"),
 ] satisfies AudioCue[];
 
 const spellCues = (Object.entries(spellPromptByAlignment) as Array<[SpellAlignmentId, string]>).flatMap(

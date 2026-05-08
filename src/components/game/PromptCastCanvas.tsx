@@ -32,6 +32,7 @@ export function PromptCastCanvas() {
   useUiClickAudio();
   useLoopingAudio(waitingForHost ? null : "music_arena_loop", "music:arena", promptOpen ? 0.16 : 1);
   useLoopingAudio(waitingForHost ? null : "ambience_meadow_loop", "ambience:meadow", 0.9);
+  useLoopingAudio(waitingForHost ? null : "ambience_meadow_loop_song", "ambience:meadow", 0.8);
   useLoopingAudio(promptOpen ? "music_sanctuary_loop" : null, "music:sanctuary", 0.92);
 
   return (
