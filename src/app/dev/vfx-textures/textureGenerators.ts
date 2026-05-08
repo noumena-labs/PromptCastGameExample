@@ -12,6 +12,7 @@ export type TextureKind =
   | "spark_streak"
   | "fire_flipbook_4x4"
   | "dust_puff"
+  | "debris_chunk_albedo"
   | "crack_glow";
 
 export type TextureSpec = {
@@ -70,6 +71,14 @@ export const TEXTURE_SPECS: Record<TextureKind, TextureSpec> = {
     width: 256,
     height: 256,
     description: "Lighter dust puff for ground impacts and earth alignment.",
+    premultiplied: false,
+  },
+  debris_chunk_albedo: {
+    id: "debris_chunk_albedo",
+    filename: "debris_chunk_albedo.png",
+    width: 256,
+    height: 256,
+    description: "Rocky albedo/noise tile for debris chunk mesh particles.",
     premultiplied: false,
   },
   crack_glow: {
@@ -295,6 +304,30 @@ export function generateDustPuff(opts: GenOptions = {}): ImageData {
   return img;
 }
 
+export function generateDebrisChunkAlbedo(opts: GenOptions = {}): ImageData {
+  const { width: W, height: H } = TEXTURE_SPECS.debris_chunk_albedo;
+  const img = makeImageData(W, H);
+  const seed = (opts.seed as number) ?? 73;
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const u = x / (W - 1);
+      const v = y / (H - 1);
+      const broad = fbm(u * 3.0 + seed, v * 3.0 - seed, 5);
+      const grain = fbm(u * 18.0 - seed * 0.7, v * 18.0 + seed * 0.4, 4);
+      const chips = fbm(u * 42.0 + seed * 1.7, v * 42.0 - seed * 1.1, 3);
+      const shade = clamp01(broad * 0.58 + grain * 0.3 + chips * 0.12);
+      const warm = fbm(u * 5.0 - seed * 0.3, v * 5.0 + seed * 0.2, 3);
+
+      const r = mix(0.34, 0.68, shade) * mix(0.9, 1.12, warm);
+      const g = mix(0.28, 0.55, shade) * mix(0.94, 1.04, warm);
+      const b = mix(0.22, 0.42, shade) * mix(1.0, 0.86, warm);
+      setPixel(img, x, y, r, g, b, 1.0);
+    }
+  }
+  return img;
+}
+
 export function generateCrackGlow(opts: GenOptions = {}): ImageData {
   const { width: W, height: H } = TEXTURE_SPECS.crack_glow;
   const img = makeImageData(W, H);
@@ -342,5 +375,6 @@ export const GENERATORS: Record<TextureKind, GeneratorFn> = {
   spark_streak: generateSparkStreak,
   fire_flipbook_4x4: generateFireFlipbook,
   dust_puff: generateDustPuff,
+  debris_chunk_albedo: generateDebrisChunkAlbedo,
   crack_glow: generateCrackGlow,
 };

@@ -14,6 +14,7 @@ then save the PNGs into this directory.
 | `spark_streak.png`        | 128×32     | Velocity-aligned spark streak.                               |
 | `fire_flipbook_4x4.png`   | 1024×1024  | 16-frame flame flipbook (fire_core).                         |
 | `dust_puff.png`           | 256×256    | Lighter dust puff (earth alignment, ground impacts).         |
+| `debris_chunk_albedo.png` | 256×256    | Rocky albedo/noise tile for debris_chunks mesh particles.    |
 | `crack_glow.png`          | 512×512    | Branching crack glow decal (ground_eruption hotspots).       |
 
 ## Workflow

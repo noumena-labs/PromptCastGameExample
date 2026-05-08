@@ -245,6 +245,7 @@ export type QuarksPresetConfig = {
 export type QuarksPresetFactory = (config?: QuarksPresetConfig) => ParticleSystem;
 
 export type QuarksPresetTextureUsage = {
+  kind: "png" | "procedural" | "debug";
   filename: string;
   role: string;
 };
@@ -254,31 +255,35 @@ export const QUARKS_PRESET_TEXTURES: Record<
   readonly QuarksPresetTextureUsage[]
 > = {
   smoke_plume_dark: [
-    { filename: "smoke_puff_soft.png", role: "soft smoke billboard" },
+    { kind: "png", filename: "smoke_puff_soft.png", role: "soft smoke billboard" },
   ],
   smoke_plume_dust: [
-    { filename: "dust_puff.png", role: "dust/smoke billboard" },
+    { kind: "png", filename: "dust_puff.png", role: "dust/smoke billboard" },
   ],
   embers_rising: [
-    { filename: "ember_dot.png", role: "additive ember sprite" },
+    { kind: "png", filename: "ember_dot.png", role: "additive ember sprite" },
   ],
   sparks_burst: [
-    { filename: "spark_streak.png", role: "stretched spark sprite" },
+    { kind: "png", filename: "spark_streak.png", role: "stretched spark sprite" },
   ],
   fire_core: [
-    { filename: "fire_flipbook_4x4.png", role: "4x4 animated flame atlas" },
+    { kind: "png", filename: "fire_flipbook_4x4.png", role: "4x4 animated flame atlas" },
   ],
-  debris_chunks: [],
+  debris_chunks: [
+    { kind: "png", filename: "debris_chunk_albedo.png", role: "rock chunk mesh albedo" },
+  ],
   dust_puff: [
-    { filename: "dust_puff.png", role: "impact dust billboard" },
+    { kind: "png", filename: "dust_puff.png", role: "impact dust billboard" },
   ],
   lava_droplets: [
-    { filename: "ember_dot.png", role: "additive molten droplet sprite" },
+    { kind: "png", filename: "ember_dot.png", role: "additive molten droplet sprite" },
   ],
   lightning_arcs: [
-    { filename: "spark_streak.png", role: "stretched lightning sprite" },
+    { kind: "png", filename: "spark_streak.png", role: "stretched lightning sprite" },
   ],
-  debug_alpha_test: [],
+  debug_alpha_test: [
+    { kind: "debug", filename: "in-memory", role: "diagnostic alpha DataTexture" },
+  ],
 };
 
 export function getQuarksPresetTextures(
@@ -309,37 +314,73 @@ function color4(c: THREE.ColorRepresentation, alpha = 1): QVector4 {
   return new QVector4(col.r, col.g, col.b, alpha);
 }
 
-// -- smoke_plume_dark: thick dark column rising from impact --
+function liftedColor4(
+  c: THREE.ColorRepresentation,
+  alpha = 1,
+  minLuminance = 0.35,
+): QVector4 {
+  const col = new THREE.Color(c);
+  const lum = col.r * 0.2126 + col.g * 0.7152 + col.b * 0.0722;
+  if (lum < minLuminance) {
+    const lift = minLuminance - lum;
+    col.r = Math.min(1, col.r + lift);
+    col.g = Math.min(1, col.g + lift);
+    col.b = Math.min(1, col.b + lift);
+  }
+  return new QVector4(col.r, col.g, col.b, alpha);
+}
+
+// -- smoke_plume_dark: billowing dark gray plume rising from impact --
 function buildSmokePlumeDark(cfg: QuarksPresetConfig): ParticleSystem {
   const intensity = cfg.intensity ?? 1;
   const scale = cfg.scale ?? 1;
-  const colA = color4(cfg.colorA ?? "#1a1a1a", 0.85);
-  const colB = color4(cfg.colorB ?? "#3a2a1e", 0.0);
+  // The quarks fragment shader does `diffuseColor = vColor; diffuseColor *= texelColor;`
+  // so vColor.rgb directly tints the texture. If we use a dark color here, the
+  // texture's grayscale luminance variation (0.78..1.0 white) gets crushed
+  // into an invisible delta and the smoke reads as a flat black blob.
+  //
+  // Strategy: keep vColor.rgb LIGHT (medium-warm gray) so the texture's
+  // detail is preserved, and use ALPHA to control "how much smoke" is
+  // visible. Mid-life slightly darker tint hints at thick interior, late
+  // life cools toward warm brown then fades.
+  const colA = color4(cfg.colorA ?? "#b8b0a4", 0.55);
+  const colB = color4(cfg.colorB ?? "#5a4a38", 0.0);
 
   return new ParticleSystem({
     duration: 4,
     looping: cfg.looping ?? true,
-    startLife: lifeOf(cfg, [2.0, 3.5]),
+    startLife: lifeOf(cfg, [2.4, 3.8]),
     startSpeed: new IntervalValue(1.2, 2.4),
-    startSize: new IntervalValue(1.2 * scale, 2.4 * scale),
+    // Larger sprites with more variance: softer falloff per overlap, more
+    // visible texture detail per particle.
+    startSize: new IntervalValue(1.6 * scale, 3.2 * scale),
     startColor: new ConstantColor(colA),
     startRotation: new IntervalValue(0, Math.PI * 2),
-    emissionOverTime: new ConstantValue(28 * intensity),
+    // Lower emission rate: ~50 simultaneous particles instead of ~80, so the
+    // plume reads as discrete puffs instead of a black blob.
+    emissionOverTime: new ConstantValue(16 * intensity),
     shape: new ConeEmitter({ angle: 0.45, radius: 0.4 }) as EmitterShape,
     material: new THREE.MeshBasicMaterial({
-      map: loadVfxTexture("smoke_puff_soft.png"),
+      // Grayscale luminance map: load as linear so we don't gamma-decode
+      // the white-ish midtones into a darker visual range.
+      map: loadVfxTexture("smoke_puff_soft.png", THREE.LinearSRGBColorSpace),
       transparent: true,
       depthWrite: false,
       blending: THREE.NormalBlending,
-      alphaTest: 0.02,
+      // Very small alphaTest: discard truly-zero edges only. A larger value
+      // would harden the soft falloff that gives smoke its volumetric look.
+      alphaTest: 0.005,
       toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
-      new SizeOverLife(bezierCurve([[0.6, 1.4, 1.8, 2.2]])),
+      // More dramatic expansion as puffs rise and dissipate.
+      new SizeOverLife(bezierCurve([[0.7, 1.6, 2.4, 3.0]])),
       new ColorOverLife(gradient([
         [0, colA],
-        [0.4, color4(cfg.colorA ?? "#2a2a2a", 0.7)],
+        // Mid-life: slightly darker/warmer to suggest thicker interior,
+        // but still light enough that the texture's luminance reads.
+        [0.4, color4("#9a8c78", 0.42)],
         [1, colB],
       ])),
       // Light horizontal wind drift so plumes don't rise dead-vertical.
@@ -352,30 +393,33 @@ function buildSmokePlumeDark(cfg: QuarksPresetConfig): ParticleSystem {
 function buildSmokePlumeDust(cfg: QuarksPresetConfig): ParticleSystem {
   const intensity = cfg.intensity ?? 1;
   const scale = cfg.scale ?? 1;
-  const colA = color4(cfg.colorA ?? "#a08868", 0.7);
-  const colB = color4(cfg.colorB ?? "#6b5a44", 0.0);
+  // Same vColor-multiplies-texel principle as smoke_plume_dark: keep RGB
+  // bright so the dust_puff texture's variation is visible. Light warm tan.
+  const colA = color4(cfg.colorA ?? "#e8d8b8", 0.55);
+  const colB = color4(cfg.colorB ?? "#8a7560", 0.0);
 
   return new ParticleSystem({
     duration: 3,
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [1.4, 2.4]),
     startSpeed: new IntervalValue(2.0, 4.0),
-    startSize: new IntervalValue(0.8 * scale, 1.8 * scale),
+    startSize: new IntervalValue(1.0 * scale, 2.2 * scale),
     startColor: new ConstantColor(colA),
     startRotation: new IntervalValue(0, Math.PI * 2),
-    emissionOverTime: new ConstantValue(60 * intensity),
+    // Halved emission: dust still reads as a burst but with discrete puffs.
+    emissionOverTime: new ConstantValue(30 * intensity),
     shape: new ConeEmitter({ angle: 0.85, radius: 0.6 }) as EmitterShape,
     material: new THREE.MeshBasicMaterial({
-      map: loadVfxTexture("dust_puff.png"),
+      map: loadVfxTexture("dust_puff.png", THREE.LinearSRGBColorSpace),
       transparent: true,
       depthWrite: false,
       blending: THREE.NormalBlending,
-      alphaTest: 0.02,
+      alphaTest: 0.005,
       toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
-      new SizeOverLife(bezierCurve([[0.5, 1.2, 1.6, 1.8]])),
+      new SizeOverLife(bezierCurve([[0.6, 1.4, 1.9, 2.2]])),
       new ColorOverLife(gradient([
         [0, colA],
         [1, colB],
@@ -511,14 +555,16 @@ function buildFireCore(cfg: QuarksPresetConfig): ParticleSystem {
 function buildDebrisChunks(cfg: QuarksPresetConfig): ParticleSystem {
   const intensity = cfg.intensity ?? 1;
   const scale = cfg.scale ?? 1;
-  const colA = color4(cfg.colorA ?? "#7a6a55", 1);
-  const colB = color4(cfg.colorB ?? "#3a2a1e", 1);
+  const colA = liftedColor4(cfg.colorA ?? "#8a7a64", 1, 0.45);
+  const colB = liftedColor4(cfg.colorB ?? "#5a4938", 1, 0.35);
 
   const chunkGeom = new THREE.IcosahedronGeometry(0.18 * scale, 0);
   const chunkMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(cfg.colorA ?? "#7a6a55"),
+    color: new THREE.Color("#b8a88c"),
+    map: loadVfxTexture("debris_chunk_albedo.png"),
     roughness: 0.85,
     metalness: 0.05,
+    toneMapped: false,
   });
 
   return new ParticleSystem({
@@ -542,6 +588,7 @@ function buildDebrisChunks(cfg: QuarksPresetConfig): ParticleSystem {
     shape: new ConeEmitter({ angle: 0.7, radius: 0.4 }) as EmitterShape,
     material: chunkMat,
     renderMode: RenderMode.Mesh,
+    instancingGeometry: chunkGeom,
     rendererEmitterSettings: {
       geometry: chunkGeom,
     },
@@ -555,8 +602,10 @@ function buildDebrisChunks(cfg: QuarksPresetConfig): ParticleSystem {
 function buildDustPuff(cfg: QuarksPresetConfig): ParticleSystem {
   const intensity = cfg.intensity ?? 1;
   const scale = cfg.scale ?? 1;
-  const colA = color4(cfg.colorA ?? "#c8b896", 0.6);
-  const colB = color4(cfg.colorB ?? "#7a6a55", 0);
+  // Bright tan; vColor tints the dust_puff texture luminance — keep RGB
+  // light so the texture detail is visible.
+  const colA = color4(cfg.colorA ?? "#e8d8b8", 0.7);
+  const colB = color4(cfg.colorB ?? "#8a7560", 0);
 
   return new ParticleSystem({
     duration: 0.6,
@@ -579,7 +628,7 @@ function buildDustPuff(cfg: QuarksPresetConfig): ParticleSystem {
     // Flat ring expansion: sphere with thin radius, mostly horizontal speed.
     shape: new SphereEmitter({ radius: 0.3 }) as EmitterShape,
     material: new THREE.MeshBasicMaterial({
-      map: loadVfxTexture("dust_puff.png"),
+      map: loadVfxTexture("dust_puff.png", THREE.LinearSRGBColorSpace),
       transparent: true,
       depthWrite: false,
       blending: THREE.NormalBlending,

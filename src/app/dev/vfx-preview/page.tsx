@@ -18,6 +18,7 @@ import { QuarksEmitterNode } from "@/components/game/scene/quarks/QuarksEmitterN
 import {
   ALL_PRESET_IDS,
   getQuarksPresetTextures,
+  type QuarksPresetTextureUsage,
   type QuarksPresetId,
 } from "@/components/game/scene/quarks/presets";
 import {
@@ -103,6 +104,12 @@ function sceneDiagnostics(scene: SpellScene) {
     }));
   const legacyCount = nodes.filter((node) => node.shape === "particle_cloud").length;
   return { quarks, legacyCount };
+}
+
+function textureLine(texture: QuarksPresetTextureUsage): string {
+  if (texture.kind === "png") return `${texture.filename} - ${texture.role}`;
+  if (texture.kind === "debug") return `debug texture: ${texture.role}`;
+  return `procedural: ${texture.role}`;
 }
 
 function RockShowcase() {
@@ -223,8 +230,8 @@ export default function VfxPreviewPage() {
             </label>
             <DiagnosticsBlock
               lines={presetTextures.length > 0
-                ? presetTextures.map((texture) => `${texture.filename} - ${texture.role}`)
-                : ["No PNG texture: mesh particles"]}
+                ? presetTextures.map(textureLine)
+                : ["No material metadata for preset"]}
             />
           </>
         ) : (
@@ -271,8 +278,8 @@ export default function VfxPreviewPage() {
                 `${diagnostics.legacyCount} legacy particle_cloud node(s)`,
                 ...diagnostics.quarks.flatMap((item) => {
                   const textureText = item.textures.length > 0
-                    ? item.textures.map((texture) => texture.filename).join(", ")
-                    : "mesh/no PNG";
+                    ? item.textures.map((texture) => textureLine(texture)).join(", ")
+                    : "no material metadata";
                   return [`${item.preset} x${item.intensity.toFixed(2)} -> ${textureText}`];
                 }),
               ]}
