@@ -59,6 +59,13 @@ function spawnForPlayerId(playerId: string): Vec3 {
   return groundedSpawn([Math.cos(angle) * radius, 0, Math.sin(angle) * radius]);
 }
 
+function randomRespawnPoint(): Vec3 {
+  const base = PLAYER_SPAWN_POINTS[Math.floor(Math.random() * PLAYER_SPAWN_POINTS.length)];
+  const angle = Math.random() * Math.PI * 2;
+  const radius = Math.random() * 4;
+  return groundedSpawn([base[0] + Math.cos(angle) * radius, 0, base[2] + Math.sin(angle) * radius]);
+}
+
 const createLocalPlayer = (): PlayerState => ({
   id: LOCAL_PLAYER_ID,
   name: "You",
@@ -858,11 +865,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (state.mode === "client") return state;
       const timestamp = now();
       const players = { ...state.players };
-      Object.values(players).forEach((player, index) => {
+      Object.values(players).forEach((player) => {
         if (player.status === "dead" && player.respawnAt && player.respawnAt <= timestamp) {
           players[player.id] = {
             ...player,
-            position: groundedSpawn(PLAYER_SPAWN_POINTS[index % PLAYER_SPAWN_POINTS.length]),
+            position: randomRespawnPoint(),
             health: PLAYER_MAX_HEALTH,
             mana: PLAYER_MAX_MANA,
             status: "alive",

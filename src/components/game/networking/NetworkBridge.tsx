@@ -5,6 +5,7 @@ import { peerSession } from "@/game/networking/peerSession";
 import { useGameStore } from "@/game/state/gameStore";
 import type { NetworkMessage } from "@/game/networking/messages";
 import { validateGeneratedSpell } from "@/game/spells/spellSchema";
+import { loadWizardProfile } from "@/game/playerProfile";
 
 const HOST_SNAPSHOT_INTERVAL_MS = 250;
 
@@ -18,6 +19,7 @@ export function NetworkBridge() {
   const lastSpellBoundSequence = useRef(0);
   const hostSnapshotSequence = useRef(0);
   const lastHostSnapshotAt = useRef(0);
+  const playerReadySent = useRef(false);
 
   useEffect(() => {
     const unsubscribe = peerSession.onMessage((message) => handleMessage(message));
@@ -46,7 +48,14 @@ export function NetworkBridge() {
         };
         useGameStore.setState({ hostSnapshotSequence: snapshot.sequence, lastHostSnapshot: { sequence: snapshot.sequence, serverTime: timestamp, receivedAt: timestamp } });
         peerSession.send({ type: "host_state_snapshot", snapshot });
+        peerSession.setRoomStatus("live");
       }
+      if (state.mode === "client" && state.lastHostSnapshot && !playerReadySent.current) {
+        const profile = loadWizardProfile();
+        peerSession.announcePlayerReady(profile.name, profile.color, profile.profileId);
+        playerReadySent.current = true;
+      }
+      if (state.mode === "client" && !state.lastHostSnapshot) return;
       if (!session.peerId || session.peerId !== state.localPlayerId) return;
       if (!player) return;
       if (timestamp - lastTransformAt.current > 70) {
@@ -145,6 +154,11 @@ function hydrateSessionSnapshot() {
 
 function handleMessage(message: NetworkMessage) {
   const state = useGameStore.getState();
+
+  if (message.type === "room_state") {
+    state.setLobbyPlayers(message.room.players, true);
+    return;
+  }
 
   if (message.type === "player_list") {
     state.setLobbyPlayers(message.players, true);

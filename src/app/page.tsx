@@ -133,9 +133,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!session.peerId || session.role === "offline" || localIdentityApplied.current === session.peerId || localPlayerId === session.peerId) return;
+    if (session.role !== "host" || !session.peerId || localIdentityApplied.current === session.peerId || localPlayerId === session.peerId) return;
     localIdentityApplied.current = session.peerId;
-    setLocalIdentity(session.peerId, name || (session.role === "host" ? "Host Wizard" : "Guest Wizard"), color);
+    setLocalIdentity(session.peerId, name || "Host Wizard", color);
   }, [color, localPlayerId, name, session.peerId, session.role, setLocalIdentity]);
 
   useEffect(() => {
@@ -160,7 +160,6 @@ export default function Home() {
       const hostId = peerSession.getSnapshot().peerId;
       if (hostId) setLocalIdentity(hostId, profileName, color);
       setMode("host", code);
-      router.push(`/game?mode=host&room=${code}`);
     } catch {
       // The session error is already reflected in the lobby UI.
     } finally {
@@ -168,7 +167,13 @@ export default function Home() {
     }
   };
 
-  const joinRoom = async (event: FormEvent) => {
+  const startHostedRoom = () => {
+    if (!session.roomCode) return;
+    setMode("host", session.roomCode);
+    router.push(`/game?mode=host&room=${session.roomCode}`);
+  };
+
+  const previewRoom = async (event: FormEvent) => {
     event.preventDefault();
     const code = roomCode.trim().toUpperCase();
     if (!code) return;
@@ -176,15 +181,27 @@ export default function Home() {
     try {
       const profileName = name || DEFAULT_WIZARD_PROFILE.name;
       saveWizardProfile({ name: profileName, color, profileId });
-      const clientId = await peerSession.joinRoom(code, profileName, color, profileId);
-      if (clientId) setLocalIdentity(clientId, profileName, color);
-      setMode("client", code);
-      router.push(`/game?mode=client&room=${code}`);
+      await peerSession.joinRoom(code);
+      peerSession.requestPlayerList();
     } catch {
       // The session error is already reflected in the lobby UI.
     } finally {
       setBusy(false);
     }
+  };
+
+  const joinArena = () => {
+    if (session.role !== "client" || !session.peerId || !session.roomCode || session.roomState?.status !== "live") return;
+    const profileName = name || DEFAULT_WIZARD_PROFILE.name;
+    saveWizardProfile({ name: profileName, color, profileId });
+    setLocalIdentity(session.peerId, profileName, color);
+    setMode("client", session.roomCode);
+    router.push(`/game?mode=client&room=${session.roomCode}`);
+  };
+
+  const leaveRoom = () => {
+    peerSession.disconnect();
+    setMode("solo", null);
   };
 
   return (
@@ -258,6 +275,9 @@ export default function Home() {
             <div className="roomPanel">
               <span>Room Code</span>
               <strong>{session.roomCode}</strong>
+              <button type="button" className="sealButton" onClick={startHostedRoom} disabled={!session.peerOpen}>
+                Start Room
+              </button>
               <small>
                 {session.peerOpen
                   ? session.connectionCount > 0
@@ -269,9 +289,9 @@ export default function Home() {
           ) : null}
         </div>
 
-        <form className="tomeCard" onSubmit={joinRoom}>
+        <form className="tomeCard" onSubmit={previewRoom}>
           <h2>Join Multiplayer</h2>
-          <p>Got a room code from a friend? Enter it below to step into their meadow.</p>
+          <p>Got a room code from a friend? Preview the meadow first, then join once the host has started.</p>
           <label htmlFor="roomCode">Room Code</label>
           <input
             id="roomCode"
@@ -281,10 +301,31 @@ export default function Home() {
             placeholder="ABCDE"
             autoComplete="off"
             spellCheck={false}
+            disabled={session.role === "client"}
           />
-          <button type="submit" className="sealButton" disabled={busy || !roomCode.trim()}>
-            {busy ? "Joining..." : "Join Room"}
+          <button type="submit" className="sealButton" disabled={busy || !roomCode.trim() || session.role === "client"}>
+            {busy ? "Connecting..." : session.role === "client" ? "Room Preview Open" : "View Room"}
           </button>
+          {session.role === "client" ? (
+            <div className="roomPanel">
+              <span>Room Code</span>
+              <strong>{session.roomCode}</strong>
+              <small>
+                {session.roomState?.host ? `Hosted by ${session.roomState.host.name}` : "Reading room state..."}
+              </small>
+              <small>
+                {session.roomState?.status === "live"
+                  ? `${session.roomState.players.length} wizard${session.roomState.players.length === 1 ? "" : "s"} in the meadow`
+                  : "Waiting for host to start the room..."}
+              </small>
+              <button type="button" className="sealButton" onClick={joinArena} disabled={session.roomState?.status !== "live"}>
+                Join Arena
+              </button>
+              <button type="button" className="sealButton ghost" onClick={leaveRoom}>
+                Leave Room
+              </button>
+            </div>
+          ) : null}
         </form>
       </section>
 

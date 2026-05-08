@@ -142,12 +142,21 @@ export type MatchMode = "solo" | "host" | "client";
 
 export type NetworkRole = "offline" | "host" | "client";
 
+export type RoomStatus = "preparing" | "live";
+
 export type LobbyPlayer = {
   id: string;
   name: string;
   color: string;
   isHost: boolean;
   profileId?: string;
+};
+
+export type RoomState = {
+  roomCode: string;
+  status: RoomStatus;
+  host: LobbyPlayer | null;
+  players: LobbyPlayer[];
 };
 
 export type CastPayload = {

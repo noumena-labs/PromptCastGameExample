@@ -1,12 +1,13 @@
 import type { DataConnection, Peer, PeerOptions } from "peerjs";
 import { nanoid } from "nanoid";
-import type { LobbyPlayer, NetworkRole } from "@/game/types";
+import type { LobbyPlayer, NetworkRole, RoomState, RoomStatus } from "@/game/types";
 import { parseNetworkMessage, type NetworkMessage } from "@/game/networking/messages";
 
 type SessionSnapshot = {
   role: NetworkRole;
   peerId: string | null;
   roomCode: string | null;
+  roomState: RoomState | null;
   peerOpen: boolean;
   connected: boolean;
   connectionCount: number;
@@ -85,6 +86,7 @@ class PeerSession {
     role: "offline",
     peerId: null,
     roomCode: null,
+    roomState: null,
     peerOpen: false,
     connected: false,
     connectionCount: 0,
@@ -136,7 +138,8 @@ class PeerSession {
     const roomCode = makeRoomCode();
     const hostId = roomPeerId(roomCode);
     const hostPlayer: LobbyPlayer = { id: hostId, name: playerName || "Host Wizard", color, isHost: true };
-    this.patch({ role: "host", peerId: hostId, roomCode, peerOpen: false, connected: false, players: [hostPlayer], error: null });
+    const roomState: RoomState = { roomCode, status: "preparing", host: hostPlayer, players: [hostPlayer] };
+    this.patch({ role: "host", peerId: hostId, roomCode, roomState, peerOpen: false, connected: false, players: [hostPlayer], error: null });
     this.recordDebug("system", "host_create", hostId);
 
     this.peer = new Peer(hostId, getPeerOptions());
@@ -162,13 +165,13 @@ class PeerSession {
     return roomCode;
   }
 
-  async joinRoom(roomCodeInput: string, playerName: string, color: string, profileId?: string) {
+  async joinRoom(roomCodeInput: string) {
     const token = this.beginSession();
     const { Peer } = await import("peerjs");
     if (token !== this.sessionToken) return "";
 
     const roomCode = sanitizeRoomCode(roomCodeInput);
-    this.patch({ role: "client", peerId: null, roomCode, peerOpen: false, connected: false, players: [], error: null });
+    this.patch({ role: "client", peerId: null, roomCode, roomState: null, peerOpen: false, connected: false, players: [], error: null });
     this.recordDebug("system", "client_join", roomPeerId(roomCode));
 
     return await new Promise<string>((resolve, reject) => {
@@ -191,7 +194,7 @@ class PeerSession {
         this.hostConnection = null;
         this.peer?.destroy();
         this.peer = null;
-        this.patch({ role: "offline", peerId: null, peerOpen: false, connected: false, connectionCount: 0, players: [], error: error.message });
+        this.patch({ role: "offline", peerId: null, roomCode: null, roomState: null, peerOpen: false, connected: false, connectionCount: 0, players: [], error: error.message });
         this.recordDebug("drop", "client_join", roomPeerId(roomCode), error.message);
         reject(error);
       };
@@ -211,7 +214,6 @@ class PeerSession {
         connection.on("open", () => {
           if (settled || token !== this.sessionToken) return;
           this.patch({ connected: true });
-          this.send({ type: "player_hello", player: { id, name: playerName || "Guest Wizard", color, isHost: false, profileId } });
           finish(id);
         });
         connection.on("error", (error) => fail(error));
@@ -239,9 +241,24 @@ class PeerSession {
     this.send({ type: "player_list_request", requesterId: peerId, timestamp: Date.now() });
   }
 
+  announcePlayerReady(playerName: string, color: string, profileId?: string) {
+    const { peerId } = this.snapshot;
+    if (!peerId || this.snapshot.role !== "client") return;
+    this.send({ type: "player_hello", player: { id: peerId, name: playerName || "Guest Wizard", color, isHost: false, profileId } });
+  }
+
+  setRoomStatus(status: RoomStatus) {
+    if (this.snapshot.role !== "host" || !this.snapshot.roomState || !this.snapshot.roomCode) return;
+    if (this.snapshot.roomState.status === status) return;
+    const roomState = { ...this.snapshot.roomState, status };
+    this.patch({ roomState });
+    this.broadcastRoomState();
+  }
+
   rebroadcastPlayerList() {
     if (this.snapshot.role !== "host") return;
     this.broadcast({ type: "player_list", players: this.snapshot.players });
+    this.broadcastRoomState();
   }
 
   sendDebugPing(note?: string) {
@@ -277,6 +294,7 @@ class PeerSession {
       role: "offline",
       peerId: null,
       roomCode: null,
+      roomState: null,
       peerOpen: false,
       connected: false,
       connectionCount: 0,
@@ -346,16 +364,25 @@ class PeerSession {
         ...this.snapshot.players.filter((item) => item.id !== player.id && (!player.profileId || item.profileId !== player.profileId)),
         player,
       ];
-      this.patch({ players });
+      const roomState = this.makeRoomState(players);
+      this.patch({ players, roomState });
       this.broadcast({ type: "player_list", players });
+      if (roomState) this.broadcast({ type: "room_state", room: roomState });
       this.emitMessage({ type: "player_list", players });
+      if (roomState) this.emitMessage({ type: "room_state", room: roomState });
       this.emitMessage({ type: "player_hello", player });
       return;
     }
 
     if (message.type === "player_list_request" && hostSide) {
       this.sendTo(connection, { type: "player_list", players: this.snapshot.players });
+      const roomState = this.makeRoomState();
+      if (roomState) this.sendTo(connection, { type: "room_state", room: roomState });
       return;
+    }
+
+    if (message.type === "room_state") {
+      this.patch({ roomState: message.room, players: message.room.players });
     }
 
     if (message.type === "player_list") {
@@ -384,6 +411,7 @@ class PeerSession {
 
     if (
       message.type === "player_list" ||
+      message.type === "room_state" ||
       message.type === "pickup_state" ||
       message.type === "host_state_snapshot" ||
       message.type === "player_state"
@@ -401,11 +429,33 @@ class PeerSession {
     if (this.hostConnection === connection) this.hostConnection = null;
 
     const players = this.snapshot.players.filter((player) => player.id !== connection.peer);
+    const roomState = this.makeRoomState(players);
     const connected = this.snapshot.role === "host" ? this.snapshot.peerOpen : false;
-    this.patch({ players, connected });
+    this.patch({ players, roomState, connected });
     this.patchConnectionState();
     this.recordDebug("system", "connection_close", connection.peer);
-    if (this.snapshot.role === "host") this.broadcast({ type: "player_list", players });
+    if (this.snapshot.role === "host") {
+      this.broadcast({ type: "player_list", players });
+      if (roomState) this.broadcast({ type: "room_state", room: roomState });
+    }
+  }
+
+  private broadcastRoomState() {
+    const roomState = this.makeRoomState();
+    if (!roomState) return;
+    this.broadcast({ type: "room_state", room: roomState });
+  }
+
+  private makeRoomState(players = this.snapshot.players): RoomState | null {
+    const { roomCode, roomState } = this.snapshot;
+    if (!roomCode) return null;
+    const host = players.find((player) => player.isHost) ?? roomState?.host ?? null;
+    return {
+      roomCode,
+      status: roomState?.status ?? "preparing",
+      host,
+      players,
+    };
   }
 
   private sendTo(connection: DataConnection, message: NetworkMessage) {

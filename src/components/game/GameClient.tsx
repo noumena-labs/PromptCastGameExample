@@ -49,7 +49,7 @@ function GameClientInner() {
       }
       if (!rejoinInFlight.current || rejoinRoom.current !== room) {
         rejoinRoom.current = room;
-        rejoinInFlight.current = peerSession.joinRoom(room, name, profile.color, profile.profileId);
+        rejoinInFlight.current = peerSession.joinRoom(room);
       }
 
       let cancelled = false;

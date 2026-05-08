@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { generatedSpellSchema } from "@/game/spells/spellSchema";
 import { spellStatusEffectIds } from "@/game/spells/modules/spellIds";
-import type { CrystalState, DummyTarget, GeneratedSpell, HostStateSnapshot, LobbyPlayer, ManaMoteState, PlayerState, Vec3 } from "@/game/types";
+import type { CrystalState, DummyTarget, GeneratedSpell, HostStateSnapshot, LobbyPlayer, ManaMoteState, PlayerState, RoomState, Vec3 } from "@/game/types";
 
 const MAX_PLAYERS = 8;
 const MAX_PICKUPS = 160;
@@ -19,6 +19,13 @@ const lobbyPlayerSchema: z.ZodType<LobbyPlayer> = z.object({
   color: z.string().max(32),
   isHost: z.boolean(),
   profileId: boundedString(96).optional(),
+}).strict();
+
+const roomStateSchema: z.ZodType<RoomState> = z.object({
+  roomCode: boundedString(16),
+  status: z.enum(["preparing", "live"]),
+  host: lobbyPlayerSchema.nullable(),
+  players: z.array(lobbyPlayerSchema).max(MAX_PLAYERS),
 }).strict();
 
 const crystalSchema: z.ZodType<CrystalState> = z.object({
@@ -103,6 +110,11 @@ const hostStateSnapshotSchema: z.ZodType<HostStateSnapshot> = z.object({
 export type PlayerHelloMessage = {
   type: "player_hello";
   player: LobbyPlayer;
+};
+
+export type RoomStateMessage = {
+  type: "room_state";
+  room: RoomState;
 };
 
 export type PlayerListMessage = {
@@ -195,6 +207,7 @@ export type DebugPingMessage = {
 
 export type NetworkMessage =
   | PlayerHelloMessage
+  | RoomStateMessage
   | PlayerListMessage
   | PlayerTransformMessage
   | PlayerStateMessage
@@ -210,6 +223,7 @@ export type NetworkMessage =
 
 const networkMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("player_hello"), player: lobbyPlayerSchema }).strict(),
+  z.object({ type: z.literal("room_state"), room: roomStateSchema }).strict(),
   z.object({ type: z.literal("player_list"), players: z.array(lobbyPlayerSchema).max(MAX_PLAYERS) }).strict(),
   z.object({
     type: z.literal("player_transform"),
