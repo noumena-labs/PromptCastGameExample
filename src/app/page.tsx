@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { usePeerSession } from "@/game/networking/usePeerSession";
+import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile } from "@/game/playerProfile";
 import { useGameStore } from "@/game/state/gameStore";
 import type { NetworkMessage } from "@/game/networking/messages";
 import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
@@ -110,9 +111,11 @@ function HowToPlayModal({ onClose }: { onClose: () => void }) {
 export default function Home() {
   const router = useRouter();
   const session = usePeerSession();
-  const [name, setName] = useState("Apprentice");
+  const [name, setName] = useState(DEFAULT_WIZARD_PROFILE.name);
   const [roomCode, setRoomCode] = useState("");
-  const [color, setColor] = useState(MANTLE_COLORS[0].value);
+  const [color, setColor] = useState(DEFAULT_WIZARD_PROFILE.color);
+  const [profileId, setProfileId] = useState(DEFAULT_WIZARD_PROFILE.profileId);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [howToPlayOpen, setHowToPlayOpen] = useState(false);
   const setLocalIdentity = useGameStore((state) => state.setLocalIdentity);
@@ -122,10 +125,24 @@ export default function Home() {
   const localIdentityApplied = useRef<string | null>(null);
 
   useEffect(() => {
+    const profile = loadWizardProfile();
+    setName(profile.name);
+    setColor(profile.color);
+    setProfileId(profile.profileId);
+    setProfileLoaded(true);
+    saveWizardProfile(profile);
+  }, []);
+
+  useEffect(() => {
     if (!session.peerId || session.role === "offline" || localIdentityApplied.current === session.peerId || localPlayerId === session.peerId) return;
     localIdentityApplied.current = session.peerId;
     setLocalIdentity(session.peerId, name || (session.role === "host" ? "Host Wizard" : "Guest Wizard"), color);
   }, [color, localPlayerId, name, session.peerId, session.role, setLocalIdentity]);
+
+  useEffect(() => {
+    if (!profileLoaded) return;
+    saveWizardProfile({ name, color, profileId });
+  }, [color, name, profileId, profileLoaded]);
 
   useEffect(() => {
     const unsubscribe = peerSession.onMessage((message: NetworkMessage) => {
@@ -138,6 +155,7 @@ export default function Home() {
 
   const startSolo = () => {
     peerSession.disconnect();
+    saveWizardProfile({ name, color, profileId });
     setLocalPlayerProfile(name || "Apprentice", color);
     setMode("solo", null);
     router.push("/game");
@@ -146,10 +164,14 @@ export default function Home() {
   const createRoom = async () => {
     setBusy(true);
     try {
-      const code = await peerSession.createHost(name || "Host Wizard", color);
+      const profileName = name || "Host Wizard";
+      saveWizardProfile({ name: profileName, color, profileId });
+      const code = await peerSession.createHost(profileName, color);
       const hostId = peerSession.getSnapshot().peerId;
-      if (hostId) setLocalIdentity(hostId, name || "Host Wizard", color);
+      if (hostId) setLocalIdentity(hostId, profileName, color);
       setMode("host", code);
+    } catch {
+      // The session error is already reflected in the lobby UI.
     } finally {
       setBusy(false);
     }
@@ -161,9 +183,13 @@ export default function Home() {
     if (!code) return;
     setBusy(true);
     try {
-      await peerSession.joinRoom(code, name || "Guest Wizard", color);
-      setMode("client", code);
-      router.push(`/game?mode=client&room=${code}`);
+      const profileName = name || DEFAULT_WIZARD_PROFILE.name;
+      saveWizardProfile({ name: profileName, color, profileId });
+      const clientId = await peerSession.joinRoom(code, profileName, color, profileId);
+      if (clientId) setLocalIdentity(clientId, profileName, color);
+      peerSession.requestPlayerList();
+    } catch {
+      // The session error is already reflected in the lobby UI.
     } finally {
       setBusy(false);
     }

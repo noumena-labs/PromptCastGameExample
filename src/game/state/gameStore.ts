@@ -212,7 +212,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lastHostSnapshot: null,
   log: ["PromptCast prototype initialized."],
 
-  setMode: (mode, roomCode = null) => set({ mode, roomCode }),
+  setMode: (mode, roomCode = null) =>
+    set((state) => {
+      const changedSession = state.mode !== mode || state.roomCode !== roomCode;
+      return {
+        mode,
+        roomCode,
+        ...(mode === "client" && changedSession ? { hostSnapshotSequence: 0, lastHostSnapshot: null } : {}),
+      };
+    }),
 
   setLocalIdentity: (id, name, color) =>
     set((state) => {

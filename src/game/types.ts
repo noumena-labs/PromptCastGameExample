@@ -147,6 +147,7 @@ export type LobbyPlayer = {
   name: string;
   color: string;
   isHost: boolean;
+  profileId?: string;
 };
 
 export type CastPayload = {

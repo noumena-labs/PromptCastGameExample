@@ -28,6 +28,7 @@ type MessageListener = (message: NetworkMessage) => void;
 type DebugListener = (events: NetworkDebugEvent[]) => void;
 
 const MAX_DEBUG_EVENTS = 40;
+const CONNECT_TIMEOUT_MS = 12000;
 const CONNECTION_LABEL = "promptcast-game";
 const makeRoomCode = () => nanoid(5).replace(/[^a-z0-9]/gi, "").toUpperCase().padEnd(5, "X").slice(0, 5);
 const roomPeerId = (code: string) => `promptcast-${code.toLowerCase()}`;
@@ -161,39 +162,74 @@ class PeerSession {
     return roomCode;
   }
 
-  async joinRoom(roomCodeInput: string, playerName: string, color: string) {
+  async joinRoom(roomCodeInput: string, playerName: string, color: string, profileId?: string) {
     const token = this.beginSession();
     const { Peer } = await import("peerjs");
-    if (token !== this.sessionToken) return;
+    if (token !== this.sessionToken) return "";
 
     const roomCode = sanitizeRoomCode(roomCodeInput);
     this.patch({ role: "client", peerId: null, roomCode, peerOpen: false, connected: false, players: [], error: null });
     this.recordDebug("system", "client_join", roomPeerId(roomCode));
 
-    this.peer = new Peer(getPeerOptions());
-    this.peer.on("open", (id) => {
-      if (token !== this.sessionToken) return;
-      this.patch({ peerId: id, peerOpen: true, connected: false });
-      this.recordDebug("system", "peer_open", id);
-      const connection = this.peer?.connect(roomPeerId(roomCode), { reliable: true, label: CONNECTION_LABEL });
-      if (!connection) return;
-      this.hostConnection = connection;
-      this.registerConnection(connection, false);
-      connection.on("open", () => {
-        if (token !== this.sessionToken) return;
-        this.patch({ connected: true });
-        this.send({ type: "player_hello", player: { id, name: playerName || "Guest Wizard", color, isHost: false } });
+    return await new Promise<string>((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => fail(new Error("Timed out connecting to host.")), CONNECT_TIMEOUT_MS);
+
+      const finish = (id: string) => {
+        if (settled || token !== this.sessionToken) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(id);
+      };
+
+      const fail = (error: Error) => {
+        if (settled || token !== this.sessionToken) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.connections.forEach((connection) => connection.close());
+        this.connections.clear();
+        this.hostConnection = null;
+        this.peer?.destroy();
+        this.peer = null;
+        this.patch({ role: "offline", peerId: null, peerOpen: false, connected: false, connectionCount: 0, players: [], error: error.message });
+        this.recordDebug("drop", "client_join", roomPeerId(roomCode), error.message);
+        reject(error);
+      };
+
+      this.peer = new Peer(getPeerOptions());
+      this.peer.on("open", (id) => {
+        if (settled || token !== this.sessionToken) return;
+        this.patch({ peerId: id, peerOpen: true, connected: false });
+        this.recordDebug("system", "peer_open", id);
+        const connection = this.peer?.connect(roomPeerId(roomCode), { reliable: true, label: CONNECTION_LABEL });
+        if (!connection) {
+          fail(new Error("Unable to create host connection."));
+          return;
+        }
+        this.hostConnection = connection;
+        this.registerConnection(connection, false);
+        connection.on("open", () => {
+          if (settled || token !== this.sessionToken) return;
+          this.patch({ connected: true });
+          this.send({ type: "player_hello", player: { id, name: playerName || "Guest Wizard", color, isHost: false, profileId } });
+          finish(id);
+        });
+        connection.on("error", (error) => fail(error));
+        connection.on("close", () => {
+          if (!settled) fail(new Error("Host connection closed before it opened."));
+        });
       });
-    });
-    this.peer.on("error", (error) => {
-      if (token !== this.sessionToken) return;
-      this.patch({ error: error.message, connected: false });
-      this.recordDebug("drop", "peer_error", undefined, error.message);
-    });
-    this.peer.on("disconnected", () => {
-      if (token !== this.sessionToken) return;
-      this.patch({ peerOpen: false, connected: false });
-      this.recordDebug("system", "peer_disconnected");
+      this.peer.on("error", (error) => {
+        if (token !== this.sessionToken) return;
+        this.patch({ error: error.message, connected: false });
+        this.recordDebug("drop", "peer_error", undefined, error.message);
+        fail(error);
+      });
+      this.peer.on("disconnected", () => {
+        if (token !== this.sessionToken) return;
+        this.patch({ peerOpen: false, connected: false });
+        this.recordDebug("system", "peer_disconnected");
+      });
     });
   }
 
@@ -307,9 +343,23 @@ class PeerSession {
 
     if (message.type === "player_hello" && hostSide) {
       const player: LobbyPlayer = { ...message.player, id: connection.peer, isHost: false };
-      const players = [...this.snapshot.players.filter((item) => item.id !== player.id), player];
+      const replacedIds = this.snapshot.players
+        .filter((item) => item.id !== player.id && player.profileId && item.profileId === player.profileId)
+        .map((item) => item.id);
+      for (const id of replacedIds) {
+        const replaced = this.connections.get(id);
+        if (!replaced) continue;
+        this.connections.delete(id);
+        replaced.close();
+      }
+      if (replacedIds.length > 0) this.patchConnectionState();
+      const players = [
+        ...this.snapshot.players.filter((item) => item.id !== player.id && (!player.profileId || item.profileId !== player.profileId)),
+        player,
+      ];
       this.patch({ players });
       this.broadcast({ type: "player_list", players });
+      this.emitMessage({ type: "player_list", players });
       this.emitMessage({ type: "player_hello", player });
       return;
     }

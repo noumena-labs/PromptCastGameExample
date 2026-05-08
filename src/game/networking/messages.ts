@@ -18,6 +18,7 @@ const lobbyPlayerSchema: z.ZodType<LobbyPlayer> = z.object({
   name: z.string().max(24),
   color: z.string().max(32),
   isHost: z.boolean(),
+  profileId: boundedString(96).optional(),
 }).strict();
 
 const crystalSchema: z.ZodType<CrystalState> = z.object({

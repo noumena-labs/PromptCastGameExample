@@ -30,10 +30,10 @@ export function NetworkBridge() {
     const interval = window.setInterval(() => {
       const state = useGameStore.getState();
       if (state.mode === "solo") return;
+      const session = peerSession.getSnapshot();
       const player = state.players[state.localPlayerId];
-      if (!player) return;
       const timestamp = Date.now();
-      if (state.mode === "host" && timestamp - lastHostSnapshotAt.current > HOST_SNAPSHOT_INTERVAL_MS) {
+      if (state.mode === "host" && session.role === "host" && session.connected && timestamp - lastHostSnapshotAt.current > HOST_SNAPSHOT_INTERVAL_MS) {
         lastHostSnapshotAt.current = timestamp;
         hostSnapshotSequence.current += 1;
         const snapshot = {
@@ -47,6 +47,8 @@ export function NetworkBridge() {
         useGameStore.setState({ hostSnapshotSequence: snapshot.sequence, lastHostSnapshot: { sequence: snapshot.sequence, serverTime: timestamp, receivedAt: timestamp } });
         peerSession.send({ type: "host_state_snapshot", snapshot });
       }
+      if (!session.peerId || session.peerId !== state.localPlayerId) return;
+      if (!player) return;
       if (timestamp - lastTransformAt.current > 70) {
         lastTransformAt.current = timestamp;
         transformSequence.current += 1;
