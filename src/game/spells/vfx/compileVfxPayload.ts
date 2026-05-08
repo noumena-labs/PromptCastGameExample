@@ -130,10 +130,12 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
 
   const travel: SpellScene = {
     ...node({
-      shape: coreShape(spec.vfx.coreMesh),
+      shape: travelCoreShape(spec.vfx.coreMesh),
       shaderId: spec.vfx.shaders.core,
       shaderPhase: "core",
       color: a.palette.primary,
+      colorB: a.palette.accent,
+      seed: sceneSeed(spec, "linear-travel"),
       emissiveIntensity: clampEmit(2.0 * m.intensity),
       size: Number((coreSize(spec) * 1.1).toFixed(2)),
       motion: "spin",
@@ -232,10 +234,12 @@ function compileArcingProjectileScenes(spec: SpellBuildSpec) {
 
   const travel: SpellScene = {
     ...node({
-      shape: coreShape(spec.vfx.coreMesh === "none" ? "boulder" : spec.vfx.coreMesh),
+      shape: travelCoreShape(spec.vfx.coreMesh === "none" ? "boulder" : spec.vfx.coreMesh),
       shaderId: spec.vfx.shaders.core,
       shaderPhase: "core",
       color: a.palette.primary,
+      colorB: a.palette.accent,
+      seed: sceneSeed(spec, "arcing-travel"),
       emissiveIntensity: clampEmit(1.8 * m.intensity),
       size: Number((coreSize(spec) * 1.25).toFixed(2)),
       motion: "spin",
@@ -314,6 +318,7 @@ function compileArcingProjectileScenes(spec: SpellBuildSpec) {
         motionSpeed: 2.6,
         opacity: 0.55,
       }),
+      ...impactGeometryAccentFor(spec, a, "arcing-impact", spec.vfx.coreMesh === "none" ? "boulder" : spec.vfx.coreMesh),
       // textured dust kicked up
       node({
         shape: "quarks_emitter",
@@ -416,7 +421,7 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
       shaderId: skyfallCoreShader(spec),
       shaderPhase: "core",
       color: a.palette.primary,
-      colorB: a.palette.dark,
+      colorB: a.palette.accent,
       seed,
       size: Number((body.size * Math.max(1, m.scale)).toFixed(2)),
       emissiveIntensity: clampEmit(body.emissive * m.intensity),
@@ -504,6 +509,7 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
         motionSpeed: 0.35,
         opacity: 0.7,
       }),
+      ...impactGeometryAccentFor(spec, a, "skyfall-impact", spec.vfx.coreMesh === "none" ? "boulder" : spec.vfx.coreMesh),
       // ── Quarks dust puff ground ring ──
       node({
         shape: "quarks_emitter",
@@ -541,8 +547,12 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
  * silhouette across reroll-free recompiles, but varies between alignments.
  */
 function skyfallSeed(spec: SpellBuildSpec): number {
+  return sceneSeed(spec, "skyfall");
+}
+
+function sceneSeed(spec: SpellBuildSpec, salt: string): number {
   let h = 2166136261;
-  const s = `${spec.alignment}|${spec.vfx.coreMesh}|${spec.modifiers.scale}`;
+  const s = `${salt}|${spec.alignment}|${spec.vfx.coreMesh}|${spec.modifiers.scale}`;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 16777619);
@@ -876,7 +886,7 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
       shaderId: profile.coreShader ?? spec.vfx.shaders.core,
       shaderPhase: "core",
       color: a.palette.primary,
-      colorB: a.palette.dark,
+      colorB: a.palette.accent,
       seed: skyfallSeed(spec),
       emissiveIntensity: clampEmit(profile.emissive * m.intensity),
       size: Number((profile.size * m.scale).toFixed(2)),
@@ -885,9 +895,9 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
       motion: "erupt",
       motionSpeed: 2.4,
       arrange: "ring",
-      arrangeCount: eruptCount,
-      arrangeRadius: eruptRadius,
-      opacity: profile.opacity,
+      arrangeCount: eruptCount + 0,
+      arrangeRadius: eruptRadius * 4.6,
+      opacity: profile.opacity ,
     }),
     children: [
       // central tall pillar / vent / monolith
@@ -898,13 +908,13 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
         color: a.palette.accent,
         colorB: a.palette.primary,
         seed: skyfallSeed(spec) ^ 0x9e3779b1,
-        emissiveIntensity: clampEmit((profile.emissive + 0.4) * m.intensity),
-        size: Number((profile.centerSize * m.scale).toFixed(2)),
+        emissiveIntensity: clampEmit((profile.emissive + 0.6) * m.intensity),
+        size: Number((profile.centerSize * m.scale * 1.6).toFixed(2)),
         position: [0, profile.centerPivotY, 0],
         rotation: profile.centerRotation,
         motion: "erupt",
         motionSpeed: 1.8,
-        opacity: 0.92,
+        opacity: 0.99,
       }),
       // shockwave at the base
       node({
@@ -917,7 +927,7 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
         position: [0, 0.04, 0],
         motion: "expand",
         motionSpeed: 2.6,
-        opacity: 0.62,
+        opacity: 0.8,
       }),
       // lingering ground decal — sigil/cracks/frost
       node({
@@ -1156,10 +1166,10 @@ function eruptionQuarksAccents(
       shaderId: cloudShader(spec),
       shaderPhase: "impact",
       color: acc.useAccent ? a.palette.accent : a.palette.secondary,
-      colorB: a.palette.dark,
+      colorB: a.palette.accent,
       intensity: acc.weight * m.intensity,
       position: [0, acc.y, 0],
-      size: 1.0 * m.scale,
+      size: 0.2 * m.scale,
     }),
   );
 }
@@ -1342,6 +1352,8 @@ function compileGenericImpactScene(spec: SpellBuildSpec, a: AlignmentDefinition,
       opacity: 0.4,
     }));
   }
+  const impactGeometry = impactGeometryAccentFor(spec, a, "generic-impact");
+  if (impactGeometry.length > 0) children.push(...impactGeometry);
   if (spec.vfx.impact.includes("burst_explosion")) {
     children.push(node({
       shape: "quarks_emitter",
@@ -1483,6 +1495,62 @@ function coreShape(mesh: SpellBuildSpec["vfx"]["coreMesh"]): SceneLeaf["shape"] 
     case "sphere":
       return "sphere";
   }
+}
+
+function travelCoreShape(mesh: SpellBuildSpec["vfx"]["coreMesh"]): SceneLeaf["shape"] {
+  switch (mesh) {
+    case "boulder":
+      return "displaced_meteor";
+    case "jagged_crystal":
+      return "crystal_cluster";
+    default:
+      return coreShape(mesh);
+  }
+}
+
+function impactGeometryAccentFor(
+  spec: SpellBuildSpec,
+  a: AlignmentDefinition,
+  salt: string,
+  mesh: SpellBuildSpec["vfx"]["coreMesh"] = spec.vfx.coreMesh,
+): SceneLeaf[] {
+  if (mesh === "boulder") {
+    return [
+      node({
+        shape: "displaced_meteor",
+        shaderId: spec.vfx.shaders.core,
+        shaderPhase: "impact",
+        color: a.palette.primary,
+        colorB: a.palette.accent,
+        seed: sceneSeed(spec, salt),
+        emissiveIntensity: clampEmit(1.8 * spec.modifiers.intensity),
+        size: Number((0.58 * spec.modifiers.scale).toFixed(2)),
+        position: [0, 0.28 * spec.modifiers.scale, 0],
+        motion: "expand",
+        motionSpeed: 2.0,
+        opacity: 0.9,
+      }),
+    ];
+  }
+  if (mesh === "jagged_crystal") {
+    return [
+      node({
+        shape: "crystal_cluster",
+        shaderId: spec.vfx.shaders.core,
+        shaderPhase: "impact",
+        color: a.palette.primary,
+        colorB: a.palette.accent,
+        seed: sceneSeed(spec, salt),
+        emissiveIntensity: clampEmit(1.7 * spec.modifiers.intensity),
+        size: Number((0.62 * spec.modifiers.scale).toFixed(2)),
+        position: [0, 0.32 * spec.modifiers.scale, 0],
+        motion: "expand",
+        motionSpeed: 2.2,
+        opacity: 0.88,
+      }),
+    ];
+  }
+  return [];
 }
 
 function castBurstPresetFor(

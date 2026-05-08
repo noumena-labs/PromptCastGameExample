@@ -287,7 +287,7 @@ export default function VfxPreviewPage() {
           </>
         )}
         <div style={{ marginTop: 8, fontSize: 11, opacity: 0.7 }}>
-          Drag to orbit. Rocks: meteor / monolith / crystal.
+          Drag to orbit. Preset mode includes standalone rock shader props; generated mode shows only the compiled spell scene.
         </div>
       </div>
       <Canvas shadows camera={{ position: [0, 6, 14], fov: 55 }}>
@@ -301,7 +301,7 @@ export default function VfxPreviewPage() {
             <meshStandardMaterial color="#2a2218" roughness={0.95} />
           </mesh>
           <QuarksProviderRoot>
-            <RockShowcase />
+            {mode === "preset" && <RockShowcase />}
             {mode === "preset" ? (
               <PresetShowcase key={preset} preset={preset} />
             ) : (
