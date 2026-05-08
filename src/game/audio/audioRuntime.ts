@@ -1,4 +1,4 @@
-import { audioCueById, audioFileCandidates, type AudioCue, type AudioCueId } from "@/game/audio/audioCatalog";
+import { audioCueById, type AudioCue, type AudioCueId } from "@/game/audio/audioCatalog";
 import type { Vec3 } from "@/game/types";
 
 type PlayOptions = {
@@ -181,15 +181,16 @@ class AudioRuntime {
 }
 
 async function fetchFirstAudio(cue: AudioCue): Promise<ArrayBuffer | null> {
-  for (const file of audioFileCandidates(cue)) {
-    try {
-      const response = await fetch(file);
-      if (response.ok) return response.arrayBuffer();
-    } catch {
-      // Try the next candidate.
-    }
+  try {
+    const resolved = await fetch(`/dev/audio-library/api/resolve?cueId=${encodeURIComponent(cue.id)}`, { cache: "no-store" });
+    if (!resolved.ok) return null;
+    const payload = await resolved.json() as { file?: string | null };
+    if (!payload.file) return null;
+    const response = await fetch(payload.file);
+    return response.ok ? response.arrayBuffer() : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export const audioRuntime = new AudioRuntime();
