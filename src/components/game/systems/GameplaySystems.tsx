@@ -87,6 +87,20 @@ function advanceProjectiles(delta: number, world: World) {
       motion.resolvedAt = timestamp;
     }
 
+    if (motion.mode === "skyfall") {
+      const previous: Vec3 = [motion.position[0], motion.position[1], motion.position[2]];
+      integrateMotion(motion, delta);
+      if (timestamp >= motion.travelEndsAt || skyfallReachedGround(previous, motion)) {
+        motion.position[0] = motion.targetPoint[0];
+        motion.position[1] = motion.targetPoint[1];
+        motion.position[2] = motion.targetPoint[2];
+        motion.resolvedAt = timestamp;
+        bursts.push({ motion, position: motion.targetPoint, reason: "hit" });
+        removedIds.push(id);
+      }
+      continue;
+    }
+
     if (motion.expiresAt <= timestamp) {
       if (motion.resolvedAt === null) bursts.push({ motion, position: motion.position, reason: "expire" });
       removedIds.push(id);
@@ -198,6 +212,11 @@ function segmentReachesTarget(previous: Vec3, motion: ProjectileMotion, stepDist
   if (along < 0 || along > stepDistance) return false;
   const closest: Vec3 = [previous[0] + dir[0] * along, previous[1] + dir[1] * along, previous[2] + dir[2] * along];
   return vec3Distance(closest, motion.targetPoint) <= Math.max(0.45, motion.spell.radius * 0.3);
+}
+
+function skyfallReachedGround(previous: Vec3, motion: ProjectileMotion): boolean {
+  if (motion.velocity[1] >= 0) return vec3Distance(motion.position, motion.targetPoint) <= 0.25;
+  return previous[1] >= motion.targetPoint[1] && motion.position[1] <= motion.targetPoint[1] + 0.05;
 }
 
 function spawnImpactArea(projectileId: string, ownerId: string, spell: GeneratedSpell, position: Vec3, direction: Vec3, reason: "hit" | "expire") {

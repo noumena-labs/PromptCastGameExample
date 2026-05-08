@@ -22,6 +22,7 @@ export type ProjectileMotion = {
   velocity: Vec3;
   targetPoint: Vec3;
   createdAt: number;
+  travelEndsAt: number;
   expiresAt: number;
   resolvedAt: number | null;
 };

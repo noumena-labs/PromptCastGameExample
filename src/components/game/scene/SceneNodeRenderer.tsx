@@ -42,7 +42,7 @@ export function SceneNodeRenderer({
   spellId: string;
   spawnedAt?: number;
   lifetimeSeconds?: number;
-  variant?: "cast" | "impact";
+  variant?: "cast" | "travel" | "impact";
 }) {
   const seed = useMemo(() => seedFromId(spellId), [spellId]);
   const groupRef = useRef<Group>(null);
@@ -93,7 +93,7 @@ export function SceneNodeRenderer({
 }
 
 function impactOpacityMultiplier(
-  variant: "cast" | "impact",
+  variant: "cast" | "travel" | "impact",
   spawnedAt?: number,
   lifetimeSeconds?: number,
 ): number {
@@ -120,7 +120,7 @@ function NodeInstance({
   node: SceneLeaf;
   seed: number;
   hostsLight: boolean;
-  variant: "cast" | "impact";
+  variant: "cast" | "travel" | "impact";
   opacityMultiplier: number;
 }) {
   const groupRef = useRef<Group>(null);
@@ -180,7 +180,7 @@ function ShapePrimitive({
   opacityMultiplier,
 }: {
   node: SceneLeaf;
-  variant: "cast" | "impact";
+  variant: "cast" | "travel" | "impact";
   opacityMultiplier: number;
 }) {
   if (node.shape === "particle_cloud") {

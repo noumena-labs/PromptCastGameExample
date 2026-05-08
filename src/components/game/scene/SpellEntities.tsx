@@ -3,11 +3,12 @@
 import { Billboard, Text } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useRef, useState } from "react";
-import { Group } from "three";
+import { Group, Mesh } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { useGameStore } from "@/game/state/gameStore";
-import { projectileMotion } from "@/game/state/projectileMotion";
+import { projectileMotion, type ProjectileMotion } from "@/game/state/projectileMotion";
 import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
+import { SpellShaderMaterial } from "@/components/game/scene/SpellShaderMaterial";
 import type { Vec3 } from "@/game/types";
 import type { SpellImpactShape } from "@/game/spells/modules/spellIds";
 
@@ -72,16 +73,61 @@ function Projectile({ id }: { id: string }) {
 
   if (!motionSnapshot) return null;
   const { spell, createdAt } = motionSnapshot;
+  const travelLifetimeSeconds = Math.max(0.16, (motionSnapshot.travelEndsAt - createdAt) / 1000);
 
   return (
-    <group ref={groupRef} position={motionSnapshot.position}>
-      <SceneNodeRenderer
-        scene={spell.scenes.travel}
-        spellId={spell.id}
-        spawnedAt={createdAt}
-        lifetimeSeconds={Math.max(0.4, spell.durationMs / 1000)}
-        variant="cast"
-      />
+    <>
+      {motionSnapshot.mode === "skyfall" && <SkyfallTelegraph motion={motionSnapshot} />}
+      <group ref={groupRef} position={motionSnapshot.position}>
+        <SceneNodeRenderer
+          scene={spell.scenes.travel}
+          spellId={id}
+          spawnedAt={createdAt}
+          lifetimeSeconds={travelLifetimeSeconds}
+          variant="travel"
+        />
+      </group>
+    </>
+  );
+}
+
+function SkyfallTelegraph({ motion }: { motion: ProjectileMotion }) {
+  const targetRef = useRef<Group>(null);
+  const beamRef = useRef<Mesh>(null);
+
+  useFrame(() => {
+    const travelMs = Math.max(1, motion.travelEndsAt - motion.createdAt);
+    const progress = Math.max(0, Math.min(1, (Date.now() - motion.createdAt) / travelMs));
+    const pulse = 1 + Math.sin(progress * Math.PI * 10) * 0.06;
+    const radius = Math.max(0.9, motion.spell.radius) * (0.72 + progress * 0.38) * pulse;
+    if (targetRef.current) {
+      targetRef.current.position.set(0, 0.07, 0);
+      targetRef.current.scale.set(radius, radius, radius);
+    }
+    if (beamRef.current) {
+      const height = Math.max(0.4, motion.position[1] - motion.targetPoint[1]);
+      const width = 0.08 + progress * 0.08;
+      beamRef.current.position.set(0, height * 0.5, 0);
+      beamRef.current.scale.set(width, height, width);
+    }
+  });
+
+  return (
+    <group position={motion.targetPoint}>
+      <mesh ref={beamRef}>
+        <boxGeometry args={[1, 1, 1]} />
+        <SpellShaderMaterial shaderId={motion.spell.buildSpec.vfx.shaders.trail} opacityMultiplier={0.32} />
+      </mesh>
+      <group ref={targetRef}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.72, 1, 64]} />
+          <SpellShaderMaterial shaderId={motion.spell.buildSpec.vfx.shaders.decal} opacityMultiplier={0.72} />
+        </mesh>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.62, 64]} />
+          <SpellShaderMaterial shaderId={motion.spell.buildSpec.vfx.shaders.impact} opacityMultiplier={0.18} />
+        </mesh>
+      </group>
     </group>
   );
 }

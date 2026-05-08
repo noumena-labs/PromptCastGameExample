@@ -506,13 +506,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       for (let i = 0; i < spell.count; i += 1) {
         const angle = Math.random() * Math.PI * 2;
         const radius = i === 0 ? 0 : Math.random() * Math.max(1.5, spell.radius);
-        const lateralOffset = i === 0 ? 0 : (Math.random() - 0.5) * 5;
         const tx = resolvedPoint[0] + Math.cos(angle) * radius;
         const tz = resolvedPoint[2] + Math.sin(angle) * radius;
         const ty = getGroundHeight(tx, tz) + 0.05;
         const id = `${baseId}-${i}`;
         const meteorTarget: Vec3 = [tx, ty, tz];
-        const motionPosition: Vec3 = [tx + Math.cos(angle + Math.PI / 2) * lateralOffset, ty + skyHeight + i * 1.2, tz + Math.sin(angle + Math.PI / 2) * lateralOffset];
+        const motionPosition: Vec3 = [tx, ty + skyHeight + i * 1.2, tz];
         const directionToTarget = normalizeDirection([meteorTarget[0] - motionPosition[0], meteorTarget[1] - motionPosition[1], meteorTarget[2] - motionPosition[2]]);
         const fallDistance = Math.hypot(meteorTarget[0] - motionPosition[0], meteorTarget[1] - motionPosition[1], meteorTarget[2] - motionPosition[2]);
         const fallSpeed = fallDistance / (skyTravelMs / 1000);
@@ -527,6 +526,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           velocity: [directionToTarget[0] * fallSpeed, directionToTarget[1] * fallSpeed, directionToTarget[2] * fallSpeed],
           targetPoint: meteorTarget,
           createdAt: timestamp,
+          travelEndsAt: timestamp + skyTravelMs,
           expiresAt: timestamp + skyTravelMs + 450,
           resolvedAt: null,
         });
@@ -561,6 +561,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const directToTarget = normalizeDirection([resolvedPoint[0] - origin[0], resolvedPoint[1] - origin[1], resolvedPoint[2] - origin[2]]);
       const aimsAtResolvedPoint = spell.deliveryVehicle === "instant_hitscan" || spell.deliveryVehicle === "projectile_arcing";
       const dir = aimsAtResolvedPoint ? directToTarget : rawDir;
+      const expiresAt = spell.deliveryVehicle === "instant_hitscan" ? timestamp + 120 : travelExpiresAt;
       const projectileTarget: Vec3 = [
         aimsAtResolvedPoint ? resolvedPoint[0] : origin[0] + dir[0] * targetDistance,
         aimsAtResolvedPoint ? resolvedPoint[1] : origin[1] + dir[1] * targetDistance,
@@ -577,7 +578,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         velocity: initialVelocityFor(spell, origin, projectileTarget, dir),
         targetPoint: projectileTarget,
         createdAt: timestamp,
-        expiresAt: spell.deliveryVehicle === "instant_hitscan" ? timestamp + 120 : travelExpiresAt,
+        travelEndsAt: expiresAt,
+        expiresAt,
         resolvedAt: null,
       });
       newMotions.push(id);

@@ -109,11 +109,26 @@ function compileTravelScene(spec: SpellBuildSpec): SpellScene {
       color: alignment.palette.secondary,
       emissiveIntensity: clampEmit((skyfall ? 1.6 : 0.9) * m.intensity),
       size: Number(((skyfall ? 0.22 : 0.14) * m.scale).toFixed(2)),
-      position: [0, 0, skyfall ? 0.72 * m.scale : -0.48 * m.scale],
-      motion: skyfall ? "fall" : "drift",
+      position: [0, 0, skyfall ? -0.95 * m.scale : -0.48 * m.scale],
+      motion: "drift",
       motionSpeed: skyfall ? 0.45 : 1.3,
       particleCount: Math.round((skyfall ? 150 : 58) * m.intensity),
       opacity: skyfall ? 0.82 : 0.72,
+    }));
+  }
+  if (skyfall) {
+    children.push(node({
+      shape: "bar",
+      shaderId: skyfallTrailShader(spec),
+      shaderPhase: "trail",
+      color: alignment.palette.secondary,
+      emissiveIntensity: clampEmit(1.8 * m.intensity),
+      size: Number((0.48 * m.scale).toFixed(2)),
+      position: [0, 0, -0.82 * m.scale],
+      rotation: [Math.PI / 2, 0, 0],
+      motion: "pulse",
+      motionSpeed: 2.4,
+      opacity: 0.64,
     }));
   }
   if (spec.vfx.travel.includes("core_glow") || skyfall) {
