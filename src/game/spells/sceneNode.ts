@@ -64,6 +64,7 @@ export const quarksPresetIds = [
   "dust_puff",
   "lava_droplets",
   "lightning_arcs",
+  "debug_alpha_test",
 ] as const;
 export type QuarksPresetIdSchema = (typeof quarksPresetIds)[number];
 

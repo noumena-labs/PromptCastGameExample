@@ -98,22 +98,29 @@ export function loadVfxTexture(
   tex.anisotropy = 4;
   _textureCache.set(filename, tex);
 
-  // Asynchronously load the real PNG and copy its image onto our texture.
+  // Asynchronously load the real PNG and adopt its Source onto our texture.
+  // IMPORTANT: we replace `tex.source` (not `tex.image` aka `tex.source.data`)
+  // so three.js's WebGLTextures sees a brand new `source.id` and uploads a
+  // fresh GPU texture at the correct dimensions/format. Replacing only
+  // `source.data` while keeping the same source.id can leave a stale GPU
+  // upload (1x1 white) in three.quarks' BatchedRenderer.
   _loader.load(
     `${VFX_TEX_BASE}${filename}`,
     (loaded) => {
-      tex.image = loaded.image;
-      tex.minFilter = loaded.minFilter;
-      tex.magFilter = loaded.magFilter;
-      tex.wrapS = loaded.wrapS;
-      tex.wrapT = loaded.wrapT;
+      // Drop the old GPU-side state for the placeholder texture.
+      tex.dispose();
+      tex.source = loaded.source;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
       tex.generateMipmaps = true;
       tex.colorSpace = colorSpace;
       tex.premultiplyAlpha = false;
       tex.anisotropy = 4;
       tex.needsUpdate = true;
-      // The temp `loaded` texture isn't bound anywhere; let it GC.
-      loaded.dispose();
+      // The temp `loaded` Texture wrapper isn't bound; only its source matters.
+      // Don't call loaded.dispose() — it would invalidate the source we adopted.
     },
     undefined,
     () => {
@@ -149,6 +156,64 @@ function linearFrameCurve(first: number, last: number): PiecewiseBezier {
   ]);
 }
 
+// ---------- debug texture (synchronous, in-memory) ----------
+
+/**
+ * Synchronously builds an in-memory test texture for diagnosing whether the
+ * three.quarks pipeline correctly samples textures and respects alpha.
+ *
+ * 64x64 RGBA pattern:
+ *   - Inner disc  (d <= 0.30): (255, 0,   0,   255)  opaque red
+ *   - Mid ring    (0.30 < d <= 0.45): (0,   255, 0,   128)  50% green
+ *   - Outer       (d > 0.45):       (0,   0,   0,   0)    transparent
+ *
+ * Where d = distance from texture center, normalized so corners ~ 0.71.
+ *
+ * Expected on screen for a single particle:
+ *   - Solid red dot, surrounded by translucent green halo, transparent corners.
+ *
+ * Failure modes:
+ *   - Solid red square    -> alpha not respected (blending/material broken)
+ *   - Solid white square  -> texture sample not reaching shader
+ *   - Nothing             -> particle not rendering
+ */
+let _debugAlphaTexture: THREE.DataTexture | null = null;
+function getDebugAlphaTexture(): THREE.DataTexture {
+  if (_debugAlphaTexture) return _debugAlphaTexture;
+  const W = 64;
+  const H = 64;
+  const data = new Uint8Array(W * H * 4);
+  const cx = (W - 1) / 2;
+  const cy = (H - 1) / 2;
+  const maxR = Math.min(cx, cy);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const dx = (x - cx) / maxR;
+      const dy = (y - cy) / maxR;
+      const d = Math.sqrt(dx * dx + dy * dy) * 0.5; // 0..~0.71 at corners
+      const i = (y * W + x) * 4;
+      if (d <= 0.30) {
+        data[i] = 255; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255;
+      } else if (d <= 0.45) {
+        data[i] = 0; data[i + 1] = 255; data[i + 2] = 0; data[i + 3] = 128;
+      } else {
+        data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 0;
+      }
+    }
+  }
+  const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = false;
+  tex.premultiplyAlpha = false;
+  tex.needsUpdate = true;
+  _debugAlphaTexture = tex;
+  return tex;
+}
+
 // ---------- preset registry ----------
 
 export type QuarksPresetId =
@@ -160,7 +225,8 @@ export type QuarksPresetId =
   | "debris_chunks"
   | "dust_puff"
   | "lava_droplets"
-  | "lightning_arcs";
+  | "lightning_arcs"
+  | "debug_alpha_test";
 
 export type QuarksPresetConfig = {
   /** Optional override for tinting (alignment colorA/colorB). */
@@ -212,6 +278,7 @@ export const QUARKS_PRESET_TEXTURES: Record<
   lightning_arcs: [
     { filename: "spark_streak.png", role: "stretched lightning sprite" },
   ],
+  debug_alpha_test: [],
 };
 
 export function getQuarksPresetTextures(
@@ -617,6 +684,34 @@ function buildLightningArcs(cfg: QuarksPresetConfig): ParticleSystem {
   });
 }
 
+// -- debug_alpha_test: in-memory tri-color texture for pipeline diagnosis --
+function buildDebugAlphaTest(cfg: QuarksPresetConfig): ParticleSystem {
+  const intensity = cfg.intensity ?? 1;
+  const scale = cfg.scale ?? 1;
+  const white = color4("#ffffff", 1);
+
+  return new ParticleSystem({
+    duration: 5,
+    looping: cfg.looping ?? true,
+    startLife: lifeOf(cfg, [5, 5]),
+    startSpeed: new IntervalValue(0.4, 0.8),
+    startSize: new IntervalValue(1.5 * scale, 2.5 * scale),
+    startColor: new ConstantColor(white),
+    startRotation: new ConstantValue(0),
+    emissionOverTime: new ConstantValue(5 * intensity),
+    shape: new ConeEmitter({ angle: 0.3, radius: 0.1 }) as EmitterShape,
+    material: new THREE.MeshBasicMaterial({
+      map: getDebugAlphaTexture(),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      toneMapped: false,
+    }),
+    renderMode: RenderMode.BillBoard,
+    behaviors: [],
+  });
+}
+
 // ---------- preset map ----------
 
 const PRESETS: Record<QuarksPresetId, PresetSpec> = {
@@ -664,6 +759,11 @@ const PRESETS: Record<QuarksPresetId, PresetSpec> = {
     id: "lightning_arcs",
     build: buildLightningArcs,
     budgetWeight: 0.5,
+  },
+  debug_alpha_test: {
+    id: "debug_alpha_test",
+    build: buildDebugAlphaTest,
+    budgetWeight: 0.3,
   },
 };
 
