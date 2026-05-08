@@ -13,6 +13,7 @@ import { ReticleHUD } from "@/components/game/ui/ReticleHUD";
 import { NetworkBridge } from "@/components/game/networking/NetworkBridge";
 import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
 import { useGameStore } from "@/game/state/gameStore";
+import { useAudioUnlock, useLoopingAudio, useUiClickAudio } from "@/game/audio/useGameAudio";
 
 const controls = [
   { name: "forward", keys: ["KeyW", "ArrowUp"] },
@@ -25,7 +26,13 @@ const controls = [
 export function PromptCastCanvas() {
   const mode = useGameStore((state) => state.mode);
   const connected = useGameStore((state) => state.lastHostSnapshot !== null);
+  const promptOpen = useGameStore((state) => state.promptOpen);
   const waitingForHost = mode === "client" && !connected;
+  useAudioUnlock();
+  useUiClickAudio();
+  useLoopingAudio(waitingForHost ? null : "music_arena_loop", "music:arena", promptOpen ? 0.16 : 1);
+  useLoopingAudio(waitingForHost ? null : "ambience_meadow_loop", "ambience:meadow", 0.9);
+  useLoopingAudio(promptOpen ? "music_sanctuary_loop" : null, "music:sanctuary", 0.92);
 
   return (
     <ModelLoader>

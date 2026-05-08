@@ -1225,8 +1225,34 @@ a.sealButton {
 
 .modalActions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  gap: 14px;
   margin-top: 24px;
+}
+
+.browserRequirementPanel {
+  max-width: 640px;
+}
+
+.browserRequirementBody {
+  display: grid;
+  gap: 12px;
+  max-width: 540px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.browserRequirementBody p {
+  margin: 0;
+  font-family: var(--font-flavor);
+  font-size: 1.08rem;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+
+.browserRequirementActions .sealButton {
+  min-width: 190px;
 }
 
 @keyframes modal-fade-in {

@@ -52,10 +52,10 @@ function TexturePreview({
 
   useEffect(() => {
     let cancelled = false;
-    setGenerating(true);
     // Defer to next frame so the UI can paint "generating".
     const handle = requestAnimationFrame(() => {
       if (cancelled) return;
+      setGenerating(true);
       const img = GENERATORS[spec.id]({ seed });
       const src = imageDataToCanvas(img);
       const dst = canvasRef.current;
@@ -66,7 +66,9 @@ function TexturePreview({
         ctx.clearRect(0, 0, dst.width, dst.height);
         ctx.drawImage(src, 0, 0);
       }
-      setGenerating(false);
+      requestAnimationFrame(() => {
+        if (!cancelled) setGenerating(false);
+      });
     });
     return () => {
       cancelled = true;
@@ -130,7 +132,6 @@ export default function VfxTexturesPage() {
       const img = GENERATORS[kind]({ seed: seeds[kind] });
       const canvas = imageDataToCanvas(img);
       // Stagger so the browser doesn't drop downloads.
-      // eslint-disable-next-line no-await-in-loop
       await new Promise<void>((resolve) => {
         canvas.toBlob((blob) => {
           if (blob) {
@@ -146,7 +147,6 @@ export default function VfxTexturesPage() {
           resolve();
         }, "image/png");
       });
-      // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, 150));
     }
   };

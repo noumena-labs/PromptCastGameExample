@@ -1,14 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { usePeerSession } from "@/game/networking/usePeerSession";
 import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile } from "@/game/playerProfile";
 import { useGameStore } from "@/game/state/gameStore";
 import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
+import { useAudioUnlock, useLoopingAudio, useUiClickAudio } from "@/game/audio/useGameAudio";
 
 type MantleColor = { value: string; label: string };
+type UserAgentBrand = { brand: string; version: string };
+type NavigatorWithUserAgentData = Navigator & { userAgentData?: { brands?: UserAgentBrand[] } };
 
 const MANTLE_COLORS: MantleColor[] = [
   { value: "#7a1f1f", label: "Crimson" },
@@ -42,7 +45,7 @@ function HeroFlourish() {
   );
 }
 
-function HowToPlayModal({ onClose }: { onClose: () => void }) {
+function useModalDismiss(onClose: () => void) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -55,6 +58,31 @@ function HowToPlayModal({ onClose }: { onClose: () => void }) {
       document.body.style.overflow = previousOverflow;
     };
   }, [onClose]);
+}
+
+function subscribeToClientReady() {
+  return () => undefined;
+}
+
+function useClientReady() {
+  return useSyncExternalStore(subscribeToClientReady, () => true, () => false);
+}
+
+function isChromeBrowser() {
+  if (typeof navigator === "undefined") return true;
+
+  const brands = (navigator as NavigatorWithUserAgentData).userAgentData?.brands;
+  if (brands?.some(({ brand }) => brand.toLowerCase() === "google chrome")) return true;
+
+  const userAgent = navigator.userAgent;
+  const isGoogleChrome = /Chrome\//.test(userAgent) && navigator.vendor === "Google Inc.";
+  const isAlternateChromiumBrowser = /Edg|OPR|Opera|SamsungBrowser|CriOS|FxiOS|Chromium/.test(userAgent);
+
+  return isGoogleChrome && !isAlternateChromiumBrowser;
+}
+
+function HowToPlayModal({ onClose }: { onClose: () => void }) {
+  useModalDismiss(onClose);
 
   return (
     <div className="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="howToPlayTitle" onClick={onClose}>
@@ -107,30 +135,73 @@ function HowToPlayModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function ChromeRequirementModal({ onClose }: { onClose: () => void }) {
+  useModalDismiss(onClose);
+
+  return (
+    <div className="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="chromeRequirementTitle" onClick={onClose}>
+      <div className="modalPanel browserRequirementPanel" onClick={(event) => event.stopPropagation()}>
+        <CornerFlourish position="tl" />
+        <CornerFlourish position="tr" />
+        <CornerFlourish position="bl" />
+        <CornerFlourish position="br" />
+
+        <button type="button" className="modalClose" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+
+        <header className="modalHeader">
+          <div className="heroEyebrow">~ Browser Requirement ~</div>
+          <h2 id="chromeRequirementTitle" className="modalTitle">Chrome Required</h2>
+        </header>
+
+        <div className="browserRequirementBody">
+          <p>
+            The cogentlm library that runs local inference uses WebGPU features that this game expects from the Chrome
+            Browser. Spell generation may not work correctly in your current browser.
+          </p>
+          <p>Install Chrome before entering the meadow for the full local inference experience.</p>
+        </div>
+
+        <div className="modalActions browserRequirementActions">
+          <a className="sealButton" href="https://www.google.com/chrome/" target="_blank" rel="noreferrer">
+            Install Chrome
+          </a>
+          <button type="button" className="sealButton ghost" onClick={onClose}>
+            Continue Anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const router = useRouter();
   const session = usePeerSession();
-  const [name, setName] = useState(DEFAULT_WIZARD_PROFILE.name);
+  const [profile, setProfile] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_WIZARD_PROFILE;
+    const loaded = loadWizardProfile();
+    saveWizardProfile(loaded);
+    return loaded;
+  });
   const [roomCode, setRoomCode] = useState("");
-  const [color, setColor] = useState(DEFAULT_WIZARD_PROFILE.color);
-  const [profileId, setProfileId] = useState(DEFAULT_WIZARD_PROFILE.profileId);
-  const [profileLoaded, setProfileLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [howToPlayOpen, setHowToPlayOpen] = useState(false);
+  const [chromeWarningDismissed, setChromeWarningDismissed] = useState(false);
   const setLocalIdentity = useGameStore((state) => state.setLocalIdentity);
   const setLocalPlayerProfile = useGameStore((state) => state.setLocalPlayerProfile);
   const setMode = useGameStore((state) => state.setMode);
   const localPlayerId = useGameStore((state) => state.localPlayerId);
   const localIdentityApplied = useRef<string | null>(null);
+  useAudioUnlock();
+  useUiClickAudio();
+  useLoopingAudio("music_menu_loop", "music:menu", 0.85);
 
-  useEffect(() => {
-    const profile = loadWizardProfile();
-    setName(profile.name);
-    setColor(profile.color);
-    setProfileId(profile.profileId);
-    setProfileLoaded(true);
-    saveWizardProfile(profile);
-  }, []);
+  const name = profile.name;
+  const color = profile.color;
+  const profileId = profile.profileId;
+  const chromeWarningOpen = useClientReady() && !chromeWarningDismissed && !isChromeBrowser();
 
   useEffect(() => {
     if (session.role !== "host" || !session.peerId || localIdentityApplied.current === session.peerId || localPlayerId === session.peerId) return;
@@ -139,9 +210,8 @@ export default function Home() {
   }, [color, localPlayerId, name, session.peerId, session.role, setLocalIdentity]);
 
   useEffect(() => {
-    if (!profileLoaded) return;
-    saveWizardProfile({ name, color, profileId });
-  }, [color, name, profileId, profileLoaded]);
+    saveWizardProfile(profile);
+  }, [profile]);
 
   const startSolo = () => {
     peerSession.disconnect();
@@ -243,7 +313,7 @@ export default function Home() {
           <h2>Wizard Profile</h2>
           <p>Choose a name and mantle color so allies and rivals may know you in the field.</p>
           <label htmlFor="playerName">Name</label>
-          <input id="playerName" value={name} onChange={(event) => setName(event.target.value)} maxLength={18} />
+          <input id="playerName" value={name} onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))} maxLength={18} />
           <span className="fieldLabel" id="mantleLabel">Mantle</span>
           <div className="colorGrid" role="radiogroup" aria-labelledby="mantleLabel">
             {MANTLE_COLORS.map((option) => {
@@ -256,7 +326,7 @@ export default function Home() {
                   aria-checked={active}
                   className={active ? "active" : ""}
                   style={{ background: option.value }}
-                  onClick={() => setColor(option.value)}
+                  onClick={() => setProfile((current) => ({ ...current, color: option.value }))}
                   aria-label={option.label}
                   title={option.label}
                 />
@@ -341,6 +411,7 @@ export default function Home() {
         </section>
       ) : null}
       <MultiplayerDebugPanel />
+      {chromeWarningOpen ? <ChromeRequirementModal onClose={() => setChromeWarningDismissed(true)} /> : null}
       {howToPlayOpen ? <HowToPlayModal onClose={() => setHowToPlayOpen(false)} /> : null}
     </main>
   );

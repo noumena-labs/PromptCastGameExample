@@ -109,7 +109,7 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
       <p className="modelLoaderBarLabel">{formatProgressLabel(progress, phase)}</p>
 
       <p className="modelLoaderDetail">
-        Awakening the Sage on first visit (~730 MB). Cached locally afterwards.
+        Awakening the Sage on first visit. An LLM is used for dynamic spell creation. Cached locally afterwards.
       </p>
     </div>
   );

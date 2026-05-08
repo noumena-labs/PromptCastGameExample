@@ -10,6 +10,8 @@ import type { AreaSpellState, GeneratedSpell, Vec3 } from "@/game/types";
 import { projectileMotion, type ProjectileMotion } from "@/game/state/projectileMotion";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { AIM_RAY_GROUPS } from "@/game/physics/collisionGroups";
+import { deliveryAudioCue, spellAudioCue } from "@/game/audio/audioCatalog";
+import { audioRuntime } from "@/game/audio/audioRuntime";
 
 let sharedRay: Ray | null = null;
 const ARC_GRAVITY = -18;
@@ -148,6 +150,11 @@ function advanceProjectiles(delta: number, world: World) {
   }
 
   for (const burst of bursts) {
+    const listener = useGameStore.getState().players[useGameStore.getState().localPlayerId]?.position;
+    audioRuntime.play(spellAudioCue(burst.motion.spell.alignment, "impact"), { position: burst.position, listener });
+    if (burst.motion.spell.deliveryVehicle === "skyfall" || burst.motion.spell.deliveryVehicle === "ground_eruption") {
+      audioRuntime.play(deliveryAudioCue(burst.motion.spell.deliveryVehicle), { position: burst.position, listener, volume: 0.65 });
+    }
     spawnImpactArea(burst.motion.id, burst.motion.ownerId, burst.motion.spell, burst.position, burst.motion.direction, burst.reason);
   }
 }
@@ -230,6 +237,10 @@ function spawnImpactArea(projectileId: string, ownerId: string, spell: Generated
   if (reason === "expire" && durationMs < spell.durationMs) return;
   const radius = hasLingeringImpact(spell) ? spell.radius : Math.max(0.7, spell.radius * 1.35);
   const forward = horizontalForward(direction);
+  if (hasLingeringImpact(spell)) {
+    const listener = useGameStore.getState().players[useGameStore.getState().localPlayerId]?.position;
+    audioRuntime.play(spellAudioCue(spell.alignment, "linger_loop"), { position, listener, volume: 0.7 });
+  }
   useGameStore.setState((state) => ({
     areas: [
       ...state.areas,

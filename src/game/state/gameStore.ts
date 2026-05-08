@@ -42,6 +42,8 @@ import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { rotateAroundY } from "@/game/math/vector";
 import { getGroundHeight } from "@/game/arena/terrain";
 import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
+import { deliveryAudioCue, spellAudioCue } from "@/game/audio/audioCatalog";
+import { audioRuntime } from "@/game/audio/audioRuntime";
 
 const now = () => Date.now();
 
@@ -317,6 +319,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (!player || !crystal?.active) return state;
       const sequence = state.networkSequence + 1;
       const nextAura = Math.min(AURA_THRESHOLD, player.aura + 1);
+      audioRuntime.play("world_crystal_collect", { position: crystal.position, listener: player.position });
       return {
         networkSequence: sequence,
         lastCrystalCollect: { sequence, playerId: player.id, crystalId },
@@ -336,6 +339,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const player = state.players[playerId];
       const crystal = state.crystals.find((item) => item.id === crystalId);
       if (!player || !crystal?.active) return state;
+      audioRuntime.play("world_crystal_collect", { position: crystal.position, listener: state.players[state.localPlayerId]?.position });
       return {
         crystals: state.crystals.map((item) =>
           item.id === crystalId ? { ...item, active: false, respawnAt: now() + 18000 + Math.random() * 9000 } : item,
@@ -398,6 +402,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (!player || !mote?.active || player.status === "dead") return state;
       const sequence = state.networkSequence + 1;
       const nextMana = Math.min(PLAYER_MAX_MANA, player.mana + mote.amount);
+      audioRuntime.play("world_mana_collect", { position: mote.position, listener: player.position });
       const motes = mote.ephemeral
         ? state.manaMotes.filter((item) => item.id !== moteId)
         : state.manaMotes.map((item) =>
@@ -419,6 +424,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const player = state.players[playerId];
       const mote = state.manaMotes.find((item) => item.id === moteId);
       if (!player || !mote?.active || player.status === "dead") return state;
+      audioRuntime.play("world_mana_collect", { position: mote.position, listener: state.players[state.localPlayerId]?.position });
       const nextMana = Math.min(PLAYER_MAX_MANA, player.mana + mote.amount);
       const motes = mote.ephemeral
         ? state.manaMotes.filter((item) => item.id !== moteId)
@@ -490,6 +496,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
       log: ["Sanctuary opened. Inscribe a Nam-shub.", ...state.log].slice(0, 5),
     });
+    audioRuntime.play("world_sanctuary_enter", { position: player.position, listener: player.position });
     return true;
   },
 
@@ -516,6 +523,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const player = state.players[state.localPlayerId];
       if (!player) return { promptOpen: false, sanctuaryEndsAt: null, sanctuaryPausedRemainingMs: null };
       const sequence = state.networkSequence + 1;
+      audioRuntime.play("world_sanctuary_exit", { position: player.position, listener: player.position });
       return {
         networkSequence: sequence,
         lastSanctuaryEvent: { sequence, playerId: player.id, action: "exit" },
@@ -534,6 +542,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const player = state.players[playerId];
       if (!player || player.status === "dead") return state;
       const aura = Math.max(0, player.aura - (player.aura >= AURA_THRESHOLD ? AURA_THRESHOLD : 0));
+      audioRuntime.play("world_sanctuary_enter", { position: player.position, listener: state.players[state.localPlayerId]?.position });
       return {
         players: {
           ...state.players,
@@ -546,6 +555,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set((state) => {
       const player = state.players[playerId];
       if (!player) return state;
+      audioRuntime.play("world_sanctuary_exit", { position: player.position, listener: state.players[state.localPlayerId]?.position });
       return {
         players: {
           ...state.players,
@@ -563,6 +573,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const sequence = state.networkSequence + 1;
       const slots = [...player.spellSlots];
       slots[state.selectedSlot] = spell;
+      audioRuntime.play("ui_spell_bind");
       return {
         networkSequence: sequence,
         lastSpellBound: { sequence, playerId: player.id, slot: state.selectedSlot, spell },
@@ -595,10 +606,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get();
     const player = state.players[ownerId];
     const timestamp = now();
+    const listener = state.players[state.localPlayerId]?.position;
     if (!player || player.status === "dead") return false;
-    if (ownerId === state.localPlayerId && player.status === "sanctuary") return false;
-    if (ownerId === state.localPlayerId && (player.cooldowns[spell.id] ?? 0) > timestamp) return false;
-    if (ownerId === state.localPlayerId && player.mana < spell.manaCost) return false;
+    if (ownerId === state.localPlayerId && player.status === "sanctuary") {
+      audioRuntime.play("wizard_cast_fail", { position: player.position, listener });
+      return false;
+    }
+    if (ownerId === state.localPlayerId && (player.cooldowns[spell.id] ?? 0) > timestamp) {
+      audioRuntime.play("wizard_cast_fail", { position: player.position, listener });
+      return false;
+    }
+    if (ownerId === state.localPlayerId && player.mana < spell.manaCost) {
+      audioRuntime.play("wizard_cast_fail", { position: player.position, listener });
+      return false;
+    }
 
     const cooldowns = ownerId === state.localPlayerId ? { ...player.cooldowns, [spell.id]: timestamp + spell.cooldownMs } : player.cooldowns;
     const nextPlayer = ownerId === state.localPlayerId ? { ...player, mana: Math.max(0, player.mana - spell.manaCost), cooldowns } : player;
@@ -634,11 +655,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const ownerColliderHandle = colliderRegistry.findWizardHandle(ownerId);
 
     const delivery = getDeliveryVehicle(spell.deliveryVehicle);
+    audioRuntime.play("wizard_cast_release", { position: origin, listener });
+    audioRuntime.play(spellAudioCue(spell.alignment, "cast"), { position: origin, listener });
+    audioRuntime.play(spellAudioCue(spell.alignment, "travel_loop"), { position: origin, listener, volume: 0.42 });
+    audioRuntime.play(deliveryAudioCue(spell.deliveryVehicle), { position: origin, listener, volume: 0.72 });
 
     if (spell.deliveryVehicle === "ground_eruption" || spell.deliveryVehicle === "aura_orbit") {
       const forward = normalizeDirection(direction);
       const areaDurationMs = areaDuration(spell);
       const areaRadius = impactAreaRadius(spell);
+      audioRuntime.play(spellAudioCue(spell.alignment, "impact"), { position: resolvedPoint, listener });
+      audioRuntime.play(spellAudioCue(spell.alignment, "linger_loop"), { position: resolvedPoint, listener, volume: 0.72 });
       set({
         ...networkUpdate,
         players: { ...state.players, [ownerId]: nextPlayer },
@@ -780,10 +807,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   damageDummy: (dummyId, amount, ownerId) => {
     let scoredPosition: Vec3 | null = null;
+    let hitPosition: Vec3 | null = null;
     set((state) => {
       if (state.mode === "client") return state;
       const dummyTargets = state.dummyTargets.map((dummy) => {
         if (dummy.id !== dummyId || dummy.respawnAt) return dummy;
+        hitPosition = dummy.position;
         const health = Math.max(0, dummy.health - amount);
         if (health <= 0) {
           scoredPosition = dummy.position;
@@ -797,16 +826,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
         players: owner && scoredPosition ? { ...state.players, [ownerId]: { ...owner, score: owner.score + 1 } } : state.players,
       };
     });
+    if (hitPosition) audioRuntime.play("world_dummy_hit", { position: hitPosition, listener: get().players[get().localPlayerId]?.position });
     if (scoredPosition) get().dropManaMotesAt(scoredPosition);
   },
 
   damagePlayer: (playerId, amount, ownerId) => {
     let killPosition: Vec3 | null = null;
+    let hurtPosition: Vec3 | null = null;
     set((state) => {
       if (state.mode === "client") return state;
       const player = state.players[playerId];
       if (!player || player.isShielded || player.status === "dead") return state;
       const health = Math.max(0, player.health - amount);
+      hurtPosition = player.position;
       const players = {
         ...state.players,
         [playerId]:
@@ -821,7 +853,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       return { players };
     });
-    if (killPosition) get().dropManaMotesAt(killPosition);
+    const listener = get().players[get().localPlayerId]?.position;
+    if (killPosition) {
+      audioRuntime.play("wizard_death", { position: killPosition, listener });
+      get().dropManaMotesAt(killPosition);
+    } else if (hurtPosition) {
+      audioRuntime.play("wizard_hurt", { position: hurtPosition, listener, volume: 0.8 });
+    }
   },
 
   applyStatusEffect: (playerId, effect, ownerId, sourceSpellId, durationMs, strength) =>
@@ -865,19 +903,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (state.mode === "client") return state;
       const timestamp = now();
       const players = { ...state.players };
+      const spawnedPositions: Vec3[] = [];
       Object.values(players).forEach((player) => {
         if (player.status === "dead" && player.respawnAt && player.respawnAt <= timestamp) {
+          const position = randomRespawnPoint();
           players[player.id] = {
             ...player,
-            position: randomRespawnPoint(),
+            position,
             health: PLAYER_MAX_HEALTH,
             mana: PLAYER_MAX_MANA,
             status: "alive",
             statusEffects: [],
             respawnAt: null,
           };
+          spawnedPositions.push(position);
         }
       });
+      const listener = state.players[state.localPlayerId]?.position;
+      for (const position of spawnedPositions) audioRuntime.play("wizard_spawn", { position, listener });
       return {
         players,
         dummyTargets: state.dummyTargets.map((dummy) =>

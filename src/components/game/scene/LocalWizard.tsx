@@ -16,6 +16,7 @@ import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { AIM_RAY_GROUPS, WIZARD_GROUPS } from "@/game/physics/collisionGroups";
 import { WizardModel } from "@/components/game/scene/WizardModel";
 import { WizardNameplate } from "@/components/game/scene/WizardNameplate";
+import { audioRuntime } from "@/game/audio/audioRuntime";
 
 type ControlName = "forward" | "backward" | "left" | "right" | "jump";
 
@@ -63,6 +64,9 @@ export function LocalWizard() {
   const mouseDown = useRef(false);
   const pointerLocked = useRef(false);
   const lastMagicMissileAt = useRef(0);
+  const lastFootstepAt = useRef(0);
+  const wasGroundedRef = useRef(true);
+  const footstepIndex = useRef(0);
   const diagLogged = useRef(false);
   const appliedStatusImpulses = useRef(new Set<string>());
 
@@ -296,6 +300,7 @@ export function LocalWizard() {
       if (controls.jump && grounded.current) {
         velocity.current.y = JUMP_VELOCITY;
         grounded.current = false;
+        audioRuntime.play("wizard_jump", { position: player.position, listener: player.position });
       }
     } else {
       velocity.current.x = MathUtils.damp(velocity.current.x, 0, 12, dt);
@@ -349,9 +354,28 @@ export function LocalWizard() {
     // Ground state reflects what the controller observed, plus a soft check
     // against the procedural ground height so jumps after walking off ledges
     // still register correctly.
-    const wasGrounded = controller.computedGrounded();
-    grounded.current = wasGrounded;
-    if (wasGrounded && velocity.current.y < 0) velocity.current.y = 0;
+    const computedGrounded = controller.computedGrounded();
+    grounded.current = computedGrounded;
+    if (computedGrounded && velocity.current.y < 0) velocity.current.y = 0;
+    if (!wasGroundedRef.current && grounded.current) {
+      audioRuntime.play("wizard_land", { position: player.position, listener: player.position });
+    }
+    wasGroundedRef.current = grounded.current;
+
+    const horizontalSpeed = Math.hypot(velocity.current.x, velocity.current.z);
+    const movingOnGround = grounded.current && horizontalSpeed > 1.4 && !sanctuary && !promptOpen && !stunned;
+    if (movingOnGround && Date.now() - lastFootstepAt.current > Math.max(220, 460 - horizontalSpeed * 18)) {
+      lastFootstepAt.current = Date.now();
+      footstepIndex.current = (footstepIndex.current % 4) + 1;
+      const stepCue = footstepIndex.current === 1
+        ? "wizard_footstep_grass_01"
+        : footstepIndex.current === 2
+          ? "wizard_footstep_grass_02"
+          : footstepIndex.current === 3
+            ? "wizard_footstep_grass_03"
+            : "wizard_footstep_grass_04";
+      audioRuntime.play(stepCue, { position: player.position, listener: player.position });
+    }
 
     // If the controller blocked vertical motion (ceiling or hard ground), zero
     // residual velocity to prevent integration creep.
