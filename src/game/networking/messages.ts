@@ -179,11 +179,6 @@ export type SpellBoundMessage = {
   sequence: number;
 };
 
-export type MatchStartMessage = {
-  type: "match_start";
-  roomCode: string;
-};
-
 export type PlayerListRequestMessage = {
   type: "player_list_request";
   requesterId: string;
@@ -209,7 +204,6 @@ export type NetworkMessage =
   | ManaMoteCollectMessage
   | SanctuaryStateMessage
   | SpellBoundMessage
-  | MatchStartMessage
   | HostStateSnapshotMessage
   | PlayerListRequestMessage
   | DebugPingMessage;
@@ -268,7 +262,6 @@ const networkMessageSchema = z.discriminatedUnion("type", [
     timestamp: timestampSchema,
     sequence: sequenceSchema,
   }).strict(),
-  z.object({ type: z.literal("match_start"), roomCode: boundedString(16) }).strict(),
   z.object({
     type: z.literal("player_list_request"),
     requesterId: boundedString(96),

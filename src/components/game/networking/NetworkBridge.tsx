@@ -146,11 +146,6 @@ function hydrateSessionSnapshot() {
 function handleMessage(message: NetworkMessage) {
   const state = useGameStore.getState();
 
-  if (message.type === "match_start") {
-    state.setMode(state.mode === "host" ? "host" : "client", message.roomCode);
-    return;
-  }
-
   if (message.type === "player_list") {
     state.setLobbyPlayers(message.players, true);
     for (const player of message.players) {

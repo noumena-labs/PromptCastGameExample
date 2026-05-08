@@ -233,17 +233,6 @@ class PeerSession {
     });
   }
 
-  startMatch() {
-    if (this.snapshot.role !== "host" || !this.snapshot.roomCode || !this.snapshot.connected) {
-      this.patch({ error: "Only a connected host can start the match." });
-      this.recordDebug("drop", "match_start", undefined, "not_host_or_not_ready");
-      return;
-    }
-    const message: NetworkMessage = { type: "match_start", roomCode: this.snapshot.roomCode };
-    this.broadcast(message);
-    this.emitMessage(message);
-  }
-
   requestPlayerList() {
     const { peerId } = this.snapshot;
     if (!peerId || this.snapshot.role !== "client") return;
@@ -373,10 +362,6 @@ class PeerSession {
       this.patch({ players: message.players });
     }
 
-    if (message.type === "match_start") {
-      this.patch({ roomCode: message.roomCode });
-    }
-
     if (hostSide) {
       this.connections.forEach((other) => {
         if (other.peer !== connection.peer) this.sendTo(other, message);
@@ -399,7 +384,6 @@ class PeerSession {
 
     if (
       message.type === "player_list" ||
-      message.type === "match_start" ||
       message.type === "pickup_state" ||
       message.type === "host_state_snapshot" ||
       message.type === "player_state"

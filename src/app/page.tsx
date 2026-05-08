@@ -6,7 +6,6 @@ import { peerSession } from "@/game/networking/peerSession";
 import { usePeerSession } from "@/game/networking/usePeerSession";
 import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile } from "@/game/playerProfile";
 import { useGameStore } from "@/game/state/gameStore";
-import type { NetworkMessage } from "@/game/networking/messages";
 import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
 
 type MantleColor = { value: string; label: string };
@@ -144,15 +143,6 @@ export default function Home() {
     saveWizardProfile({ name, color, profileId });
   }, [color, name, profileId, profileLoaded]);
 
-  useEffect(() => {
-    const unsubscribe = peerSession.onMessage((message: NetworkMessage) => {
-      if (message.type !== "match_start") return;
-      setMode("client", message.roomCode);
-      router.push(`/game?mode=client&room=${message.roomCode}`);
-    });
-    return () => unsubscribe();
-  }, [router, setMode]);
-
   const startSolo = () => {
     peerSession.disconnect();
     saveWizardProfile({ name, color, profileId });
@@ -170,6 +160,7 @@ export default function Home() {
       const hostId = peerSession.getSnapshot().peerId;
       if (hostId) setLocalIdentity(hostId, profileName, color);
       setMode("host", code);
+      router.push(`/game?mode=host&room=${code}`);
     } catch {
       // The session error is already reflected in the lobby UI.
     } finally {
@@ -187,17 +178,13 @@ export default function Home() {
       saveWizardProfile({ name: profileName, color, profileId });
       const clientId = await peerSession.joinRoom(code, profileName, color, profileId);
       if (clientId) setLocalIdentity(clientId, profileName, color);
-      peerSession.requestPlayerList();
+      setMode("client", code);
+      router.push(`/game?mode=client&room=${code}`);
     } catch {
       // The session error is already reflected in the lobby UI.
     } finally {
       setBusy(false);
     }
-  };
-
-  const startHostedMatch = () => {
-    peerSession.startMatch();
-    router.push(`/game?mode=host&room=${session.roomCode}`);
   };
 
   return (
@@ -271,9 +258,6 @@ export default function Home() {
             <div className="roomPanel">
               <span>Room Code</span>
               <strong>{session.roomCode}</strong>
-              <button type="button" className="sealButton" onClick={startHostedMatch} disabled={!session.connected}>
-                Start Match
-              </button>
               <small>
                 {session.peerOpen
                   ? session.connectionCount > 0
