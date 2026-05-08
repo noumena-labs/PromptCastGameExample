@@ -135,6 +135,15 @@ export const sceneLeafSchema = z.object({
    * Renderer scales emissionOverTime / burst counts by this value.
    */
   intensity: z.coerce.number().min(0).max(2).optional(),
+  /**
+   * Optional override for `worldSpace` on a quarks_emitter. When true,
+   * particles are baked into world coordinates at birth and persist where
+   * spawned even if the parent group keeps moving (trail behavior). When
+   * false, particles inherit the moving parent's transform every frame
+   * (attached behavior). When omitted, the preset's own default is used.
+   * Only meaningful when shape === "quarks_emitter".
+   */
+  quarksWorldSpace: z.boolean().optional(),
 });
 export type SceneLeaf = z.infer<typeof sceneLeafSchema>;
 

@@ -304,6 +304,10 @@ function ShapePrimitive({
             intensity: node.intensity ?? 1,
             scale: Math.max(0.1, s),
             looping: variant === "travel" ? true : undefined,
+            // Forward optional world-space override; when undefined, the
+            // preset chooses its own default (production presets default to
+            // worldSpace=true so trails persist where spawned).
+            worldSpace: node.quarksWorldSpace,
           }}
         />
       );

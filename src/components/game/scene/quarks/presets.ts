@@ -240,6 +240,23 @@ export type QuarksPresetConfig = {
   looping?: boolean;
   /** Lifetime override in seconds (interval [min,max] or single value). */
   lifetime?: [number, number] | number;
+  /**
+   * Override world-space simulation for this emitter.
+   *
+   * - `true`  → particles are baked into world coordinates at birth; they
+   *             persist where spawned even if the host group keeps moving.
+   *             This produces real trails (smoke left in the sky as a
+   *             meteor falls).
+   * - `false` → particles follow the parent transform every frame, so they
+   *             stay attached to a moving host (good for auras, attached
+   *             flames).
+   *
+   * When omitted, the preset chooses a sensible default — see preset
+   * factories. Most production presets default to `true` so trails work
+   * out of the box; `debug_alpha_test` keeps `false` so the debug pattern
+   * is anchored to the camera-relative test scene.
+   */
+  worldSpace?: boolean;
 };
 
 export type QuarksPresetFactory = (config?: QuarksPresetConfig) => ParticleSystem;
@@ -347,6 +364,7 @@ function buildSmokePlumeDark(cfg: QuarksPresetConfig): ParticleSystem {
   const colB = color4(cfg.colorB ?? "#5a4a38", 0.0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 4,
     looping: cfg.looping ?? true,
     startLife: lifeOf(cfg, [2.4, 3.8]),
@@ -399,6 +417,7 @@ function buildSmokePlumeDust(cfg: QuarksPresetConfig): ParticleSystem {
   const colB = color4(cfg.colorB ?? "#8a7560", 0.0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 3,
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [1.4, 2.4]),
@@ -438,6 +457,7 @@ function buildEmbersRising(cfg: QuarksPresetConfig): ParticleSystem {
   const cool = color4(cfg.colorB ?? "#802010", 0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 4,
     looping: cfg.looping ?? true,
     startLife: lifeOf(cfg, [1.5, 3.0]),
@@ -473,6 +493,7 @@ function buildSparksBurst(cfg: QuarksPresetConfig): ParticleSystem {
   const dim = color4(cfg.colorB ?? "#a04020", 0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 0.4,
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [0.3, 0.7]),
@@ -517,6 +538,7 @@ function buildFireCore(cfg: QuarksPresetConfig): ParticleSystem {
   const colB = color4(cfg.colorB ?? "#401000", 0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 3,
     looping: cfg.looping ?? true,
     startLife: lifeOf(cfg, [0.6, 1.1]),
@@ -568,6 +590,7 @@ function buildDebrisChunks(cfg: QuarksPresetConfig): ParticleSystem {
   });
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 0.6,
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [0.8, 1.6]),
@@ -608,6 +631,7 @@ function buildDustPuff(cfg: QuarksPresetConfig): ParticleSystem {
   const colB = color4(cfg.colorB ?? "#8a7560", 0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 0.6,
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [0.6, 1.2]),
@@ -654,6 +678,7 @@ function buildLavaDroplets(cfg: QuarksPresetConfig): ParticleSystem {
   const cool = color4(cfg.colorB ?? "#601000", 0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 0.5,
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [0.8, 1.6]),
@@ -697,6 +722,7 @@ function buildLightningArcs(cfg: QuarksPresetConfig): ParticleSystem {
   const dim = color4(cfg.colorB ?? "#3050a0", 0);
 
   return new ParticleSystem({
+    worldSpace: cfg.worldSpace ?? true,
     duration: 0.3,
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [0.1, 0.25]),
@@ -740,6 +766,9 @@ function buildDebugAlphaTest(cfg: QuarksPresetConfig): ParticleSystem {
   const white = color4("#ffffff", 1);
 
   return new ParticleSystem({
+    // Debug preset: keep local-space so the spinning fountain stays anchored
+    // to the test scene origin and is easy to inspect.
+    worldSpace: cfg.worldSpace ?? false,
     duration: 5,
     looping: cfg.looping ?? true,
     startLife: lifeOf(cfg, [5, 5]),
