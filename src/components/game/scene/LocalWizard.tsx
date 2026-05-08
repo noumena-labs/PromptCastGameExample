@@ -42,7 +42,7 @@ const FALLBACK_CENTER_POSITION = [FALLBACK_SPAWN_X, getGroundHeight(FALLBACK_SPA
 
 // Aim/cast geometry. Projectiles spawn at the wizard's shoulder, but every
 // spell resolves against the centered reticle's world intersection point.
-const SHOULDER_OFFSET_Y = 1.6; // above capsule center, ~chest height
+const SHOULDER_OFFSET_Y = 1.7; // above capsule center, ~chest height
 const CAST_TARGET_DISTANCE = 70;
 const TERRAIN_RAY_STEPS = 80;
 
@@ -411,7 +411,7 @@ export function LocalWizard() {
       CAM_HEIGHT - Math.sin(pitch.current) * CAM_DISTANCE,
       Math.cos(yaw.current) * Math.cos(pitch.current) * CAM_DISTANCE,
     );
-    const camTarget = tmpLook.current.set(center.current.x, center.current.y + 1.8, center.current.z);
+    const camTarget = tmpLook.current.set(center.current.x, center.current.y + 2.2, center.current.z);
     camera.position.set(camTarget.x + camOffset.x, camTarget.y + camOffset.y, camTarget.z + camOffset.z);
     camera.lookAt(camTarget);
 
