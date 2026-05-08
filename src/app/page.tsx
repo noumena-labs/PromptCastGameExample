@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { usePeerSession } from "@/game/networking/usePeerSession";
-import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile } from "@/game/playerProfile";
+import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile, type WizardProfile } from "@/game/playerProfile";
 import { useGameStore } from "@/game/state/gameStore";
 import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
 import { useAudioUnlock, useLoopingAudio, useUiClickAudio } from "@/game/audio/useGameAudio";
@@ -64,8 +64,19 @@ function subscribeToClientReady() {
   return () => undefined;
 }
 
+let clientWizardProfile: WizardProfile | null = null;
+
 function useClientReady() {
   return useSyncExternalStore(subscribeToClientReady, () => true, () => false);
+}
+
+function getClientWizardProfile() {
+  clientWizardProfile ??= loadWizardProfile();
+  return clientWizardProfile;
+}
+
+function useHydratedWizardProfile() {
+  return useSyncExternalStore(subscribeToClientReady, getClientWizardProfile, () => DEFAULT_WIZARD_PROFILE);
 }
 
 function isChromeBrowser() {
@@ -179,12 +190,8 @@ function ChromeRequirementModal({ onClose }: { onClose: () => void }) {
 export default function Home() {
   const router = useRouter();
   const session = usePeerSession();
-  const [profile, setProfile] = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_WIZARD_PROFILE;
-    const loaded = loadWizardProfile();
-    saveWizardProfile(loaded);
-    return loaded;
-  });
+  const hydratedProfile = useHydratedWizardProfile();
+  const [profileOverride, setProfileOverride] = useState<WizardProfile | null>(null);
   const [roomCode, setRoomCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [howToPlayOpen, setHowToPlayOpen] = useState(false);
@@ -198,20 +205,26 @@ export default function Home() {
   useUiClickAudio();
   useLoopingAudio("music_menu_loop", "music:menu", 0.85);
 
+  const profile = profileOverride ?? hydratedProfile;
   const name = profile.name;
   const color = profile.color;
   const profileId = profile.profileId;
-  const chromeWarningOpen = useClientReady() && !chromeWarningDismissed && !isChromeBrowser();
+  const clientReady = useClientReady();
+  const chromeWarningOpen = clientReady && !chromeWarningDismissed && !isChromeBrowser();
+  const updateProfile = (updater: (current: WizardProfile) => WizardProfile) => {
+    setProfileOverride((current) => updater(current ?? hydratedProfile));
+  };
 
   useEffect(() => {
-    if (session.role !== "host" || !session.peerId || localIdentityApplied.current === session.peerId || localPlayerId === session.peerId) return;
+    if (!clientReady || session.role !== "host" || !session.peerId || localIdentityApplied.current === session.peerId || localPlayerId === session.peerId) return;
     localIdentityApplied.current = session.peerId;
     setLocalIdentity(session.peerId, name || "Host Wizard", color);
-  }, [color, localPlayerId, name, session.peerId, session.role, setLocalIdentity]);
+  }, [clientReady, color, localPlayerId, name, session.peerId, session.role, setLocalIdentity]);
 
   useEffect(() => {
+    if (!clientReady) return;
     saveWizardProfile(profile);
-  }, [profile]);
+  }, [clientReady, profile]);
 
   const startSolo = () => {
     peerSession.disconnect();
@@ -313,7 +326,7 @@ export default function Home() {
           <h2>Wizard Profile</h2>
           <p>Choose a name and mantle color so allies and rivals may know you in the field.</p>
           <label htmlFor="playerName">Name</label>
-          <input id="playerName" value={name} onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))} maxLength={18} />
+          <input id="playerName" value={name} onChange={(event) => updateProfile((current) => ({ ...current, name: event.target.value }))} maxLength={18} />
           <span className="fieldLabel" id="mantleLabel">Mantle</span>
           <div className="colorGrid" role="radiogroup" aria-labelledby="mantleLabel">
             {MANTLE_COLORS.map((option) => {
@@ -326,7 +339,7 @@ export default function Home() {
                   aria-checked={active}
                   className={active ? "active" : ""}
                   style={{ background: option.value }}
-                  onClick={() => setProfile((current) => ({ ...current, color: option.value }))}
+                  onClick={() => updateProfile((current) => ({ ...current, color: option.value }))}
                   aria-label={option.label}
                   title={option.label}
                 />
