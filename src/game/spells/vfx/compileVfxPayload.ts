@@ -97,15 +97,17 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
         opacity: 0.5,
       }),
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: castBurstPresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.secondary,
+        colorB: a.palette.accent,
         emissiveIntensity: clampEmit(0.9 * m.intensity),
-        size: 0.1 * m.scale,
+        size: 0.45 * m.scale,
         motion: "drift",
         motionSpeed: 1.4,
-        particleCount: Math.round(48 * m.intensity),
+        intensity: 0.6 * m.intensity,
         opacity: 0.6,
       }),
     ],
@@ -127,16 +129,18 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
     children: [
       // trail behind body
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: travelTrailPresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.secondary,
+        colorB: a.palette.dark,
         emissiveIntensity: clampEmit(1.0 * m.intensity),
-        size: Number((0.14 * m.scale).toFixed(2)),
+        size: Number((0.55 * m.scale).toFixed(2)),
         position: [0, 0, -0.55 * m.scale],
         motion: "drift",
         motionSpeed: 1.6,
-        particleCount: Math.round(60 * m.intensity),
+        intensity: 0.85 * m.intensity,
         opacity: 0.72,
       }),
       // outer halo
@@ -195,15 +199,17 @@ function compileArcingProjectileScenes(spec: SpellBuildSpec) {
         opacity: 0.55,
       }),
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: castBurstPresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.accent,
+        colorB: a.palette.secondary,
         emissiveIntensity: clampEmit(0.8 * m.intensity),
-        size: 0.12 * m.scale,
+        size: 0.5 * m.scale,
         motion: "rise",
         motionSpeed: 0.6,
-        particleCount: Math.round(36 * m.intensity),
+        intensity: 0.45 * m.intensity,
         opacity: 0.55,
       }),
     ],
@@ -224,16 +230,18 @@ function compileArcingProjectileScenes(spec: SpellBuildSpec) {
     children: [
       // falling dust trail
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: travelTrailPresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.secondary,
+        colorB: a.palette.dark,
         emissiveIntensity: clampEmit(0.7 * m.intensity),
-        size: 0.16 * m.scale,
+        size: 0.65 * m.scale,
         position: [0, -0.2 * m.scale, -0.4 * m.scale],
         motion: "fall",
         motionSpeed: 0.6,
-        particleCount: Math.round(64 * m.intensity),
+        intensity: 0.75 * m.intensity,
         opacity: 0.7,
       }),
       // outer rim
@@ -291,18 +299,20 @@ function compileArcingProjectileScenes(spec: SpellBuildSpec) {
         motionSpeed: 2.6,
         opacity: 0.55,
       }),
-      // debris kicked up
+      // textured dust kicked up
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: impactBurstPresetFor(spec),
         shaderId: cloudShader(spec),
         shaderPhase: "impact",
         color: a.palette.secondary,
+        colorB: a.palette.dark,
         emissiveIntensity: clampEmit(0.7 * m.intensity),
-        size: 0.3 * m.scale,
+        size: 0.9 * m.scale,
         position: [0, 0.45, 0],
         motion: "rise",
         motionSpeed: 0.9,
-        particleCount: Math.round(110 * m.intensity),
+        intensity: 0.85 * m.intensity,
         opacity: 0.7,
       }),
       // ground decal crater
@@ -353,15 +363,17 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
     }),
     children: [
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: castBurstPresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.accent,
+        colorB: a.palette.secondary,
         emissiveIntensity: clampEmit(1.0 * m.intensity),
-        size: 0.16 * m.scale,
+        size: 0.55 * m.scale,
         motion: "rise",
         motionSpeed: 1.2,
-        particleCount: Math.round(60 * m.intensity),
+        intensity: 0.65 * m.intensity,
         opacity: 0.7,
       }),
       node({
@@ -716,15 +728,17 @@ function compileHitscanScenes(spec: SpellBuildSpec) {
         opacity: 0.62,
       }),
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: castBurstPresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.accent,
+        colorB: a.palette.secondary,
         emissiveIntensity: clampEmit(1.0 * m.intensity),
-        size: 0.08 * m.scale,
+        size: 0.45 * m.scale,
         motion: "drift",
         motionSpeed: 3.0,
-        particleCount: Math.round(48 * m.intensity),
+        intensity: 0.55 * m.intensity,
         opacity: 0.7,
       }),
     ],
@@ -760,15 +774,17 @@ function compileHitscanScenes(spec: SpellBuildSpec) {
       }),
       // sparks along beam
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: "sparks_burst",
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.accent,
+        colorB: a.palette.primary,
         emissiveIntensity: clampEmit(1.4 * m.intensity),
-        size: 0.07 * m.scale,
+        size: 0.42 * m.scale,
         motion: "drift",
         motionSpeed: 4.0,
-        particleCount: Math.round(72 * m.intensity),
+        intensity: 0.75 * m.intensity,
         opacity: 0.7,
       }),
     ],
@@ -803,15 +819,17 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
     }),
     children: [
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: castBurstPresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.secondary,
+        colorB: a.palette.dark,
         emissiveIntensity: clampEmit(0.9 * m.intensity),
-        size: 0.12 * m.scale,
+        size: 0.5 * m.scale,
         motion: "rise",
         motionSpeed: 0.8,
-        particleCount: Math.round(40 * m.intensity),
+        intensity: 0.55 * m.intensity,
         opacity: 0.6,
       }),
     ],
@@ -1239,15 +1257,17 @@ function compileAuraOrbitScenes(spec: SpellBuildSpec) {
       }),
       // soft particle haze
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: auraHazePresetFor(spec),
         shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.secondary,
+        colorB: a.palette.dark,
         emissiveIntensity: clampEmit(0.6 * m.intensity),
-        size: 0.12,
+        size: 0.45,
         motion: "swirl",
         motionSpeed: 0.8,
-        particleCount: Math.round(80 * m.intensity),
+        intensity: 0.65 * m.intensity,
         opacity: 0.55,
       }),
     ].slice(0, 6),
@@ -1309,15 +1329,17 @@ function compileGenericImpactScene(spec: SpellBuildSpec, a: AlignmentDefinition,
   }
   if (spec.vfx.impact.includes("burst_explosion")) {
     children.push(node({
-      shape: "particle_cloud",
+      shape: "quarks_emitter",
+      quarksPreset: impactBurstPresetFor(spec),
       shaderId: spec.vfx.shaders.impact,
       shaderPhase: "impact",
       color: a.palette.accent,
+      colorB: a.palette.secondary,
       emissiveIntensity: clampEmit(1.4 * m.intensity),
-      size: 0.24 * m.scale,
+      size: 0.75 * m.scale,
       motion: "expand",
       motionSpeed: 2.2,
-      particleCount: Math.round(120 * m.intensity),
+      intensity: 0.95 * m.intensity,
       opacity: 0.86,
     }));
     children.push(node({
@@ -1334,16 +1356,18 @@ function compileGenericImpactScene(spec: SpellBuildSpec, a: AlignmentDefinition,
   }
   if (spec.vfx.impact.includes("lingering_cloud")) {
     children.push(node({
-      shape: "particle_cloud",
+      shape: "quarks_emitter",
+      quarksPreset: lingeringCloudPresetFor(spec),
       shaderId: cloudShader(spec),
       shaderPhase: "impact",
       color: a.palette.secondary,
+      colorB: a.palette.dark,
       emissiveIntensity: clampEmit(0.6 * m.intensity),
-      size: 0.34 * m.scale,
+      size: 0.9 * m.scale,
       position: [0, 0.35, 0],
       motion: "swirl",
       motionSpeed: 0.7,
-      particleCount: Math.round(90 * m.intensity),
+      intensity: 0.85 * m.intensity,
       opacity: 0.62,
     }));
   }
@@ -1392,16 +1416,18 @@ function alignmentTravelExtras(spec: SpellBuildSpec, a: AlignmentDefinition, kin
   if (spec.alignment === "fire" && kind === "linear") {
     return [
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: "embers_rising",
         shaderId: "ember_trail",
         shaderPhase: "trail",
         color: a.palette.accent,
+        colorB: a.palette.primary,
         emissiveIntensity: clampEmit(1.4 * m.intensity),
-        size: 0.08 * m.scale,
+        size: 0.5 * m.scale,
         position: [0, 0, -0.7 * m.scale],
         motion: "drift",
         motionSpeed: 2.2,
-        particleCount: Math.round(40 * m.intensity),
+        intensity: 0.65 * m.intensity,
         opacity: 0.78,
       }),
     ];
@@ -1434,13 +1460,102 @@ function alignmentTravelExtras(spec: SpellBuildSpec, a: AlignmentDefinition, kin
 function coreShape(mesh: SpellBuildSpec["vfx"]["coreMesh"]): SceneLeaf["shape"] {
   switch (mesh) {
     case "none":
-      return "particle_cloud";
+      return "sphere";
     case "jagged_crystal":
       return "octa";
     case "boulder":
       return "tetra";
     case "sphere":
       return "sphere";
+  }
+}
+
+function castBurstPresetFor(
+  spec: SpellBuildSpec,
+): NonNullable<SceneLeaf["quarksPreset"]> {
+  switch (spec.alignment) {
+    case "fire":
+    case "meteor_cosmic":
+      return "embers_rising";
+    case "lightning":
+    case "light":
+      return "sparks_burst";
+    case "earth":
+    case "water_ice":
+      return "smoke_plume_dust";
+    case "dark":
+      return "smoke_plume_dark";
+  }
+}
+
+function travelTrailPresetFor(
+  spec: SpellBuildSpec,
+): NonNullable<SceneLeaf["quarksPreset"]> {
+  switch (spec.alignment) {
+    case "fire":
+    case "meteor_cosmic":
+      return "embers_rising";
+    case "lightning":
+    case "light":
+      return "sparks_burst";
+    case "earth":
+    case "water_ice":
+      return "smoke_plume_dust";
+    case "dark":
+      return "smoke_plume_dark";
+  }
+}
+
+function impactBurstPresetFor(
+  spec: SpellBuildSpec,
+): NonNullable<SceneLeaf["quarksPreset"]> {
+  switch (spec.alignment) {
+    case "fire":
+    case "meteor_cosmic":
+      return "lava_droplets";
+    case "lightning":
+    case "light":
+      return "sparks_burst";
+    case "earth":
+    case "water_ice":
+      return "dust_puff";
+    case "dark":
+      return "smoke_plume_dark";
+  }
+}
+
+function lingeringCloudPresetFor(
+  spec: SpellBuildSpec,
+): NonNullable<SceneLeaf["quarksPreset"]> {
+  switch (spec.alignment) {
+    case "fire":
+    case "meteor_cosmic":
+    case "dark":
+      return "smoke_plume_dark";
+    case "earth":
+    case "water_ice":
+      return "smoke_plume_dust";
+    case "lightning":
+    case "light":
+      return "embers_rising";
+  }
+}
+
+function auraHazePresetFor(
+  spec: SpellBuildSpec,
+): NonNullable<SceneLeaf["quarksPreset"]> {
+  switch (spec.alignment) {
+    case "fire":
+    case "meteor_cosmic":
+    case "light":
+      return "embers_rising";
+    case "lightning":
+      return "lightning_arcs";
+    case "earth":
+    case "water_ice":
+      return "smoke_plume_dust";
+    case "dark":
+      return "smoke_plume_dark";
   }
 }
 

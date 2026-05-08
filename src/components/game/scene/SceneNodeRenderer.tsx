@@ -303,6 +303,7 @@ function ShapePrimitive({
             colorB: node.colorB ?? node.color,
             intensity: node.intensity ?? 1,
             scale: Math.max(0.1, s),
+            looping: variant === "travel" ? true : undefined,
           }}
         />
       );

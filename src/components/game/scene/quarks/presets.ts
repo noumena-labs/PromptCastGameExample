@@ -27,6 +27,7 @@ import {
   ConstantColor,
   ConstantValue,
   type EmitterShape,
+  FrameOverLife,
   Gradient,
   IntervalValue,
   ParticleSystem,
@@ -133,6 +134,13 @@ function bezierCurve(
   return new PiecewiseBezier([[new Bezier(p[0], p[1], p[2], p[3]), 0]]);
 }
 
+function linearFrameCurve(first: number, last: number): PiecewiseBezier {
+  const span = last - first;
+  return new PiecewiseBezier([
+    [new Bezier(first, first + span / 3, first + (span * 2) / 3, last), 0],
+  ]);
+}
+
 // ---------- preset registry ----------
 
 export type QuarksPresetId =
@@ -161,6 +169,48 @@ export type QuarksPresetConfig = {
 };
 
 export type QuarksPresetFactory = (config?: QuarksPresetConfig) => ParticleSystem;
+
+export type QuarksPresetTextureUsage = {
+  filename: string;
+  role: string;
+};
+
+export const QUARKS_PRESET_TEXTURES: Record<
+  QuarksPresetId,
+  readonly QuarksPresetTextureUsage[]
+> = {
+  smoke_plume_dark: [
+    { filename: "smoke_puff_soft.png", role: "soft smoke billboard" },
+  ],
+  smoke_plume_dust: [
+    { filename: "dust_puff.png", role: "dust/smoke billboard" },
+  ],
+  embers_rising: [
+    { filename: "ember_dot.png", role: "additive ember sprite" },
+  ],
+  sparks_burst: [
+    { filename: "spark_streak.png", role: "stretched spark sprite" },
+  ],
+  fire_core: [
+    { filename: "fire_flipbook_4x4.png", role: "4x4 animated flame atlas" },
+  ],
+  debris_chunks: [],
+  dust_puff: [
+    { filename: "dust_puff.png", role: "impact dust billboard" },
+  ],
+  lava_droplets: [
+    { filename: "ember_dot.png", role: "additive molten droplet sprite" },
+  ],
+  lightning_arcs: [
+    { filename: "spark_streak.png", role: "stretched lightning sprite" },
+  ],
+};
+
+export function getQuarksPresetTextures(
+  id: QuarksPresetId,
+): readonly QuarksPresetTextureUsage[] {
+  return QUARKS_PRESET_TEXTURES[id] ?? [];
+}
 
 // ---------- internal builders ----------
 
@@ -358,9 +408,12 @@ function buildFireCore(cfg: QuarksPresetConfig): ParticleSystem {
       blending: THREE.AdditiveBlending,
     }),
     renderMode: RenderMode.BillBoard,
-    // NOTE: TextureSequencer (frame animation) wiring lives in compileVfx;
-    // basic preset just shows frame 0. We extend in Phase 5 if needed.
+    startTileIndex: new ConstantValue(0),
+    uTileCount: 4,
+    vTileCount: 4,
+    blendTiles: true,
     behaviors: [
+      new FrameOverLife(linearFrameCurve(0, 15)),
       new SizeOverLife(bezierCurve([[0.6, 1.0, 1.2, 0.4]])),
       new ColorOverLife(gradient([
         [0, colA],
