@@ -61,6 +61,8 @@ function messageActor(message: NetworkMessage): string | null {
   if (message.type === "player_cast_spell") return message.playerId;
   if (message.type === "pickup_collect") return message.playerId;
   if (message.type === "mana_mote_collect") return message.playerId;
+  if (message.type === "sanctuary_state") return message.playerId;
+  if (message.type === "spell_bound") return message.playerId;
   if (message.type === "player_state") return message.player.id;
   if (message.type === "player_list_request") return message.requesterId;
   if (message.type === "debug_ping") return message.senderId;

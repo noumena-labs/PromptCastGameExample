@@ -14,6 +14,8 @@ export function NetworkBridge() {
   const lastCastSequence = useRef(0);
   const lastCrystalSequence = useRef(0);
   const lastManaMoteSequence = useRef(0);
+  const lastSanctuarySequence = useRef(0);
+  const lastSpellBoundSequence = useRef(0);
   const hostSnapshotSequence = useRef(0);
   const lastHostSnapshotAt = useRef(0);
 
@@ -91,6 +93,27 @@ export function NetworkBridge() {
           sequence: state.lastManaMoteCollect.sequence,
         });
       }
+      if (state.lastSanctuaryEvent && state.lastSanctuaryEvent.sequence !== lastSanctuarySequence.current) {
+        lastSanctuarySequence.current = state.lastSanctuaryEvent.sequence;
+        peerSession.send({
+          type: "sanctuary_state",
+          playerId: state.lastSanctuaryEvent.playerId,
+          action: state.lastSanctuaryEvent.action,
+          timestamp,
+          sequence: state.lastSanctuaryEvent.sequence,
+        });
+      }
+      if (state.lastSpellBound && state.lastSpellBound.sequence !== lastSpellBoundSequence.current) {
+        lastSpellBoundSequence.current = state.lastSpellBound.sequence;
+        peerSession.send({
+          type: "spell_bound",
+          playerId: state.lastSpellBound.playerId,
+          slot: state.lastSpellBound.slot,
+          spell: state.lastSpellBound.spell,
+          timestamp,
+          sequence: state.lastSpellBound.sequence,
+        });
+      }
     }, 50);
 
     return () => window.clearInterval(interval);
@@ -103,6 +126,8 @@ const lastTransformSequences = new Map<string, number>();
 const seenCastSequences = new Set<string>();
 const seenPickupSequences = new Set<string>();
 const seenManaMoteSequences = new Set<string>();
+const seenSanctuarySequences = new Set<string>();
+const seenSpellBoundSequences = new Set<string>();
 
 function hydrateSessionSnapshot() {
   const snapshot = peerSession.getSnapshot();
@@ -187,6 +212,31 @@ function handleMessage(message: NetworkMessage) {
     seenManaMoteSequences.add(key);
     if (message.playerId !== state.localPlayerId) {
       state.collectManaMoteForPlayer(message.moteId, message.playerId);
+    }
+    return;
+  }
+
+  if (message.type === "sanctuary_state") {
+    const key = `${message.playerId}:${message.sequence}`;
+    if (seenSanctuarySequences.has(key)) return;
+    seenSanctuarySequences.add(key);
+    if (message.playerId !== state.localPlayerId) {
+      if (message.action === "enter") state.enterSanctuaryForPlayer(message.playerId);
+      else state.exitSanctuaryForPlayer(message.playerId);
+    }
+    return;
+  }
+
+  if (message.type === "spell_bound") {
+    const key = `${message.playerId}:${message.sequence}`;
+    if (seenSpellBoundSequences.has(key)) return;
+    seenSpellBoundSequences.add(key);
+    if (message.playerId !== state.localPlayerId) {
+      try {
+        state.saveGeneratedSpellForPlayer(message.playerId, message.slot, validateGeneratedSpell(message.spell));
+      } catch (error) {
+        state.addLog(error instanceof Error ? error.message : "Invalid remote bound spell payload.");
+      }
     }
     return;
   }

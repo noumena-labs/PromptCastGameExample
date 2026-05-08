@@ -1,21 +1,23 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Billboard, Text } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { CapsuleCollider, RigidBody } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
-import { Group } from "three";
+import { Group, MathUtils, Vector3 } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { LOCAL_PLAYER_ID } from "@/game/config/gameConfig";
 import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { WIZARD_GROUPS } from "@/game/physics/collisionGroups";
 import { WizardModel } from "@/components/game/scene/WizardModel";
+import { WizardNameplate } from "@/components/game/scene/WizardNameplate";
 
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.45;
 const CAPSULE_FOOT_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
+const POSITION_SMOOTHING = 14;
+const ROTATION_SMOOTHING = 12;
 
 export function RemoteWizards() {
   const localPlayerId = useGameStore((state) => state.localPlayerId);
@@ -39,8 +41,13 @@ function RemoteWizard({ id }: { id: string }) {
   const bodyRef = useRef<RapierRigidBody | null>(null);
   const visualRef = useRef<Group>(null);
   const colliderHandleRef = useRef<number | null>(null);
+  const smoothedPosition = useRef(new Vector3());
+  const targetPosition = useRef(new Vector3());
+  const initialized = useRef(false);
+  const alive = player?.status !== "dead";
 
   useEffect(() => {
+    if (!alive) return;
     const body = bodyRef.current;
     if (!body || body.numColliders() === 0) return;
     const handle = body.collider(0).handle;
@@ -50,25 +57,37 @@ function RemoteWizard({ id }: { id: string }) {
       colliderRegistry.unregister(handle);
       colliderHandleRef.current = null;
     };
-  }, [id]);
+  }, [alive, id]);
 
-  useFrame(() => {
-    if (!player) return;
+  useFrame((_, delta) => {
+    if (!player || player.status === "dead") {
+      bodyRef.current = null;
+      visualRef.current = null;
+      initialized.current = false;
+      return;
+    }
+    if (!initialized.current) {
+      initialized.current = true;
+      smoothedPosition.current.set(player.position[0], player.position[1], player.position[2]);
+    }
+    targetPosition.current.set(player.position[0], player.position[1], player.position[2]);
+    smoothedPosition.current.lerp(targetPosition.current, 1 - Math.exp(-POSITION_SMOOTHING * delta));
     const body = bodyRef.current;
-    if (body) {
+    if (body && body.numColliders() > 0) {
       body.setNextKinematicTranslation({
-        x: player.position[0],
-        y: player.position[1] + CAPSULE_FOOT_OFFSET,
-        z: player.position[2],
+        x: smoothedPosition.current.x,
+        y: smoothedPosition.current.y + CAPSULE_FOOT_OFFSET,
+        z: smoothedPosition.current.z,
       });
     }
     if (visualRef.current) {
-      visualRef.current.position.set(player.position[0], player.position[1], player.position[2]);
-      visualRef.current.rotation.y = player.rotationY;
+      visualRef.current.position.copy(smoothedPosition.current);
+      visualRef.current.rotation.y = MathUtils.damp(visualRef.current.rotation.y, player.rotationY, ROTATION_SMOOTHING, delta);
     }
   });
 
   if (!player) return null;
+  if (!alive) return null;
 
   return (
     <>
@@ -83,11 +102,7 @@ function RemoteWizard({ id }: { id: string }) {
       </RigidBody>
       <group ref={visualRef} position={player.position} rotation-y={player.rotationY}>
         <WizardModel color={player.color} shielded={player.isShielded} />
-        <Billboard position={[0, 2.9, 0]}>
-          <Text fontSize={0.35} color="#f4f7e8" anchorX="center" anchorY="middle">
-            {player.name}
-          </Text>
-        </Billboard>
+        <WizardNameplate name={player.name} health={player.health} color={player.color} />
       </group>
     </>
   );

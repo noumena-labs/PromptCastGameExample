@@ -15,6 +15,7 @@ import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { AIM_RAY_GROUPS, WIZARD_GROUPS } from "@/game/physics/collisionGroups";
 import { WizardModel } from "@/components/game/scene/WizardModel";
+import { WizardNameplate } from "@/components/game/scene/WizardNameplate";
 
 type ControlName = "forward" | "backward" | "left" | "right" | "jump";
 
@@ -35,9 +36,9 @@ const CAM_HEIGHT = 4.6;
 const PITCH_MIN = -1.85;
 const PITCH_MAX = 1.55;
 
-const SPAWN_X = 0;
-const SPAWN_Z = 18;
-const INITIAL_CENTER_POSITION = [SPAWN_X, getGroundHeight(SPAWN_X, SPAWN_Z) + CAPSULE_FOOT_OFFSET, SPAWN_Z] as const;
+const FALLBACK_SPAWN_X = 0;
+const FALLBACK_SPAWN_Z = 18;
+const FALLBACK_CENTER_POSITION = [FALLBACK_SPAWN_X, getGroundHeight(FALLBACK_SPAWN_X, FALLBACK_SPAWN_Z) + CAPSULE_FOOT_OFFSET, FALLBACK_SPAWN_Z] as const;
 
 // Aim/cast geometry. Projectiles spawn at the wizard's shoulder, but every
 // spell resolves against the centered reticle's world intersection point.
@@ -54,7 +55,7 @@ export function LocalWizard() {
   const colliderHandleRef = useRef<number | null>(null);
 
   // Center of the capsule (not the feet). World position used for movement.
-  const center = useRef(new Vector3(...INITIAL_CENTER_POSITION));
+  const center = useRef(new Vector3(...FALLBACK_CENTER_POSITION));
   const velocity = useRef(new Vector3());
   const yaw = useRef(Math.PI);
   const pitch = useRef(-0.18);
@@ -70,6 +71,7 @@ export function LocalWizard() {
   const { world } = useRapier();
   const localPlayerId = useGameStore((state) => state.localPlayerId);
   const player = useGameStore((state) => state.players[state.localPlayerId]);
+  const alive = player != null && player.status !== "dead";
   const updateLocalTransform = useGameStore((state) => state.updateLocalTransform);
   const castSpell = useGameStore((state) => state.castSpell);
   const castSlot = useGameStore((state) => state.castSlot);
@@ -86,6 +88,24 @@ export function LocalWizard() {
   const tmpLook = useRef(new Vector3());
   const tmpCastDir = useRef(new Vector3());
   const tmpCastOrigin = useRef(new Vector3());
+  const initializedPlayerId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!player || player.status === "dead" || initializedPlayerId.current === player.id) return;
+    initializedPlayerId.current = player.id;
+    center.current.set(player.position[0], player.position[1] + CAPSULE_FOOT_OFFSET, player.position[2]);
+    velocity.current.set(player.velocity[0], player.velocity[1], player.velocity[2]);
+    yaw.current = player.rotationY - Math.PI;
+    try {
+      bodyRef.current?.setNextKinematicTranslation({
+        x: center.current.x,
+        y: center.current.y,
+        z: center.current.z,
+      });
+    } catch {
+      bodyRef.current = null;
+    }
+  }, [player]);
 
   const buildCastGeometry = useCallback((): { origin: Vec3; direction: Vec3; targetPoint: Vec3; targetSource: AimTarget["source"] } => {
     const rayDirection = camera.getWorldDirection(tmpCastDir.current).normalize();
@@ -209,6 +229,7 @@ export function LocalWizard() {
 
   // Register collider with the entity registry once it's mounted.
   useEffect(() => {
+    if (!alive) return;
     const body = bodyRef.current;
     if (!body || body.numColliders() === 0) return;
     const collider = body.collider(0);
@@ -219,10 +240,20 @@ export function LocalWizard() {
       colliderRegistry.unregister(handle);
       colliderHandleRef.current = null;
     };
-  }, [localPlayerId]);
+  }, [alive, localPlayerId]);
 
   useFrame((_, delta) => {
-    if (!player) return;
+    if (!player || player.status === "dead") {
+      if (colliderHandleRef.current !== null) {
+        colliderRegistry.unregister(colliderHandleRef.current);
+        colliderHandleRef.current = null;
+      }
+      bodyRef.current = null;
+      visualGroup.current = null;
+      initializedPlayerId.current = null;
+      velocity.current.set(0, 0, 0);
+      return;
+    }
     const body = bodyRef.current;
     const controller = controllerRef.current;
     if (!body || !controller) return;
@@ -232,7 +263,6 @@ export function LocalWizard() {
     }
 
     const sanctuary = player.status === "sanctuary";
-    const dead = player.status === "dead";
     const stunned = player.statusEffects.some((effect) => effect.effect === "stun" || effect.effect === "crush" || effect.effect === "stagger");
     const chill = player.statusEffects.find((effect) => effect.effect === "chill");
     const blind = player.statusEffects.some((effect) => effect.effect === "blind");
@@ -253,7 +283,7 @@ export function LocalWizard() {
     const right = tmpRight.current.set(Math.cos(yaw.current), 0, -Math.sin(yaw.current));
     const move = tmpMove.current.set(0, 0, 0);
 
-    if (!sanctuary && !dead && !promptOpen && !stunned) {
+    if (!sanctuary && !promptOpen && !stunned) {
       if (controls.forward) move.add(forward);
       if (controls.backward) move.sub(forward);
       if (controls.right) move.add(right);
@@ -301,9 +331,16 @@ export function LocalWizard() {
       z: velocity.current.z * dt,
     };
 
-    const collider = body.collider(0);
-    controller.computeColliderMovement(collider, desired);
-    const corrected = controller.computedMovement();
+    let corrected: { x: number; y: number; z: number };
+    try {
+      if (body.numColliders() === 0) return;
+      const collider = body.collider(0);
+      controller.computeColliderMovement(collider, desired);
+      corrected = controller.computedMovement();
+    } catch {
+      bodyRef.current = null;
+      return;
+    }
 
     center.current.x += corrected.x;
     center.current.y += corrected.y;
@@ -346,11 +383,16 @@ export function LocalWizard() {
     }
 
     // Push the kinematic body to its new position.
-    body.setNextKinematicTranslation({
-      x: center.current.x,
-      y: center.current.y,
-      z: center.current.z,
-    });
+    try {
+      body.setNextKinematicTranslation({
+        x: center.current.x,
+        y: center.current.y,
+        z: center.current.z,
+      });
+    } catch {
+      bodyRef.current = null;
+      return;
+    }
 
     // Visual group tracks center but renders the wizard model with feet on ground.
     const wizardYaw = yaw.current + Math.PI;
@@ -384,7 +426,7 @@ export function LocalWizard() {
     // Click-to-cast Magic Missile. Origin = shoulder; direction = camera
     // forward (which by camera lookAt tuning points at the fixed centered
     // reticle's world target).
-    if (mouseDown.current && !promptOpen && !dead && !sanctuary && !stunned && pointerLocked.current) {
+    if (mouseDown.current && !promptOpen && !sanctuary && !stunned && pointerLocked.current) {
       const t = Date.now();
       if (t - lastMagicMissileAt.current > MAGIC_MISSILE.cooldownMs) {
         const cast = buildCastGeometry();
@@ -394,19 +436,22 @@ export function LocalWizard() {
     }
   });
 
+  if (!alive) return null;
+
   return (
     <>
       <RigidBody
         ref={bodyRef}
         type="kinematicPosition"
         colliders={false}
-        position={INITIAL_CENTER_POSITION}
+        position={FALLBACK_CENTER_POSITION}
         enabledRotations={[false, false, false]}
       >
         <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} collisionGroups={WIZARD_GROUPS} />
       </RigidBody>
       <group ref={visualGroup}>
         <WizardModel color={player?.color ?? "#74f7d0"} shielded={player?.isShielded} />
+        <WizardNameplate name={player.name} health={player.health} color={player.color} />
       </group>
     </>
   );

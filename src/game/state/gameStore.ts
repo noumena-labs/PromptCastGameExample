@@ -33,6 +33,8 @@ import type {
   SequencedCastPayload,
   SequencedCrystalPayload,
   SequencedManaMotePayload,
+  SequencedSanctuaryPayload,
+  SequencedSpellBoundPayload,
   Vec3,
 } from "@/game/types";
 import { projectileMotion } from "@/game/state/projectileMotion";
@@ -45,6 +47,16 @@ const now = () => Date.now();
 
 function groundedSpawn(position: Vec3): Vec3 {
   return [position[0], getGroundHeight(position[0], position[2]), position[2]];
+}
+
+function spawnForPlayerId(playerId: string): Vec3 {
+  let hash = 0;
+  for (let i = 0; i < playerId.length; i += 1) {
+    hash = (hash * 31 + playerId.charCodeAt(i)) >>> 0;
+  }
+  const angle = (hash / 0xffffffff) * Math.PI * 2;
+  const radius = 12 + ((hash >>> 8) % 18);
+  return groundedSpawn([Math.cos(angle) * radius, 0, Math.sin(angle) * radius]);
 }
 
 const createLocalPlayer = (): PlayerState => ({
@@ -86,6 +98,8 @@ export type GameStore = {
   lastLocalCast: SequencedCastPayload | null;
   lastCrystalCollect: SequencedCrystalPayload | null;
   lastManaMoteCollect: SequencedManaMotePayload | null;
+  lastSanctuaryEvent: SequencedSanctuaryPayload | null;
+  lastSpellBound: SequencedSpellBoundPayload | null;
   hostSnapshotSequence: number;
   lastHostSnapshot: AppliedHostSnapshotInfo | null;
   log: string[];
@@ -112,8 +126,11 @@ export type GameStore = {
   pauseSanctuaryTimer: () => void;
   resumeSanctuaryTimer: () => void;
   exitSanctuary: () => void;
+  enterSanctuaryForPlayer: (playerId: string) => void;
+  exitSanctuaryForPlayer: (playerId: string) => void;
   setSelectedSlot: (slot: number) => void;
   saveGeneratedSpell: (spell: GeneratedSpell) => void;
+  saveGeneratedSpellForPlayer: (playerId: string, slot: number, spell: GeneratedSpell) => void;
   castSpell: (spell: GeneratedSpell, origin: Vec3, direction: Vec3, targetPoint: Vec3, ownerId?: string) => boolean;
   castSlot: (slot: number, origin: Vec3, direction: Vec3, targetPoint: Vec3) => boolean;
   tickCooldowns: () => void;
@@ -189,6 +206,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lastLocalCast: null,
   lastCrystalCollect: null,
   lastManaMoteCollect: null,
+  lastSanctuaryEvent: null,
+  lastSpellBound: null,
   hostSnapshotSequence: 0,
   lastHostSnapshot: null,
   log: ["PromptCast prototype initialized."],
@@ -200,7 +219,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const current = state.players[state.localPlayerId] ?? createLocalPlayer();
       const players = { ...state.players };
       delete players[state.localPlayerId];
-      players[id] = { ...current, id, name, color };
+      players[id] = { ...current, id, name, color, position: spawnForPlayerId(id) };
       return { localPlayerId: id, players };
     }),
 
@@ -246,6 +265,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             ...createLocalPlayer(),
             ...existing,
             ...incoming,
+            position: incoming.position ?? existing?.position ?? spawnForPlayerId(incoming.id),
             spellSlots: incoming.spellSlots ?? existing?.spellSlots ?? [null, null, null, null],
             statusEffects: incoming.statusEffects ?? existing?.statusEffects ?? [],
             cooldowns: incoming.cooldowns ?? existing?.cooldowns ?? {},
@@ -442,7 +462,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get();
     const player = state.players[state.localPlayerId];
     if (!player || player.aura < AURA_THRESHOLD || player.status !== "alive") return false;
+    const sequence = state.networkSequence + 1;
     set({
+      networkSequence: sequence,
+      lastSanctuaryEvent: { sequence, playerId: player.id, action: "enter" },
       promptOpen: true,
       sanctuaryEndsAt: now() + SANCTUARY_DURATION_MS,
       sanctuaryPausedRemainingMs: null,
@@ -477,7 +500,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set((state) => {
       const player = state.players[state.localPlayerId];
       if (!player) return { promptOpen: false, sanctuaryEndsAt: null, sanctuaryPausedRemainingMs: null };
+      const sequence = state.networkSequence + 1;
       return {
+        networkSequence: sequence,
+        lastSanctuaryEvent: { sequence, playerId: player.id, action: "exit" },
         promptOpen: false,
         sanctuaryEndsAt: null,
         sanctuaryPausedRemainingMs: null,
@@ -488,15 +514,43 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     }),
 
+  enterSanctuaryForPlayer: (playerId) =>
+    set((state) => {
+      const player = state.players[playerId];
+      if (!player || player.status === "dead") return state;
+      const aura = Math.max(0, player.aura - (player.aura >= AURA_THRESHOLD ? AURA_THRESHOLD : 0));
+      return {
+        players: {
+          ...state.players,
+          [playerId]: { ...player, aura, status: "sanctuary", isShielded: true, velocity: [0, 0, 0] },
+        },
+      };
+    }),
+
+  exitSanctuaryForPlayer: (playerId) =>
+    set((state) => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      return {
+        players: {
+          ...state.players,
+          [playerId]: { ...player, status: player.health > 0 ? "alive" : "dead", isShielded: false },
+        },
+      };
+    }),
+
   setSelectedSlot: (selectedSlot) => set({ selectedSlot: Math.max(0, Math.min(3, selectedSlot)) }),
 
   saveGeneratedSpell: (spell) =>
     set((state) => {
       const player = state.players[state.localPlayerId];
       if (!player) return state;
+      const sequence = state.networkSequence + 1;
       const slots = [...player.spellSlots];
       slots[state.selectedSlot] = spell;
       return {
+        networkSequence: sequence,
+        lastSpellBound: { sequence, playerId: player.id, slot: state.selectedSlot, spell },
         promptOpen: false,
         sanctuaryEndsAt: null,
         sanctuaryPausedRemainingMs: null,
@@ -505,6 +559,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
           [player.id]: { ...player, status: "alive", isShielded: false, spellSlots: slots },
         },
         log: [`Bound ${spell.name} to runestone ${state.selectedSlot + 1}.`, ...state.log].slice(0, 5),
+      };
+    }),
+
+  saveGeneratedSpellForPlayer: (playerId, slot, spell) =>
+    set((state) => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const slots = [...player.spellSlots];
+      slots[Math.max(0, Math.min(3, slot))] = spell;
+      return {
+        players: {
+          ...state.players,
+          [playerId]: { ...player, status: player.health > 0 ? "alive" : "dead", isShielded: false, spellSlots: slots },
+        },
       };
     }),
 
@@ -836,6 +904,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lastLocalCast: null,
       lastCrystalCollect: null,
       lastManaMoteCollect: null,
+      lastSanctuaryEvent: null,
+      lastSpellBound: null,
       promptOpen: false,
       selectedSlot: 0,
       sanctuaryEndsAt: null,

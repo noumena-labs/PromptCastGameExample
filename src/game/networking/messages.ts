@@ -161,6 +161,23 @@ export type ManaMoteCollectMessage = {
   sequence: number;
 };
 
+export type SanctuaryStateMessage = {
+  type: "sanctuary_state";
+  playerId: string;
+  action: "enter" | "exit";
+  timestamp: number;
+  sequence: number;
+};
+
+export type SpellBoundMessage = {
+  type: "spell_bound";
+  playerId: string;
+  slot: number;
+  spell: GeneratedSpell;
+  timestamp: number;
+  sequence: number;
+};
+
 export type MatchStartMessage = {
   type: "match_start";
   roomCode: string;
@@ -189,6 +206,8 @@ export type NetworkMessage =
   | PickupStateMessage
   | PickupCollectMessage
   | ManaMoteCollectMessage
+  | SanctuaryStateMessage
+  | SpellBoundMessage
   | MatchStartMessage
   | HostStateSnapshotMessage
   | PlayerListRequestMessage
@@ -230,6 +249,21 @@ const networkMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("mana_mote_collect"),
     moteId: boundedString(96),
     playerId: boundedString(96),
+    timestamp: timestampSchema,
+    sequence: sequenceSchema,
+  }).strict(),
+  z.object({
+    type: z.literal("sanctuary_state"),
+    playerId: boundedString(96),
+    action: z.enum(["enter", "exit"]),
+    timestamp: timestampSchema,
+    sequence: sequenceSchema,
+  }).strict(),
+  z.object({
+    type: z.literal("spell_bound"),
+    playerId: boundedString(96),
+    slot: z.number().int().min(0).max(3),
+    spell: generatedSpellSchema,
     timestamp: timestampSchema,
     sequence: sequenceSchema,
   }).strict(),

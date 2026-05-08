@@ -173,6 +173,19 @@ export type SequencedManaMotePayload = {
   moteId: string;
 };
 
+export type SequencedSanctuaryPayload = {
+  sequence: number;
+  playerId: string;
+  action: "enter" | "exit";
+};
+
+export type SequencedSpellBoundPayload = {
+  sequence: number;
+  playerId: string;
+  slot: number;
+  spell: GeneratedSpell;
+};
+
 export type AppliedHostSnapshotInfo = {
   sequence: number;
   serverTime: number;
