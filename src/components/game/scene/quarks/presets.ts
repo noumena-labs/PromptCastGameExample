@@ -262,15 +262,15 @@ export type QuarksPresetConfig = {
 export type QuarksPresetFactory = (config?: QuarksPresetConfig) => ParticleSystem;
 
 export const QUARKS_PRESET_BASELINE: Record<QuarksPresetId, number> = {
-  smoke_plume_dark: 58,
-  smoke_plume_dust: 70,
-  embers_rising: 88,
-  sparks_burst: 52,
-  fire_core: 42,
+  smoke_plume_dark: 78,
+  smoke_plume_dust: 96,
+  embers_rising: 112,
+  sparks_burst: 72,
+  fire_core: 56,
   debris_chunks: 20,
-  dust_puff: 30,
-  lava_droplets: 32,
-  lightning_arcs: 28,
+  dust_puff: 46,
+  lava_droplets: 44,
+  lightning_arcs: 42,
   debug_alpha_test: 12,
 };
 
@@ -391,24 +391,24 @@ function buildSmokePlumeDark(cfg: QuarksPresetConfig): ParticleSystem {
   // detail is preserved, and use ALPHA to control "how much smoke" is
   // visible. Mid-life slightly darker tint hints at thick interior, late
   // life cools toward warm brown then fades.
-  const colA = color4(cfg.colorA ?? "#b8b0a4", 0.55);
-  const colB = color4(cfg.colorB ?? "#5a4a38", 0.0);
+  const colA = color4(cfg.colorA ?? "#9a9288", 0.72);
+  const colB = color4(cfg.colorB ?? "#332821", 0.0);
 
   return new ParticleSystem({
     worldSpace: cfg.worldSpace ?? true,
     duration: 4,
     looping: cfg.looping ?? true,
-    startLife: lifeOf(cfg, [1.6, 2.6]),
-    startSpeed: new IntervalValue(1.2, 2.4),
+    startLife: lifeOf(cfg, [2.0, 3.2]),
+    startSpeed: new IntervalValue(1.5, 2.9),
     // Larger sprites with more variance: softer falloff per overlap, more
     // visible texture detail per particle.
-    startSize: new IntervalValue(1.6 * scale, 3.2 * scale),
+    startSize: new IntervalValue(2.0 * scale, 4.1 * scale),
     startColor: new ConstantColor(colA),
     startRotation: new IntervalValue(0, Math.PI * 2),
-    // Lower emission rate: ~50 simultaneous particles instead of ~80, so the
-    // plume reads as discrete puffs instead of a black blob.
-    emissionOverTime: new ConstantValue(12 * intensity),
-    shape: new ConeEmitter({ angle: 0.45, radius: 0.4 }) as EmitterShape,
+    // Keep the plume made of visible puffs, but raise density enough to read
+    // against the bright meadow and flower colors.
+    emissionOverTime: new ConstantValue(18 * intensity),
+    shape: new ConeEmitter({ angle: 0.5, radius: 0.55 }) as EmitterShape,
     material: new THREE.MeshBasicMaterial({
       // Grayscale luminance map: load as linear so we don't gamma-decode
       // the white-ish midtones into a darker visual range.
@@ -424,16 +424,17 @@ function buildSmokePlumeDark(cfg: QuarksPresetConfig): ParticleSystem {
     renderMode: RenderMode.BillBoard,
     behaviors: [
       // More dramatic expansion as puffs rise and dissipate.
-      new SizeOverLife(bezierCurve([[0.7, 1.6, 2.4, 3.0]])),
+      new SizeOverLife(bezierCurve([[0.9, 1.9, 3.0, 3.8]])),
       new ColorOverLife(gradient([
         [0, colA],
         // Mid-life: slightly darker/warmer to suggest thicker interior,
         // but still light enough that the texture's luminance reads.
-        [0.4, color4("#9a8c78", 0.42)],
+        [0.45, color4("#6f5a48", 0.62)],
+        [0.82, color4("#4a3b31", 0.26)],
         [1, colB],
       ])),
       // Light horizontal wind drift so plumes don't rise dead-vertical.
-      new ApplyForce(new QVector3(0.6, 0, 0.3), new ConstantValue(0.5)),
+      new ApplyForce(new QVector3(0.75, 0, 0.38), new ConstantValue(0.55)),
     ],
   });
 }
@@ -444,21 +445,21 @@ function buildSmokePlumeDust(cfg: QuarksPresetConfig): ParticleSystem {
   const scale = cfg.scale ?? 1;
   // Same vColor-multiplies-texel principle as smoke_plume_dark: keep RGB
   // bright so the dust_puff texture's variation is visible. Light warm tan.
-  const colA = color4(cfg.colorA ?? "#e8d8b8", 0.55);
+  const colA = color4(cfg.colorA ?? "#f0d2a0", 0.68);
   const colB = color4(cfg.colorB ?? "#8a7560", 0.0);
 
   return new ParticleSystem({
     worldSpace: cfg.worldSpace ?? true,
     duration: 3,
     looping: cfg.looping ?? false,
-    startLife: lifeOf(cfg, [0.9, 1.6]),
-    startSpeed: new IntervalValue(2.0, 4.0),
-    startSize: new IntervalValue(1.0 * scale, 2.2 * scale),
+    startLife: lifeOf(cfg, [1.1, 2.0]),
+    startSpeed: new IntervalValue(2.4, 4.8),
+    startSize: new IntervalValue(1.3 * scale, 2.8 * scale),
     startColor: new ConstantColor(colA),
     startRotation: new IntervalValue(0, Math.PI * 2),
-    // Halved emission: dust still reads as a burst but with discrete puffs.
-    emissionOverTime: new ConstantValue(20 * intensity),
-    shape: new ConeEmitter({ angle: 0.85, radius: 0.6 }) as EmitterShape,
+    // Denser than before so dust reads over sunlit grass instead of vanishing.
+    emissionOverTime: new ConstantValue(30 * intensity),
+    shape: new ConeEmitter({ angle: 0.9, radius: 0.7 }) as EmitterShape,
     material: new THREE.MeshBasicMaterial({
       map: loadVfxTexture("dust_puff.png", THREE.LinearSRGBColorSpace),
       transparent: true,
@@ -469,13 +470,14 @@ function buildSmokePlumeDust(cfg: QuarksPresetConfig): ParticleSystem {
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
-      new SizeOverLife(bezierCurve([[0.6, 1.4, 1.9, 2.2]])),
+      new SizeOverLife(bezierCurve([[0.75, 1.6, 2.5, 2.8]])),
       new ColorOverLife(gradient([
         [0, colA],
+        [0.5, color4("#caa174", 0.52)],
         [1, colB],
       ])),
       // Mild wind drift on dust plumes (matches dark plume direction).
-      new ApplyForce(new QVector3(0.6, 0, 0.3), new ConstantValue(0.7)),
+      new ApplyForce(new QVector3(0.75, 0, 0.38), new ConstantValue(0.8)),
     ],
   });
 }
@@ -491,11 +493,11 @@ function buildEmbersRising(cfg: QuarksPresetConfig): ParticleSystem {
     worldSpace: cfg.worldSpace ?? true,
     duration: 4,
     looping: cfg.looping ?? true,
-    startLife: lifeOf(cfg, [0.9, 1.8]),
-    startSpeed: new IntervalValue(1.0, 2.6),
-    startSize: new IntervalValue(0.05 * scale, 0.18 * scale),
+    startLife: lifeOf(cfg, [1.0, 2.0]),
+    startSpeed: new IntervalValue(1.2, 3.0),
+    startSize: new IntervalValue(0.08 * scale, 0.24 * scale),
     startColor: new ConstantColor(hot),
-    emissionOverTime: new ConstantValue(42 * intensity),
+    emissionOverTime: new ConstantValue(58 * intensity),
     shape: new ConeEmitter({ angle: 0.6, radius: 0.3 }) as EmitterShape,
     material: new THREE.MeshBasicMaterial({
       map: loadVfxTexture("ember_dot.png"),
@@ -527,15 +529,15 @@ function buildSparksBurst(cfg: QuarksPresetConfig): ParticleSystem {
     worldSpace: cfg.worldSpace ?? true,
     duration: 0.4,
     looping: cfg.looping ?? false,
-    startLife: lifeOf(cfg, [0.22, 0.45]),
-    startSpeed: new IntervalValue(8, 18),
-    startSize: new IntervalValue(0.15 * scale, 0.4 * scale),
+    startLife: lifeOf(cfg, [0.28, 0.55]),
+    startSpeed: new IntervalValue(10, 22),
+    startSize: new IntervalValue(0.22 * scale, 0.55 * scale),
     startColor: new ConstantColor(hot),
-    startLength: new IntervalValue(0.3 * scale, 0.8 * scale),
+    startLength: new IntervalValue(0.45 * scale, 1.15 * scale),
     emissionBursts: [
       {
         time: 0,
-        count: new ConstantValue(Math.round(44 * intensity)),
+        count: new ConstantValue(Math.round(64 * intensity)),
         cycle: 1,
         interval: 0,
         probability: 1,
@@ -572,12 +574,12 @@ function buildFireCore(cfg: QuarksPresetConfig): ParticleSystem {
     worldSpace: cfg.worldSpace ?? true,
     duration: 3,
     looping: cfg.looping ?? true,
-    startLife: lifeOf(cfg, [0.45, 0.8]),
-    startSpeed: new IntervalValue(0.8, 1.6),
-    startSize: new IntervalValue(0.8 * scale, 1.6 * scale),
+    startLife: lifeOf(cfg, [0.5, 0.9]),
+    startSpeed: new IntervalValue(1.0, 1.9),
+    startSize: new IntervalValue(1.0 * scale, 2.0 * scale),
     startColor: new ConstantColor(colA),
     startRotation: new IntervalValue(0, Math.PI * 2),
-    emissionOverTime: new ConstantValue(28 * intensity),
+    emissionOverTime: new ConstantValue(36 * intensity),
     shape: new ConeEmitter({ angle: 0.25, radius: 0.4 }) as EmitterShape,
     material: new THREE.MeshBasicMaterial({
       map: loadVfxTexture("fire_flipbook_4x4.png"),
@@ -656,22 +658,22 @@ function buildDustPuff(cfg: QuarksPresetConfig): ParticleSystem {
   const scale = cfg.scale ?? 1;
   // Bright tan; vColor tints the dust_puff texture luminance — keep RGB
   // light so the texture detail is visible.
-  const colA = color4(cfg.colorA ?? "#e8d8b8", 0.7);
+  const colA = color4(cfg.colorA ?? "#f0d2a0", 0.82);
   const colB = color4(cfg.colorB ?? "#8a7560", 0);
 
   return new ParticleSystem({
     worldSpace: cfg.worldSpace ?? true,
     duration: 0.6,
     looping: cfg.looping ?? false,
-    startLife: lifeOf(cfg, [0.45, 0.85]),
-    startSpeed: new IntervalValue(2, 5),
-    startSize: new IntervalValue(0.6 * scale, 1.4 * scale),
+    startLife: lifeOf(cfg, [0.6, 1.05]),
+    startSpeed: new IntervalValue(2.6, 6.2),
+    startSize: new IntervalValue(0.85 * scale, 2.0 * scale),
     startColor: new ConstantColor(colA),
     startRotation: new IntervalValue(0, Math.PI * 2),
     emissionBursts: [
       {
         time: 0,
-        count: new ConstantValue(Math.round(24 * intensity)),
+        count: new ConstantValue(Math.round(36 * intensity)),
         cycle: 1,
         interval: 0,
         probability: 1,
@@ -690,9 +692,10 @@ function buildDustPuff(cfg: QuarksPresetConfig): ParticleSystem {
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
-      new SizeOverLife(bezierCurve([[0.6, 1.4, 1.8, 1.2]])),
+      new SizeOverLife(bezierCurve([[0.75, 1.6, 2.3, 1.5]])),
       new ColorOverLife(gradient([
         [0, colA],
+        [0.48, color4("#caa174", 0.54)],
         [1, colB],
       ])),
     ],
@@ -712,12 +715,12 @@ function buildLavaDroplets(cfg: QuarksPresetConfig): ParticleSystem {
     looping: cfg.looping ?? false,
     startLife: lifeOf(cfg, [0.55, 1.0]),
     startSpeed: new IntervalValue(5, 12),
-    startSize: new IntervalValue(0.12 * scale, 0.3 * scale),
+    startSize: new IntervalValue(0.16 * scale, 0.38 * scale),
     startColor: new ConstantColor(hot),
     emissionBursts: [
       {
         time: 0,
-        count: new ConstantValue(Math.round(28 * intensity)),
+        count: new ConstantValue(Math.round(38 * intensity)),
         cycle: 1,
         interval: 0,
         probability: 1,
@@ -754,15 +757,15 @@ function buildLightningArcs(cfg: QuarksPresetConfig): ParticleSystem {
     worldSpace: cfg.worldSpace ?? true,
     duration: 0.3,
     looping: cfg.looping ?? false,
-    startLife: lifeOf(cfg, [0.08, 0.18]),
-    startSpeed: new IntervalValue(15, 30),
-    startSize: new IntervalValue(0.2 * scale, 0.5 * scale),
-    startLength: new IntervalValue(0.6 * scale, 1.4 * scale),
+    startLife: lifeOf(cfg, [0.1, 0.22]),
+    startSpeed: new IntervalValue(18, 34),
+    startSize: new IntervalValue(0.28 * scale, 0.65 * scale),
+    startLength: new IntervalValue(0.8 * scale, 1.8 * scale),
     startColor: new ConstantColor(hot),
     emissionBursts: [
       {
         time: 0,
-        count: new ConstantValue(Math.round(24 * intensity)),
+        count: new ConstantValue(Math.round(36 * intensity)),
         cycle: 1,
         interval: 0,
         probability: 1,

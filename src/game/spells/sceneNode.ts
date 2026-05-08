@@ -187,15 +187,15 @@ export const QUARKS_BUDGET = 800;
  * missing here it's treated as 60.
  */
 const QUARKS_PRESET_BASELINE: Record<string, number> = {
-  smoke_plume_dark: 80,
-  smoke_plume_dust: 120,
-  embers_rising: 160,
-  sparks_burst: 120,
-  fire_core: 60,
-  debris_chunks: 40,
-  dust_puff: 60,
-  lava_droplets: 80,
-  lightning_arcs: 60,
+  smoke_plume_dark: 78,
+  smoke_plume_dust: 96,
+  embers_rising: 112,
+  sparks_burst: 72,
+  fire_core: 56,
+  debris_chunks: 20,
+  dust_puff: 46,
+  lava_droplets: 44,
+  lightning_arcs: 42,
 };
 
 function quarksCost(node: SceneLeaf): number {

@@ -76,9 +76,10 @@ export function SceneNodeRenderer({
   }, [scene, variant]);
 
   const opacityMultiplier = impactOpacityMultiplier(variant, spawnedAt, lifetimeSeconds);
+  const particleScale = Math.max(0.45, Math.sqrt(effectScale));
   const quarksIntensityMultiplier = Math.max(
-    0.08,
-    effectScale * impactParticleMultiplier(variant, spawnedAt, lifetimeSeconds),
+    0.25,
+    particleScale * impactParticleMultiplier(variant, spawnedAt, lifetimeSeconds),
   );
   const quarksEmissionScale = impactParticleMultiplier(variant, spawnedAt, lifetimeSeconds);
 
@@ -125,7 +126,7 @@ function impactParticleMultiplier(
 ): number {
   if (variant !== "impact" || spawnedAt === undefined || !lifetimeSeconds) return 1;
   const age = (Date.now() - spawnedAt) / 1000;
-  const fadeStart = lifetimeSeconds * 0.35;
+  const fadeStart = lifetimeSeconds * 0.58;
   if (age <= fadeStart) return 1;
   return Math.max(0, 1 - (age - fadeStart) / Math.max(0.15, lifetimeSeconds - fadeStart));
 }
