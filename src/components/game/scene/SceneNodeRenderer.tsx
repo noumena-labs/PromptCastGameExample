@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Group } from "three";
+import { Group, type MeshStandardMaterial } from "three";
 import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
 import {
   applyMotion,
@@ -12,6 +12,19 @@ import {
 } from "@/components/game/scene/sceneMotion";
 import { ParticleEmitterNode } from "@/components/game/scene/ParticleEmitterNode";
 import { SpellShaderMaterial } from "@/components/game/scene/SpellShaderMaterial";
+import {
+  makeMeteorGeometry,
+  makeMonolithGeometry,
+  makeCrystalShard,
+} from "@/components/game/scene/geometry/proceduralRock";
+import {
+  meteorMaterial,
+  monolithMaterial,
+  crystalMaterial,
+  tickRockMaterial,
+} from "@/components/game/scene/materials/rockMaterials";
+import { QuarksEmitterNode } from "@/components/game/scene/quarks/QuarksEmitterNode";
+import type { QuarksPresetId } from "@/components/game/scene/quarks/presets";
 
 /**
  * Recursive renderer for the SceneNode DSL.
@@ -273,7 +286,177 @@ function ShapePrimitive({
           {material}
         </mesh>
       );
+    case "displaced_meteor":
+      return <DisplacedMeteor node={node} />;
+    case "monolith":
+      return <Monolith node={node} />;
+    case "crystal_cluster":
+      return <CrystalCluster node={node} />;
+    case "rock_chunks":
+      return <RockChunks node={node} />;
+    case "quarks_emitter":
+      return (
+        <QuarksEmitterNode
+          preset={(node.quarksPreset ?? "smoke_plume_dark") as QuarksPresetId}
+          config={{
+            colorA: node.color,
+            colorB: node.colorB ?? node.color,
+            intensity: node.intensity ?? 1,
+            scale: Math.max(0.1, s),
+          }}
+        />
+      );
     default:
       return null;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Procedural rock primitives
+//
+// Each component:
+//   - builds geometry via the proceduralRock LRU (cached, do NOT dispose)
+//   - builds a fresh material per mount and disposes on unmount
+//   - ticks the material's uTime uniform via useFrame for animated cracks
+// ─────────────────────────────────────────────────────────────────────────────
+
+function useRockMaterial<M extends MeshStandardMaterial>(factory: () => M): M {
+  // Lazy-init via useState so the material is created exactly once and we
+  // never read a ref's `.current` during render (lint: react-hooks/refs).
+  const [material] = useState<M>(() => factory());
+  useEffect(() => {
+    return () => {
+      material.dispose();
+    };
+  }, [material]);
+  useFrame(({ clock }) => {
+    tickRockMaterial(material, clock.getElapsedTime());
+  });
+  return material;
+}
+
+function DisplacedMeteor({ node }: { node: SceneLeaf }) {
+  const geom = useMemo(
+    () =>
+      makeMeteorGeometry({
+        radius: node.size,
+        detail: 2,
+        displacement: 0.28,
+        seed: node.seed ?? 0,
+      }),
+    [node.size, node.seed],
+  );
+  const mat = useRockMaterial(() =>
+    meteorMaterial({
+      colorA: node.color,
+      colorB: node.colorB ?? "#ff6020",
+      emissiveIntensity: 1.2 + node.emissiveIntensity * 0.6,
+    }),
+  );
+  return <mesh geometry={geom} material={mat} castShadow />;
+}
+
+function Monolith({ node }: { node: SceneLeaf }) {
+  const geom = useMemo(
+    () =>
+      makeMonolithGeometry({
+        width: node.size * 0.8,
+        height: node.size * 2.6,
+        depth: node.size * 0.8,
+        segments: 4,
+        displacement: 0.16,
+        seed: node.seed ?? 0,
+      }),
+    [node.size, node.seed],
+  );
+  const mat = useRockMaterial(() =>
+    monolithMaterial({
+      colorA: node.color,
+      colorB: node.colorB ?? "#a8c8ff",
+      emissiveIntensity: 0.8 + node.emissiveIntensity * 0.5,
+    }),
+  );
+  return <mesh geometry={geom} material={mat} castShadow />;
+}
+
+function CrystalCluster({ node }: { node: SceneLeaf }) {
+  // A small cluster of 3-5 shards arranged radially. Count derives from
+  // arrangeCount when present (capped); otherwise 4.
+  const count = Math.min(5, Math.max(3, node.arrangeCount));
+  const seedBase = node.seed ?? 0;
+  const shards = useMemo(() => {
+    const out: { geom: ReturnType<typeof makeCrystalShard>; pos: [number, number, number]; rot: [number, number, number]; scale: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      const r = node.size * 0.45;
+      const s = 0.6 + ((i * 37) % 100) / 250; // 0.6..1.0 deterministic
+      out.push({
+        geom: makeCrystalShard({
+          radius: node.size * 0.22,
+          height: node.size * 1.2 * s,
+          jitter: 0.08,
+          seed: seedBase + i * 17,
+        }),
+        pos: [Math.cos(a) * r, 0, Math.sin(a) * r],
+        rot: [((i * 13) % 100) / 200, a, ((i * 29) % 100) / 200],
+        scale: s,
+      });
+    }
+    return out;
+  }, [count, node.size, seedBase]);
+  const mat = useRockMaterial(() =>
+    crystalMaterial({
+      colorA: node.color,
+      colorB: node.colorB ?? "#ffffff",
+      emissiveIntensity: 1.2 + node.emissiveIntensity * 0.7,
+    }),
+  );
+  return (
+    <group>
+      {shards.map((s, i) => (
+        <mesh key={i} geometry={s.geom} material={mat} position={s.pos} rotation={s.rot} scale={s.scale} castShadow />
+      ))}
+    </group>
+  );
+}
+
+function RockChunks({ node }: { node: SceneLeaf }) {
+  // A scattered pile of small displaced icosahedrons. Static; intended to
+  // pair with a quarks_emitter (debris_chunks) for the kinetic part.
+  const count = Math.min(8, Math.max(3, node.arrangeCount));
+  const seedBase = node.seed ?? 0;
+  const chunks = useMemo(() => {
+    const out: { geom: ReturnType<typeof makeMeteorGeometry>; pos: [number, number, number]; rot: [number, number, number]; scale: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + ((i * 31) % 100) / 200;
+      const r = node.size * (0.3 + ((i * 23) % 100) / 200);
+      const sc = 0.4 + ((i * 47) % 100) / 200;
+      out.push({
+        geom: makeMeteorGeometry({
+          radius: node.size * 0.25 * sc,
+          detail: 1,
+          displacement: 0.4,
+          seed: seedBase + i * 11,
+        }),
+        pos: [Math.cos(a) * r, sc * node.size * 0.15, Math.sin(a) * r],
+        rot: [((i * 7) % 100) / 50, a, ((i * 19) % 100) / 50],
+        scale: sc,
+      });
+    }
+    return out;
+  }, [count, node.size, seedBase]);
+  const mat = useRockMaterial(() =>
+    meteorMaterial({
+      colorA: node.color,
+      colorB: node.colorB ?? "#ff6020",
+      emissiveIntensity: 0.4 + node.emissiveIntensity * 0.4,
+    }),
+  );
+  return (
+    <group>
+      {chunks.map((c, i) => (
+        <mesh key={i} geometry={c.geom} material={mat} position={c.pos} rotation={c.rot} scale={c.scale} castShadow />
+      ))}
+    </group>
+  );
 }

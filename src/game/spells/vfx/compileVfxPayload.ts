@@ -17,16 +17,19 @@ import type { SpellAlignmentId, SpellBuildSpec, SpellShaderId } from "@/game/spe
  */
 
 const node = (
-  input: Omit<SceneLeaf, "arrange" | "arrangeCount" | "arrangeRadius" | "particleCount" | "motionSpeed" | "rotation" | "position"> &
-    Partial<Pick<SceneLeaf, "arrange" | "arrangeCount" | "arrangeRadius" | "particleCount" | "motionSpeed" | "rotation" | "position">>,
+  input: Omit<SceneLeaf, "arrange" | "arrangeCount" | "arrangeRadius" | "particleCount" | "motionSpeed" | "rotation" | "position" | "emissiveIntensity" | "motion" | "opacity"> &
+    Partial<Pick<SceneLeaf, "arrange" | "arrangeCount" | "arrangeRadius" | "particleCount" | "motionSpeed" | "rotation" | "position" | "emissiveIntensity" | "motion" | "opacity">>,
 ): SceneLeaf => ({
   position: [0, 0, 0],
   rotation: [0, 0, 0],
+  motion: "static",
   motionSpeed: 1,
   arrange: "single",
   arrangeCount: 1,
   arrangeRadius: 0,
   particleCount: 0,
+  emissiveIntensity: 0,
+  opacity: 1,
   ...input,
 });
 
@@ -330,6 +333,12 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
   const a = getAlignment(spec.alignment);
   const m = spec.modifiers;
 
+  // Deterministic seed so meteor displacement is stable across recompiles
+  // for a given (alignment, scale) pair.
+  const seed = skyfallSeed(spec);
+
+  // Cast telegraph stays on existing shader-driven shapes — it is rendered as
+  // a brief precursor on the caster, not the falling body.
   const cast: SpellScene = {
     ...node({
       shape: "ring",
@@ -369,78 +378,68 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
     ],
   };
 
+  // Travel body: alignment-specific procedural geometry replaces the old
+  // primitive (tetra/octa). Quarks emitters provide the trail (smoke + heat
+  // + alignment-specific accents). Existing shader-driven halo/ring stays
+  // as a compatibility fallback for any frame before quarks kicks in.
+  const body = skyfallBodyShape(spec);
   const travel: SpellScene = {
     ...node({
-      shape: skyfallShape(spec),
+      shape: body.shape,
       shaderId: skyfallCoreShader(spec),
       shaderPhase: "core",
       color: a.palette.primary,
-      emissiveIntensity: clampEmit(2.8 * m.intensity),
-      size: Number((1.2 * Math.max(1, m.scale)).toFixed(2)),
+      colorB: a.palette.dark,
+      seed,
+      size: Number((body.size * Math.max(1, m.scale)).toFixed(2)),
+      emissiveIntensity: clampEmit(body.emissive * m.intensity),
       motion: "spin",
-      motionSpeed: 3.2,
-      opacity: 0.95,
+      motionSpeed: body.spin,
+      opacity: 1.0,
     }),
     children: [
-      // streak tail behind meteor (along travel axis -Z)
+      // ── Quarks trail: dark smoke plume trailing along -Z ──
       node({
-        shape: "bar",
-        shaderId: skyfallTrailShader(spec),
+        shape: "quarks_emitter",
+        quarksPreset: "smoke_plume_dark",
+        shaderId: spec.vfx.shaders.trail,
         shaderPhase: "trail",
         color: a.palette.secondary,
-        emissiveIntensity: clampEmit(1.8 * m.intensity),
-        size: Number((0.5 * m.scale).toFixed(2)),
-        position: [0, 0, -0.85 * m.scale],
-        rotation: [Math.PI / 2, 0, 0],
-        motion: "pulse",
-        motionSpeed: 2.4,
-        opacity: 0.66,
+        colorB: a.palette.dark,
+        intensity: 1.0 * m.intensity,
+        position: [0, 0, -0.6 * m.scale],
+        size: 1.0 * m.scale,
       }),
-      // particle plume
-      node({
-        shape: "particle_cloud",
-        shaderId: skyfallTrailShader(spec),
-        shaderPhase: "trail",
-        color: a.palette.secondary,
-        emissiveIntensity: clampEmit(1.6 * m.intensity),
-        size: Number((0.22 * m.scale).toFixed(2)),
-        position: [0, 0, -0.95 * m.scale],
-        motion: "drift",
-        motionSpeed: 0.45,
-        particleCount: Math.round(150 * m.intensity),
-        opacity: 0.82,
-      }),
-      // glow halo
+      // ── Quarks trail accent: alignment-specific (embers / lightning / mist) ──
+      ...skyfallTrailAccent(spec),
+      // ── Glow halo (legacy shader-driven, keeps light contribution) ──
       node({
         shape: "sphere",
         shaderId: skyfallCoreShader(spec),
         shaderPhase: "core",
         color: a.palette.accent,
         emissiveIntensity: clampEmit(2.6 * m.intensity),
-        size: Number((0.6 * m.scale).toFixed(2)),
+        size: Number((0.55 * m.scale).toFixed(2)),
         motion: "pulse",
         motionSpeed: 2.2,
-        opacity: 0.55,
+        opacity: 0.45,
       }),
-      // gravity ring
+      // ── Gravity lens ring (cosmic) or generic warning ring ──
       node({
         shape: "ring",
         shaderId: skyfallRingShader(spec),
         shaderPhase: "trail",
         color: a.palette.accent,
-        emissiveIntensity: clampEmit(1.5 * m.intensity),
-        size: Number((0.85 * m.scale).toFixed(2)),
+        emissiveIntensity: clampEmit(1.4 * m.intensity),
+        size: Number((0.95 * m.scale).toFixed(2)),
         motion: "spin",
-        motionSpeed: 4.4,
-        arrange: "ring",
-        arrangeCount: 4,
-        arrangeRadius: Number((0.5 * m.scale).toFixed(2)),
-        opacity: 0.62,
+        motionSpeed: 4.2,
+        opacity: 0.55,
       }),
     ].slice(0, 6),
   };
 
-  // Skyfall crash impact: massive flash + shockwave + crater + debris
+  // Impact: flash + shockwave + crater decal + quarks dust/debris/embers.
   const impact: SpellScene = {
     ...node({
       shape: "sphere",
@@ -478,23 +477,208 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
         motionSpeed: 0.35,
         opacity: 0.7,
       }),
+      // ── Quarks dust puff ground ring ──
       node({
-        shape: "particle_cloud",
+        shape: "quarks_emitter",
+        quarksPreset: "dust_puff",
         shaderId: cloudShader(spec),
         shaderPhase: "impact",
         color: a.palette.secondary,
-        emissiveIntensity: clampEmit(0.8 * m.intensity),
-        size: 0.34 * m.scale,
-        position: [0, 0.5, 0],
-        motion: "rise",
-        motionSpeed: 1.0,
-        particleCount: Math.round(140 * m.intensity),
-        opacity: 0.78,
+        colorB: a.palette.dark,
+        intensity: 1.2 * m.intensity,
+        position: [0, 0.1, 0],
+        size: 1.4 * m.scale,
       }),
-    ],
+      // ── Quarks debris chunks (mesh particles) ──
+      node({
+        shape: "quarks_emitter",
+        quarksPreset: "debris_chunks",
+        shaderId: cloudShader(spec),
+        shaderPhase: "impact",
+        color: a.palette.dark,
+        colorB: a.palette.secondary,
+        intensity: 1.0 * m.intensity,
+        position: [0, 0.2, 0],
+        size: 1.0 * m.scale,
+      }),
+      // ── Quarks alignment accent on impact (embers / sparks / lava) ──
+      ...skyfallImpactAccent(spec),
+    ].slice(0, 6),
   };
 
   return { cast, travel, impact };
+}
+
+/**
+ * Stable per-spec seed for procedural displacement. Keeps the same meteor
+ * silhouette across reroll-free recompiles, but varies between alignments.
+ */
+function skyfallSeed(spec: SpellBuildSpec): number {
+  let h = 2166136261;
+  const s = `${spec.alignment}|${spec.vfx.coreMesh}|${spec.modifiers.scale}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Picks the procedural body shape for the falling skyfall object.
+ * Returns shape + base size + spin + emissive multiplier.
+ */
+function skyfallBodyShape(spec: SpellBuildSpec): {
+  shape: SceneLeaf["shape"];
+  size: number;
+  spin: number;
+  emissive: number;
+} {
+  switch (spec.alignment) {
+    case "earth":
+      // Dropping monolith — slow tumble, big silhouette. Stone is mostly
+      // non-emissive; rune cracks read as a subtle accent.
+      return { shape: "monolith", size: 1.4, spin: 1.6, emissive: 1.0 };
+    case "light":
+      // Radiant crystal — strong emissive but kept below bloom-blowout range.
+      return { shape: "crystal_cluster", size: 1.1, spin: 4.0, emissive: 2.0 };
+    case "water_ice":
+      // Icy crystal — cool, glints rather than glows. Lower emissive than light.
+      return { shape: "crystal_cluster", size: 1.1, spin: 4.0, emissive: 1.6 };
+    case "fire":
+    case "meteor_cosmic":
+      // Classic glowing meteor — fast spin, hot core.
+      return { shape: "displaced_meteor", size: 1.2, spin: 3.4, emissive: 2.8 };
+    case "lightning":
+      // Charged meteor — extra-fast spin, accent comes from arcs preset.
+      return { shape: "displaced_meteor", size: 1.0, spin: 5.2, emissive: 2.4 };
+    case "dark":
+      // Dark meteor — slow tumble, very subtle violet cracks; bulk reads black.
+      return { shape: "displaced_meteor", size: 1.1, spin: 2.6, emissive: 1.6 };
+    default:
+      return { shape: "displaced_meteor", size: 1.2, spin: 3.2, emissive: 2.6 };
+  }
+}
+
+/** Quarks accent emitters trailing the body during travel. */
+function skyfallTrailAccent(spec: SpellBuildSpec): SceneLeaf[] {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+  switch (spec.alignment) {
+    case "fire":
+    case "meteor_cosmic":
+      return [
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: "embers_rising",
+          shaderId: spec.vfx.shaders.trail,
+          shaderPhase: "trail",
+          color: a.palette.primary,
+          colorB: a.palette.secondary,
+          intensity: 1.0 * m.intensity,
+          position: [0, 0, -0.4 * m.scale],
+          size: 1.0 * m.scale,
+        }),
+      ];
+    case "lightning":
+      return [
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: "lightning_arcs",
+          shaderId: spec.vfx.shaders.trail,
+          shaderPhase: "trail",
+          color: a.palette.primary,
+          colorB: a.palette.accent,
+          intensity: 0.8 * m.intensity,
+          position: [0, 0, 0],
+          size: 1.0 * m.scale,
+        }),
+      ];
+    case "light":
+      return [
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: "sparks_burst",
+          shaderId: spec.vfx.shaders.trail,
+          shaderPhase: "trail",
+          color: a.palette.accent,
+          colorB: a.palette.primary,
+          intensity: 0.6 * m.intensity,
+          position: [0, 0, -0.3 * m.scale],
+          size: 1.0 * m.scale,
+        }),
+      ];
+    case "water_ice":
+      return [
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: "smoke_plume_dust",
+          shaderId: spec.vfx.shaders.trail,
+          shaderPhase: "trail",
+          color: a.palette.accent,
+          colorB: a.palette.secondary,
+          intensity: 0.7 * m.intensity,
+          position: [0, 0, -0.5 * m.scale],
+          size: 1.0 * m.scale,
+        }),
+      ];
+    case "earth":
+      return [
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: "smoke_plume_dust",
+          shaderId: spec.vfx.shaders.trail,
+          shaderPhase: "trail",
+          color: a.palette.secondary,
+          colorB: a.palette.dark,
+          intensity: 1.0 * m.intensity,
+          position: [0, 0, -0.5 * m.scale],
+          size: 1.2 * m.scale,
+        }),
+      ];
+    case "dark":
+      return [];
+    default:
+      return [];
+  }
+}
+
+/** Quarks accent emitters spawned at impact site. */
+function skyfallImpactAccent(spec: SpellBuildSpec): SceneLeaf[] {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+  switch (spec.alignment) {
+    case "fire":
+    case "meteor_cosmic":
+      return [
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: "lava_droplets",
+          shaderId: spec.vfx.shaders.impact,
+          shaderPhase: "impact",
+          color: a.palette.primary,
+          colorB: a.palette.dark,
+          intensity: 1.0 * m.intensity,
+          position: [0, 0.15, 0],
+          size: 1.0 * m.scale,
+        }),
+      ];
+    case "lightning":
+      return [
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: "sparks_burst",
+          shaderId: spec.vfx.shaders.impact,
+          shaderPhase: "impact",
+          color: a.palette.accent,
+          colorB: a.palette.primary,
+          intensity: 1.0 * m.intensity,
+          position: [0, 0.15, 0],
+          size: 1.0 * m.scale,
+        }),
+      ];
+    default:
+      return [];
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -659,6 +843,8 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
       shaderId: profile.coreShader ?? spec.vfx.shaders.core,
       shaderPhase: "core",
       color: a.palette.primary,
+      colorB: a.palette.dark,
+      seed: skyfallSeed(spec),
       emissiveIntensity: clampEmit(profile.emissive * m.intensity),
       size: Number((profile.size * m.scale).toFixed(2)),
       position: [0, profile.basePivotY, 0],
@@ -671,12 +857,14 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
       opacity: profile.opacity,
     }),
     children: [
-      // central tall pillar / vent
+      // central tall pillar / vent / monolith
       node({
         shape: profile.centerShape,
         shaderId: profile.centerShader ?? spec.vfx.shaders.core,
         shaderPhase: "core",
         color: a.palette.accent,
+        colorB: a.palette.primary,
+        seed: skyfallSeed(spec) ^ 0x9e3779b1,
         emissiveIntensity: clampEmit((profile.emissive + 0.4) * m.intensity),
         size: Number((profile.centerSize * m.scale).toFixed(2)),
         position: [0, profile.centerPivotY, 0],
@@ -684,20 +872,6 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
         motion: "erupt",
         motionSpeed: 1.8,
         opacity: 0.92,
-      }),
-      // dust/smoke kicked up by the eruption
-      node({
-        shape: "particle_cloud",
-        shaderId: cloudShader(spec),
-        shaderPhase: "impact",
-        color: a.palette.secondary,
-        emissiveIntensity: clampEmit(0.7 * m.intensity),
-        size: 0.3 * m.scale,
-        position: [0, 0.35, 0],
-        motion: "rise",
-        motionSpeed: 0.9,
-        particleCount: Math.round(120 * m.intensity),
-        opacity: 0.7,
       }),
       // shockwave at the base
       node({
@@ -725,6 +899,8 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
         motionSpeed: 0.4,
         opacity: 0.7,
       }),
+      // alignment-specific quarks accents (smoke / embers / lava / lightning…)
+      ...eruptionQuarksAccents(spec, profile),
     ].slice(0, 6),
   };
 
@@ -745,34 +921,66 @@ type EruptionProfile = {
   coreShader?: SpellShaderId;
   centerShader?: SpellShaderId;
   decalShader?: SpellShaderId;
+  /** Names of quarks accent presets to spawn on impact, with role tags. */
+  accents: ReadonlyArray<EruptionAccent>;
+};
+
+type EruptionAccent = {
+  preset:
+    | "smoke_plume_dark"
+    | "smoke_plume_dust"
+    | "embers_rising"
+    | "sparks_burst"
+    | "fire_core"
+    | "debris_chunks"
+    | "dust_puff"
+    | "lava_droplets"
+    | "lightning_arcs";
+  /** intensity multiplier on top of spell intensity. */
+  weight: number;
+  /** Local Y offset for the emitter. */
+  y: number;
+  /** Use accent color (true) or secondary (false) for colorA. */
+  useAccent?: boolean;
 };
 
 function eruptionProfileFor(alignment: SpellAlignmentId): EruptionProfile {
   switch (alignment) {
     case "earth":
+      // Stone slab eruption: ring of jagged debris piles + central monolith,
+      // lots of dust and smaller chunks flying. Ring rocks are nearly inert
+      // (rune cracks barely glow); the monolith centerpiece carries the
+      // emissive read with a `+0.6` boost in the renderer.
       return {
-        shape: "cone",
+        shape: "rock_chunks",
         size: 0.85,
         basePivotY: 0.4,
         rotation: [0, 0, 0],
         emissive: 0.6,
-        opacity: 0.96,
-        centerShape: "cone",
-        centerSize: 1.4,
-        centerPivotY: 0.7,
+        opacity: 1.0,
+        centerShape: "monolith",
+        centerSize: 1.6,
+        centerPivotY: 0.8,
         centerRotation: [0, 0, 0],
         coreShader: "stone_rune",
         centerShader: "stone_rune",
         decalShader: "stone_rune",
+        accents: [
+          { preset: "smoke_plume_dust", weight: 1.4, y: 0.3 },
+          { preset: "debris_chunks", weight: 1.0, y: 0.3, useAccent: true },
+          { preset: "dust_puff", weight: 1.0, y: 0.05 },
+        ],
       };
     case "fire":
+      // Lava eruption: jagged molten boulders + central glowing vent column,
+      // embers rising + lava droplets arcing out.
       return {
-        shape: "cone",
+        shape: "displaced_meteor",
         size: 0.75,
         basePivotY: 0.35,
         rotation: [0, 0, 0],
-        emissive: 2.4,
-        opacity: 0.9,
+        emissive: 2.2,
+        opacity: 0.95,
         centerShape: "cylinder",
         centerSize: 1.3,
         centerPivotY: 0.65,
@@ -780,31 +988,44 @@ function eruptionProfileFor(alignment: SpellAlignmentId): EruptionProfile {
         coreShader: "flame_core",
         centerShader: "flame_core",
         decalShader: "molten_crack",
+        accents: [
+          { preset: "fire_core", weight: 0.8, y: 0.6, useAccent: true },
+          { preset: "embers_rising", weight: 1.0, y: 0.4, useAccent: true },
+          { preset: "lava_droplets", weight: 1.0, y: 0.3 },
+          { preset: "smoke_plume_dark", weight: 0.8, y: 0.5 },
+        ],
       };
     case "water_ice":
+      // Crystal cluster eruption: shards rise in a ring, central tall cluster.
+      // Cool mist instead of dust.
       return {
-        shape: "octa",
+        shape: "crystal_cluster",
         size: 0.72,
         basePivotY: 0.36,
         rotation: [0, 0, 0],
-        emissive: 1.8,
-        opacity: 0.92,
-        centerShape: "octa",
-        centerSize: 1.25,
-        centerPivotY: 0.62,
+        emissive: 1.6,
+        opacity: 0.95,
+        centerShape: "crystal_cluster",
+        centerSize: 1.4,
+        centerPivotY: 0.7,
         centerRotation: [0, 0, 0],
         coreShader: "frost_crystal",
         centerShader: "ice_glass",
         decalShader: "water_ripple",
+        accents: [
+          { preset: "smoke_plume_dust", weight: 0.7, y: 0.4, useAccent: true },
+          { preset: "sparks_burst", weight: 0.5, y: 0.5, useAccent: true },
+        ],
       };
     case "lightning":
+      // Charged stone spires + central plasma vent + lightning arcs and sparks.
       return {
-        shape: "tetra",
-        size: 0.6,
+        shape: "displaced_meteor",
+        size: 0.55,
         basePivotY: 0.3,
         rotation: [0, 0, 0],
-        emissive: 2.8,
-        opacity: 0.88,
+        emissive: 2.4,
+        opacity: 0.9,
         centerShape: "cylinder",
         centerSize: 1.4,
         centerPivotY: 0.7,
@@ -812,15 +1033,21 @@ function eruptionProfileFor(alignment: SpellAlignmentId): EruptionProfile {
         coreShader: "plasma_arc",
         centerShader: "storm_core",
         decalShader: "ground_rune",
+        accents: [
+          { preset: "lightning_arcs", weight: 1.0, y: 0.6, useAccent: true },
+          { preset: "sparks_burst", weight: 1.0, y: 0.4, useAccent: true },
+          { preset: "smoke_plume_dust", weight: 0.6, y: 0.3 },
+        ],
       };
     case "dark":
+      // Twisted black spires + central shadow vent; no embers, dark smoke only.
       return {
-        shape: "tetra",
+        shape: "displaced_meteor",
         size: 0.7,
         basePivotY: 0.35,
         rotation: [0, 0, 0],
-        emissive: 1.6,
-        opacity: 0.9,
+        emissive: 1.4,
+        opacity: 0.92,
         centerShape: "cylinder",
         centerSize: 1.3,
         centerPivotY: 0.65,
@@ -828,15 +1055,22 @@ function eruptionProfileFor(alignment: SpellAlignmentId): EruptionProfile {
         coreShader: "void_swirl",
         centerShader: "shadow_smoke",
         decalShader: "ground_rune",
+        accents: [
+          { preset: "smoke_plume_dark", weight: 1.4, y: 0.5 },
+          { preset: "embers_rising", weight: 0.4, y: 0.4, useAccent: true },
+        ],
       };
     case "light":
+      // Crystalline pillars of light + radiant center; sparks and bright dust.
+      // Emissive is intentionally below `light skyfall` body — eruption stays
+      // legible in a complex impact scene without bloom-blowing the camera.
       return {
-        shape: "cylinder",
-        size: 0.5,
+        shape: "crystal_cluster",
+        size: 0.55,
         basePivotY: 0.5,
         rotation: [0, 0, 0],
-        emissive: 2.6,
-        opacity: 0.85,
+        emissive: 2.0,
+        opacity: 0.9,
         centerShape: "cylinder",
         centerSize: 1.5,
         centerPivotY: 0.75,
@@ -844,24 +1078,57 @@ function eruptionProfileFor(alignment: SpellAlignmentId): EruptionProfile {
         coreShader: "sunbeam_core",
         centerShader: "holy_radiance",
         decalShader: "halo_ring",
+        accents: [
+          { preset: "sparks_burst", weight: 1.0, y: 0.5, useAccent: true },
+          { preset: "embers_rising", weight: 0.6, y: 0.4, useAccent: true },
+        ],
       };
     case "meteor_cosmic":
+      // Meteoritic debris ring + central cosmic crystal; full impact set.
       return {
-        shape: "octa",
+        shape: "displaced_meteor",
         size: 0.8,
         basePivotY: 0.4,
         rotation: [0, 0, 0],
-        emissive: 2.2,
-        opacity: 0.94,
-        centerShape: "tetra",
+        emissive: 2.0,
+        opacity: 0.95,
+        centerShape: "crystal_cluster",
         centerSize: 1.4,
         centerPivotY: 0.7,
         centerRotation: [0, 0, 0],
         coreShader: "meteor_ember",
         centerShader: "starfield_core",
         decalShader: "gravity_lens",
+        accents: [
+          { preset: "fire_core", weight: 0.7, y: 0.6, useAccent: true },
+          { preset: "embers_rising", weight: 1.0, y: 0.4, useAccent: true },
+          { preset: "lava_droplets", weight: 0.8, y: 0.3 },
+          { preset: "debris_chunks", weight: 0.8, y: 0.3 },
+        ],
       };
   }
+}
+
+/** Build the quarks_emitter SceneLeaf array for a given eruption profile. */
+function eruptionQuarksAccents(
+  spec: SpellBuildSpec,
+  profile: EruptionProfile,
+): SceneLeaf[] {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+  return profile.accents.map((acc) =>
+    node({
+      shape: "quarks_emitter",
+      quarksPreset: acc.preset,
+      shaderId: cloudShader(spec),
+      shaderPhase: "impact",
+      color: acc.useAccent ? a.palette.accent : a.palette.secondary,
+      colorB: a.palette.dark,
+      intensity: acc.weight * m.intensity,
+      position: [0, acc.y, 0],
+      size: 1.0 * m.scale,
+    }),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1182,21 +1449,10 @@ function coreSize(spec: SpellBuildSpec): number {
   return Number((base * spec.modifiers.scale).toFixed(2));
 }
 
-function skyfallShape(spec: SpellBuildSpec): SceneLeaf["shape"] {
-  if (spec.vfx.coreMesh === "jagged_crystal") return "octa";
-  return "tetra";
-}
-
 function skyfallCoreShader(spec: SpellBuildSpec): SpellShaderId {
   if (spec.alignment === "meteor_cosmic") return "meteor_ember";
   if (spec.alignment === "fire") return "flame_core";
   return spec.vfx.shaders.core;
-}
-
-function skyfallTrailShader(spec: SpellBuildSpec): SpellShaderId {
-  if (spec.alignment === "meteor_cosmic") return "comet_flame_trail";
-  if (spec.alignment === "fire") return "smoke_fire_trail";
-  return spec.vfx.shaders.trail;
 }
 
 function skyfallRingShader(spec: SpellBuildSpec): SpellShaderId {

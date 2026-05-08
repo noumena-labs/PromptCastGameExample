@@ -5,6 +5,7 @@ import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { Suspense } from "react";
 import { ArenaScene } from "@/components/game/scene/ArenaScene";
+import { QuarksProviderRoot } from "@/components/game/scene/quarks/QuarksProviderRoot";
 import { GameHud } from "@/components/game/ui/GameHud";
 import { ModelLoader } from "@/components/game/ui/ModelLoader";
 import { PromptOverlay } from "@/components/game/ui/PromptOverlay";
@@ -37,9 +38,13 @@ export function PromptCastCanvas() {
             <KeyboardControls map={controls}>
               <Canvas shadows camera={{ position: [0, 9, 28], fov: 60 }} dpr={[1, 1.6]}>
                 <Suspense fallback={null}>
-                  <Physics gravity={[0, -22, 0]} timeStep="vary" colliders={false}>
-                    <ArenaScene />
-                  </Physics>
+                  {/* QuarksProviderRoot owns the single BatchedRenderer for the
+                      whole scene; every <QuarksEmitterNode> registers with it. */}
+                  <QuarksProviderRoot>
+                    <Physics gravity={[0, -22, 0]} timeStep="vary" colliders={false}>
+                      <ArenaScene />
+                    </Physics>
+                  </QuarksProviderRoot>
                 </Suspense>
               </Canvas>
             </KeyboardControls>

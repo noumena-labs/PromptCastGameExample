@@ -1038,7 +1038,7 @@ a.sealButton {
 .bottomActions {
   position: absolute;
   right: 18px;
-  top: 18px;
+  top: 35px;
   display: flex;
   gap: 10px;
   pointer-events: auto;

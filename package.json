@@ -22,6 +22,7 @@
     "react": "latest",
     "react-dom": "latest",
     "three": "latest",
+    "three.quarks": "^0.17.0",
     "zod": "latest",
     "zustand": "latest"
   },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Sky } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { Crystals } from "@/components/game/scene/Crystals";
@@ -17,6 +17,9 @@ import { Flowers, GrassClumps } from "@/components/game/scene/Flowers";
 import { shaderPresetCatalog } from "@/game/spells/modules/shaderPresets";
 import { SpellShaderMaterial } from "@/components/game/scene/SpellShaderMaterial";
 import type { SpellShaderId } from "@/game/spells/modules/spellIds";
+import { QuarksEmitterNode } from "@/components/game/scene/quarks/QuarksEmitterNode";
+import { useOptionalQuarksRenderer } from "@/components/game/scene/quarks/QuarksProviderRoot";
+import { ALL_PRESET_IDS } from "@/components/game/scene/quarks/presets";
 
 export function ArenaScene() {
   return (
@@ -62,6 +65,7 @@ export function ArenaScene() {
       <LocalWizard />
       <GameplaySystems />
       <ShaderPrewarm />
+      <QuarksPrewarm />
     </>
   );
 }
@@ -93,6 +97,51 @@ function ShaderPrewarm() {
           <planeGeometry args={[1, 1]} />
           <SpellShaderMaterial shaderId={id} animated={false} />
         </mesh>
+      ))}
+    </group>
+  );
+}
+
+/**
+ * Mounts every quarks preset once, far offscreen, just long enough for the
+ * BatchedRenderer to build its sprite/trail batches and for gl.compile to
+ * pick up the resulting programs. Then unmounts so live spells own the budget.
+ *
+ * Skips entirely if no QuarksProviderRoot is present (e.g. preview routes).
+ */
+function QuarksPrewarm() {
+  const renderer = useOptionalQuarksRenderer();
+  const gl = useThree((state) => state.gl);
+  const scene = useThree((state) => state.scene);
+  const camera = useThree((state) => state.camera);
+  const [active, setActive] = useState(true);
+
+  useEffect(() => {
+    if (!renderer) return;
+    // Two-frame strategy: frame 1 mounts emitters, frame 2 compiles + unmounts.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        gl.compile(scene, camera);
+        setActive(false);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [renderer, gl, scene, camera]);
+
+  if (!renderer || !active) return null;
+
+  return (
+    <group position={[0, -5000, 0]} scale={0.01}>
+      {ALL_PRESET_IDS.map((id) => (
+        <QuarksEmitterNode
+          key={id}
+          preset={id}
+          config={{ intensity: 0.01, scale: 0.01, looping: false }}
+        />
       ))}
     </group>
   );
