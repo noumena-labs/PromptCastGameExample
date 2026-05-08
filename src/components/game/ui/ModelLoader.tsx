@@ -8,7 +8,7 @@ import {
 } from "@/game/ai/cogentSpellGenerator";
 
 type LoadState =
-  | { phase: "loading"; progress: ModelLoadProgress | null }
+  | { phase: "loading"; progress: ModelLoadProgress | null; phaseStartedAt: number }
   | { phase: "ready" }
   | { phase: "error"; message: string };
 
@@ -25,13 +25,20 @@ const PHASE_VERB: Record<ModelLoadProgress["phase"], string> = {
  * and the splash flashes briefly before unmounting.
  */
 export function ModelLoader({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<LoadState>({ phase: "loading", progress: null });
+  const [state, setState] = useState<LoadState>({ phase: "loading", progress: null, phaseStartedAt: 0 });
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    let currentPhase: ModelLoadProgress["phase"] | null = null;
+    let currentPhaseStartedAt = Date.now();
     const listener = (progress: ModelLoadProgress) => {
       if (cancelled) return;
-      setState({ phase: "loading", progress });
+      if (progress.phase !== currentPhase) {
+        currentPhase = progress.phase;
+        currentPhaseStartedAt = Date.now();
+      }
+      setState({ phase: "loading", progress, phaseStartedAt: currentPhaseStartedAt });
     };
 
     (async () => {
@@ -52,6 +59,11 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unsubscribeModelProgress(listener);
     };
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(id);
   }, []);
 
   if (state.phase === "ready") return <>{children}</>;
@@ -79,6 +91,8 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
   const percentRaw = phase === "load" ? 100 : progress?.percent ?? null;
   const percentClamped = percentRaw === null ? 0 : Math.max(0, Math.min(100, percentRaw));
   const verb = PHASE_VERB[phase];
+  const phaseElapsedMs = state.phase === "loading" && state.phaseStartedAt > 0 && now > 0 ? now - state.phaseStartedAt : 0;
+  const longPhaseHint = getLongPhaseHint(phase, phaseElapsedMs);
 
   return (
     <div className="modelLoader" role="status" aria-live="polite">
@@ -108,11 +122,24 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
 
       <p className="modelLoaderBarLabel">{formatProgressLabel(progress, phase)}</p>
 
+      {longPhaseHint ? <p className="modelLoaderDetail">{longPhaseHint}</p> : null}
+
       <p className="modelLoaderDetail">
         Awakening the Sage on first visit. An LLM is used for dynamic spell creation. Cached locally afterwards.
       </p>
     </div>
   );
+}
+
+function getLongPhaseHint(phase: ModelLoadProgress["phase"], elapsedMs: number): string | null {
+  if (elapsedMs < 30_000) return null;
+  if (phase === "store") {
+    return "Still sealing the local model cache. If this remains here, open with ?debugCogent=1 and send the browser console diagnostics.";
+  }
+  if (phase === "load") {
+    return "Still lighting the local runtime. If this remains here, open with ?debugCogent=1 and send the browser console diagnostics.";
+  }
+  return null;
 }
 
 function formatProgressLabel(progress: ModelLoadProgress | null, phase: ModelLoadProgress["phase"]): string {
