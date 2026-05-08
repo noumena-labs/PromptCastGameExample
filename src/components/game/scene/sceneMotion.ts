@@ -98,6 +98,18 @@ export function applyMotion(
       return out;
     }
 
+    case "erupt": {
+      // Burst upward and settle: fast rise + scale punch over ~0.6s, then hold.
+      // Used by ground_eruption geometry that pushes through the terrain plane.
+      const e = Math.min(elapsed * Math.max(0.5, motionSpeed), 1.6);
+      const ease = 1 - Math.pow(1 - Math.min(e, 1), 3);
+      const settle = e > 1 ? Math.sin((e - 1) * 6) * 0.04 * Math.exp(-(e - 1) * 3) : 0;
+      out.position = [0, ease * 1.2 + settle, 0];
+      out.rotation = ZERO;
+      out.scale = 0.3 + ease * 0.85;
+      return out;
+    }
+
     case "static":
     default:
       out.position = ZERO;

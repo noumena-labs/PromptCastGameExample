@@ -47,6 +47,7 @@ export const sceneMotions = [
   "swirl",
   "expand",
   "shake",
+  "erupt",
 ] as const;
 export type SceneMotion = (typeof sceneMotions)[number];
 

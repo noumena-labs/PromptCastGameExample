@@ -45,8 +45,8 @@ const SKY_LIGHTNING_RE = /\b(lightning|thunderbolt|bolt)\b.*\b(strike|strikes|fr
 const CHAIN_LIGHTNING_RE = /\b(chain lightning|chain bolt|forked lightning|forking lightning)\b/;
 const BEAM_RE = /\b(beam|ray|laser|lance of light|holy ray|sunbeam|psychic lash|lash)\b/;
 const AURA_RE = /\b(aura|orbit|orbiting|shield|barrier|halo around|around me|around the caster|protective ring|ward)\b/;
-const GROUND_RE = /\b(wall|cage|prison|bars|roots|thorns|spikes|pillar|eruption|geyser|sigil|rune|circle under|under the target|rising|rise from|rises from)\b/;
-const ARC_RE = /\b(lob|lobbed|hurl|hurled|throw|thrown|catapult|arc|arcing|boulder|rock chunk|chunk)\b/;
+const GROUND_RE = /\b(wall|cage|prison|bars|roots|thorns|spikes|spike|pillar|column|eruption|erupt|erupts|geyser|volcano|volcanic|vent|sigil|rune|circle under|under the target|rising|rise from|rises from|fissure|crack|crevasse)\b/;
+const ARC_RE = /\b(lob|lobbed|hurl|hurled|throw|thrown|catapult|arc|arcing|boulder|rock chunk|chunk|bomb|grenade|grenades)\b/;
 const PROJECTILE_RE = /\b(bolt|orb|ball|fireball|lance|missile|shard|arrow|spear|dart)\b/;
 
 const ALIGNMENT_CUES: Array<{ alignment: SpellAlignmentId; re: RegExp }> = [

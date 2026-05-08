@@ -75,6 +75,10 @@ function Projectile({ id }: { id: string }) {
   const { spell, createdAt } = motionSnapshot;
   const travelLifetimeSeconds = Math.max(0.16, (motionSnapshot.travelEndsAt - createdAt) / 1000);
 
+  if (motionSnapshot.mode === "hitscan_visual") {
+    return <HitscanBeam motion={motionSnapshot} />;
+  }
+
   return (
     <>
       {motionSnapshot.mode === "skyfall" && <SkyfallTelegraph motion={motionSnapshot} />}
@@ -88,6 +92,59 @@ function Projectile({ id }: { id: string }) {
         />
       </group>
     </>
+  );
+}
+
+/**
+ * HitscanBeam renders a stretched copy of the travel scene between the
+ * caster's spawn origin and the resolved hit point.
+ *
+ * Convention: the `bar` shape is authored along local +Y (the renderer
+ * builds it as a tall thin box of height `size * 2.4`). We orient the beam
+ * group so local +Y points from origin → target, and scale Y so the bar's
+ * authored length (2.4 × thickness) maps exactly onto beam length.
+ */
+function HitscanBeam({ motion }: { motion: ProjectileMotion }) {
+  const groupRef = useRef<Group>(null);
+  const stretchRef = useRef<Group>(null);
+
+  useFrame(() => {
+    if (!groupRef.current || !stretchRef.current) return;
+    const ox = motion.origin[0];
+    const oy = motion.origin[1];
+    const oz = motion.origin[2];
+    const tx = motion.targetPoint[0];
+    const ty = motion.targetPoint[1];
+    const tz = motion.targetPoint[2];
+    const dx = tx - ox;
+    const dy = ty - oy;
+    const dz = tz - oz;
+    const length = Math.max(0.1, Math.hypot(dx, dy, dz));
+    // Aim local +Y along origin → target. yaw rotates around Y, pitch around X.
+    // Starting from local +Y up, we need to tip it onto the (dx, dy, dz) axis.
+    const yaw = Math.atan2(dx, dz);
+    const horizontal = Math.hypot(dx, dz);
+    const pitch = Math.atan2(horizontal, dy);
+    groupRef.current.position.set(ox + dx * 0.5, oy + dy * 0.5, oz + dz * 0.5);
+    groupRef.current.rotation.set(pitch, yaw, 0);
+    // The renderer draws `bar` as a 2.4-tall box; divide so scale.y * 2.4 = length.
+    stretchRef.current.scale.set(1, length / 2.4, 1);
+  });
+
+  const lifetimeSeconds = Math.max(0.12, (motion.expiresAt - motion.createdAt) / 1000);
+
+  return (
+    <group ref={groupRef}>
+      <group ref={stretchRef}>
+        <SceneNodeRenderer
+          scene={motion.spell.scenes.travel}
+          spellId={motion.id}
+          spawnedAt={motion.createdAt}
+          lifetimeSeconds={lifetimeSeconds}
+          variant="travel"
+        />
+      </group>
+    </group>
   );
 }
 

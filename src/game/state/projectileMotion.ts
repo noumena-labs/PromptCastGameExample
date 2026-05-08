@@ -17,6 +17,12 @@ export type ProjectileMotion = {
   ownerColliderHandle: number | null;
   spell: GeneratedSpell;
   mode: "linear" | "arc" | "skyfall" | "hitscan_visual";
+  /**
+   * Spawn position. Used by `hitscan_visual` to render a beam from origin to
+   * targetPoint (since `position` snaps to the target on resolve). For other
+   * modes this is just the initial value of `position` and is informational.
+   */
+  origin: Vec3;
   position: Vec3;
   direction: Vec3;
   velocity: Vec3;

@@ -1,6 +1,20 @@
-import { getAlignment } from "@/game/spells/modules/alignments";
+import { getAlignment, type AlignmentDefinition } from "@/game/spells/modules/alignments";
 import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
-import type { SpellBuildSpec, SpellShaderId } from "@/game/spells/modules/spellIds";
+import type { SpellAlignmentId, SpellBuildSpec, SpellShaderId } from "@/game/spells/modules/spellIds";
+
+/**
+ * Deterministic VFX compiler.
+ *
+ * Each delivery vehicle has its own cast/travel/impact compiler. The fantasy
+ * for each vehicle is enforced here, in code — the LLM never authors scenes:
+ *
+ *   - projectile_linear : shot from caster, directional core+trail, muzzle flash
+ *   - projectile_arcing : heavy lob, spinning core, falling dust, crater impact
+ *   - skyfall           : descends straight from sky with telegraph + crash
+ *   - instant_hitscan   : visible caster→target beam, instant resolve
+ *   - ground_eruption   : geometry rises out of the ground (cones, spikes, pillars)
+ *   - aura_orbit        : layered shells/rings/orbiting motes attached to caster
+ */
 
 const node = (
   input: Omit<SceneLeaf, "arrange" | "arrangeCount" | "arrangeRadius" | "particleCount" | "motionSpeed" | "rotation" | "position"> &
@@ -17,182 +31,1000 @@ const node = (
 });
 
 export function compileVfxPayload(spec: SpellBuildSpec): { cast: SpellScene; travel: SpellScene; impact: SpellScene } {
-  return {
-    cast: compileCastScene(spec),
-    travel: compileTravelScene(spec),
-    impact: compileImpactScene(spec),
-  };
+  switch (spec.deliveryVehicle) {
+    case "projectile_linear":
+      return compileLinearProjectileScenes(spec);
+    case "projectile_arcing":
+      return compileArcingProjectileScenes(spec);
+    case "skyfall":
+      return compileSkyfallScenes(spec);
+    case "instant_hitscan":
+      return compileHitscanScenes(spec);
+    case "ground_eruption":
+      return compileGroundEruptionScenes(spec);
+    case "aura_orbit":
+      return compileAuraOrbitScenes(spec);
+  }
 }
 
-function compileCastScene(spec: SpellBuildSpec): SpellScene {
-  const alignment = getAlignment(spec.alignment);
+// ─────────────────────────────────────────────────────────────────────────────
+// projectile_linear — shot from caster, directional silhouette
+// ─────────────────────────────────────────────────────────────────────────────
+
+function compileLinearProjectileScenes(spec: SpellBuildSpec) {
+  const a = getAlignment(spec.alignment);
   const m = spec.modifiers;
-  const root = node({
-    shape: "sphere",
-    shaderId: spec.deliveryVehicle === "aura_orbit" ? spec.vfx.shaders.aura : spec.vfx.shaders.core,
-    shaderPhase: spec.deliveryVehicle === "aura_orbit" ? "aura" : "core",
-    color: alignment.palette.primary,
-    emissiveIntensity: clampEmit(2.4 * m.intensity),
-    size: Number((0.32 * m.scale).toFixed(2)),
-    motion: "pulse",
-    motionSpeed: 2.2,
-    opacity: 0.72,
-  });
 
-  const children: SceneLeaf[] = [
-    node({
-      shape: "particle_cloud",
-      shaderId: spec.vfx.shaders.trail,
-      shaderPhase: "trail",
-      color: alignment.palette.secondary,
-      emissiveIntensity: clampEmit(0.8 * m.intensity),
-      size: 0.11 * m.scale,
-      motion: "rise",
-      motionSpeed: 0.8,
-      particleCount: Math.round(46 * m.intensity),
-      opacity: 0.58,
+  const cast: SpellScene = {
+    ...node({
+      shape: "sphere",
+      shaderId: spec.vfx.shaders.core,
+      shaderPhase: "core",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(2.6 * m.intensity),
+      size: Number((0.34 * m.scale).toFixed(2)),
+      motion: "pulse",
+      motionSpeed: 2.6,
+      opacity: 0.78,
     }),
-    node({
-      shape: "ring",
-      shaderId: spec.deliveryVehicle === "aura_orbit" ? spec.vfx.shaders.aura : spec.vfx.shaders.decal,
-      shaderPhase: spec.deliveryVehicle === "aura_orbit" ? "aura" : "decal",
-      color: alignment.palette.accent,
-      emissiveIntensity: clampEmit(1.1 * m.intensity),
-      size: 0.38 * m.scale,
+    children: [
+      // muzzle flash — projects forward along local +Z
+      node({
+        shape: "cone",
+        shaderId: spec.vfx.shaders.impact,
+        shaderPhase: "impact",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(2.2 * m.intensity),
+        size: Number((0.42 * m.scale).toFixed(2)),
+        position: [0, 0, 0.45 * m.scale],
+        rotation: [-Math.PI / 2, 0, 0],
+        motion: "expand",
+        motionSpeed: 3.4,
+        opacity: 0.55,
+      }),
+      node({
+        shape: "ring",
+        shaderId: spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.0 * m.intensity),
+        size: Number((0.42 * m.scale).toFixed(2)),
+        motion: "spin",
+        motionSpeed: 3.0,
+        opacity: 0.5,
+      }),
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.9 * m.intensity),
+        size: 0.1 * m.scale,
+        motion: "drift",
+        motionSpeed: 1.4,
+        particleCount: Math.round(48 * m.intensity),
+        opacity: 0.6,
+      }),
+    ],
+  };
+
+  const travel: SpellScene = {
+    ...node({
+      shape: coreShape(spec.vfx.coreMesh),
+      shaderId: spec.vfx.shaders.core,
+      shaderPhase: "core",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(2.0 * m.intensity),
+      size: Number((coreSize(spec) * 1.1).toFixed(2)),
       motion: "spin",
-      motionSpeed: 2.8,
-      opacity: 0.48,
+      motionSpeed: 1.6 + m.speed,
+      particleCount: spec.vfx.coreMesh === "none" ? Math.round(70 * m.intensity) : 0,
+      opacity: spec.vfx.coreMesh === "none" ? 0.32 : 0.95,
     }),
-  ];
+    children: [
+      // trail behind body
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(1.0 * m.intensity),
+        size: Number((0.14 * m.scale).toFixed(2)),
+        position: [0, 0, -0.55 * m.scale],
+        motion: "drift",
+        motionSpeed: 1.6,
+        particleCount: Math.round(60 * m.intensity),
+        opacity: 0.72,
+      }),
+      // outer halo
+      node({
+        shape: "sphere",
+        shaderId: spec.vfx.shaders.core,
+        shaderPhase: "core",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(2.1 * m.intensity),
+        size: Number((0.46 * m.scale).toFixed(2)),
+        motion: "pulse",
+        motionSpeed: 2.0,
+        opacity: 0.4,
+      }),
+      ...alignmentTravelExtras(spec, a, "linear"),
+    ].slice(0, 6),
+  };
 
-  if (spec.deliveryVehicle === "aura_orbit") {
-    children.push(node({
+  const impact = compileGenericImpactScene(spec, a, { lingering: spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal") });
+  return { cast, travel, impact };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// projectile_arcing — heavy lob, spinning core, dust trail, crater impact
+// ─────────────────────────────────────────────────────────────────────────────
+
+function compileArcingProjectileScenes(spec: SpellBuildSpec) {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+
+  const cast: SpellScene = {
+    ...node({
+      shape: "sphere",
+      shaderId: spec.vfx.shaders.core,
+      shaderPhase: "core",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(2.2 * m.intensity),
+      size: Number((0.42 * m.scale).toFixed(2)),
+      motion: "pulse",
+      motionSpeed: 1.6,
+      opacity: 0.78,
+    }),
+    children: [
+      // wind-up — heavy rotating ring beneath
+      node({
+        shape: "torus",
+        shaderId: spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(1.2 * m.intensity),
+        size: Number((0.55 * m.scale).toFixed(2)),
+        position: [0, -0.18, 0],
+        rotation: [Math.PI / 2, 0, 0],
+        motion: "spin",
+        motionSpeed: 2.2,
+        opacity: 0.55,
+      }),
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(0.8 * m.intensity),
+        size: 0.12 * m.scale,
+        motion: "rise",
+        motionSpeed: 0.6,
+        particleCount: Math.round(36 * m.intensity),
+        opacity: 0.55,
+      }),
+    ],
+  };
+
+  const travel: SpellScene = {
+    ...node({
+      shape: coreShape(spec.vfx.coreMesh === "none" ? "boulder" : spec.vfx.coreMesh),
+      shaderId: spec.vfx.shaders.core,
+      shaderPhase: "core",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(1.8 * m.intensity),
+      size: Number((coreSize(spec) * 1.25).toFixed(2)),
+      motion: "spin",
+      motionSpeed: 4.2,
+      opacity: 0.96,
+    }),
+    children: [
+      // falling dust trail
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.7 * m.intensity),
+        size: 0.16 * m.scale,
+        position: [0, -0.2 * m.scale, -0.4 * m.scale],
+        motion: "fall",
+        motionSpeed: 0.6,
+        particleCount: Math.round(64 * m.intensity),
+        opacity: 0.7,
+      }),
+      // outer rim
+      node({
+        shape: "ring",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.0 * m.intensity),
+        size: Number((0.5 * m.scale).toFixed(2)),
+        motion: "spin",
+        motionSpeed: 3.4,
+        opacity: 0.55,
+      }),
+      ...alignmentTravelExtras(spec, a, "arcing"),
+    ].slice(0, 6),
+  };
+
+  const impact: SpellScene = {
+    ...node({
+      shape: "ring",
+      shaderId: spec.vfx.shaders.decal,
+      shaderPhase: "decal",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(1.4 * m.intensity),
+      size: Number((1.25 * m.scale).toFixed(2)),
+      position: [0, 0.03, 0],
+      motion: "expand",
+      motionSpeed: 2.4,
+      opacity: 0.78,
+    }),
+    children: [
+      // shockwave
+      node({
+        shape: "ring",
+        shaderId: "shockwave_ring",
+        shaderPhase: "impact",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(1.6 * m.intensity),
+        size: Number((1.05 * m.scale).toFixed(2)),
+        position: [0, 0.05, 0],
+        motion: "expand",
+        motionSpeed: 3.0,
+        opacity: 0.7,
+      }),
+      // burst flash
+      node({
+        shape: "sphere",
+        shaderId: spec.vfx.shaders.impact,
+        shaderPhase: "impact",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(2.6 * m.intensity),
+        size: 0.85 * m.scale,
+        motion: "expand",
+        motionSpeed: 2.6,
+        opacity: 0.55,
+      }),
+      // debris kicked up
+      node({
+        shape: "particle_cloud",
+        shaderId: cloudShader(spec),
+        shaderPhase: "impact",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.7 * m.intensity),
+        size: 0.3 * m.scale,
+        position: [0, 0.45, 0],
+        motion: "rise",
+        motionSpeed: 0.9,
+        particleCount: Math.round(110 * m.intensity),
+        opacity: 0.7,
+      }),
+      // ground decal crater
+      node({
+        shape: "disc",
+        shaderId: spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.dark,
+        emissiveIntensity: clampEmit(0.5 * m.intensity),
+        size: 1.0 * m.scale,
+        position: [0, 0.025, 0],
+        motion: "pulse",
+        motionSpeed: 0.4,
+        opacity: 0.62,
+      }),
+    ].slice(0, 6),
+  };
+
+  return { cast, travel, impact };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// skyfall — descends from above with telegraph (telegraph itself is rendered
+// in SpellEntities.SkyfallTelegraph; here we author the meteor body and crash)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function compileSkyfallScenes(spec: SpellBuildSpec) {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+
+  const cast: SpellScene = {
+    ...node({
+      shape: "ring",
+      shaderId: spec.vfx.shaders.decal,
+      shaderPhase: "decal",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(1.6 * m.intensity),
+      size: Number((0.55 * m.scale).toFixed(2)),
+      motion: "spin",
+      motionSpeed: 3.0,
+      opacity: 0.7,
+    }),
+    children: [
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.0 * m.intensity),
+        size: 0.16 * m.scale,
+        motion: "rise",
+        motionSpeed: 1.2,
+        particleCount: Math.round(60 * m.intensity),
+        opacity: 0.7,
+      }),
+      node({
+        shape: "sphere",
+        shaderId: spec.vfx.shaders.core,
+        shaderPhase: "core",
+        color: a.palette.primary,
+        emissiveIntensity: clampEmit(2.4 * m.intensity),
+        size: 0.36 * m.scale,
+        motion: "pulse",
+        motionSpeed: 2.6,
+        opacity: 0.7,
+      }),
+    ],
+  };
+
+  const travel: SpellScene = {
+    ...node({
+      shape: skyfallShape(spec),
+      shaderId: skyfallCoreShader(spec),
+      shaderPhase: "core",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(2.8 * m.intensity),
+      size: Number((1.2 * Math.max(1, m.scale)).toFixed(2)),
+      motion: "spin",
+      motionSpeed: 3.2,
+      opacity: 0.95,
+    }),
+    children: [
+      // streak tail behind meteor (along travel axis -Z)
+      node({
+        shape: "bar",
+        shaderId: skyfallTrailShader(spec),
+        shaderPhase: "trail",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(1.8 * m.intensity),
+        size: Number((0.5 * m.scale).toFixed(2)),
+        position: [0, 0, -0.85 * m.scale],
+        rotation: [Math.PI / 2, 0, 0],
+        motion: "pulse",
+        motionSpeed: 2.4,
+        opacity: 0.66,
+      }),
+      // particle plume
+      node({
+        shape: "particle_cloud",
+        shaderId: skyfallTrailShader(spec),
+        shaderPhase: "trail",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(1.6 * m.intensity),
+        size: Number((0.22 * m.scale).toFixed(2)),
+        position: [0, 0, -0.95 * m.scale],
+        motion: "drift",
+        motionSpeed: 0.45,
+        particleCount: Math.round(150 * m.intensity),
+        opacity: 0.82,
+      }),
+      // glow halo
+      node({
+        shape: "sphere",
+        shaderId: skyfallCoreShader(spec),
+        shaderPhase: "core",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(2.6 * m.intensity),
+        size: Number((0.6 * m.scale).toFixed(2)),
+        motion: "pulse",
+        motionSpeed: 2.2,
+        opacity: 0.55,
+      }),
+      // gravity ring
+      node({
+        shape: "ring",
+        shaderId: skyfallRingShader(spec),
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.5 * m.intensity),
+        size: Number((0.85 * m.scale).toFixed(2)),
+        motion: "spin",
+        motionSpeed: 4.4,
+        arrange: "ring",
+        arrangeCount: 4,
+        arrangeRadius: Number((0.5 * m.scale).toFixed(2)),
+        opacity: 0.62,
+      }),
+    ].slice(0, 6),
+  };
+
+  // Skyfall crash impact: massive flash + shockwave + crater + debris
+  const impact: SpellScene = {
+    ...node({
+      shape: "sphere",
+      shaderId: spec.vfx.shaders.impact,
+      shaderPhase: "impact",
+      color: a.palette.accent,
+      emissiveIntensity: clampEmit(3.4 * m.intensity),
+      size: Number((1.4 * m.scale).toFixed(2)),
+      motion: "expand",
+      motionSpeed: 3.0,
+      opacity: 0.6,
+    }),
+    children: [
+      node({
+        shape: "ring",
+        shaderId: "shockwave_ring",
+        shaderPhase: "impact",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(2.0 * m.intensity),
+        size: Number((1.4 * m.scale).toFixed(2)),
+        position: [0, 0.05, 0],
+        motion: "expand",
+        motionSpeed: 3.4,
+        opacity: 0.78,
+      }),
+      node({
+        shape: "disc",
+        shaderId: spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.dark,
+        emissiveIntensity: clampEmit(0.6 * m.intensity),
+        size: 1.2 * m.scale,
+        position: [0, 0.025, 0],
+        motion: "pulse",
+        motionSpeed: 0.35,
+        opacity: 0.7,
+      }),
+      node({
+        shape: "particle_cloud",
+        shaderId: cloudShader(spec),
+        shaderPhase: "impact",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.8 * m.intensity),
+        size: 0.34 * m.scale,
+        position: [0, 0.5, 0],
+        motion: "rise",
+        motionSpeed: 1.0,
+        particleCount: Math.round(140 * m.intensity),
+        opacity: 0.78,
+      }),
+    ],
+  };
+
+  return { cast, travel, impact };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// instant_hitscan — visible caster→target beam, instant resolve
+// Travel scene is the beam stylization; the renderer stretches a `bar` mesh
+// between the spawn origin and target (see SpellEntities.HitscanBeam).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function compileHitscanScenes(spec: SpellBuildSpec) {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+
+  const cast: SpellScene = {
+    ...node({
+      shape: "sphere",
+      shaderId: spec.vfx.shaders.core,
+      shaderPhase: "core",
+      color: a.palette.accent,
+      emissiveIntensity: clampEmit(3.0 * m.intensity),
+      size: 0.32 * m.scale,
+      motion: "pulse",
+      motionSpeed: 5.0,
+      opacity: 0.85,
+    }),
+    children: [
+      node({
+        shape: "ring",
+        shaderId: spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.primary,
+        emissiveIntensity: clampEmit(1.6 * m.intensity),
+        size: 0.52 * m.scale,
+        motion: "spin",
+        motionSpeed: 4.0,
+        opacity: 0.62,
+      }),
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.0 * m.intensity),
+        size: 0.08 * m.scale,
+        motion: "drift",
+        motionSpeed: 3.0,
+        particleCount: Math.round(48 * m.intensity),
+        opacity: 0.7,
+      }),
+    ],
+  };
+
+  // Travel scene authored in beam-local space:
+  //   - bar oriented along local +Z, length 1 (renderer scales Z to beam length)
+  //   - thin core line + outer glow + sparks
+  const travel: SpellScene = {
+    ...node({
+      shape: "bar",
+      shaderId: hitscanBeamShader(spec),
+      shaderPhase: "trail",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(2.6 * m.intensity),
+      size: Number((0.06 * m.scale).toFixed(2)),
+      motion: "pulse",
+      motionSpeed: 6.0,
+      opacity: 0.95,
+    }),
+    children: [
+      // outer glow sheath
+      node({
+        shape: "bar",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.8 * m.intensity),
+        size: Number((0.14 * m.scale).toFixed(2)),
+        motion: "pulse",
+        motionSpeed: 3.5,
+        opacity: 0.45,
+      }),
+      // sparks along beam
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.4 * m.intensity),
+        size: 0.07 * m.scale,
+        motion: "drift",
+        motionSpeed: 4.0,
+        particleCount: Math.round(72 * m.intensity),
+        opacity: 0.7,
+      }),
+    ],
+  };
+
+  const impact = compileGenericImpactScene(spec, a, { lingering: false });
+  return { cast, travel, impact };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ground_eruption — geometry rises out of the ground, alignment-styled.
+// The impact scene IS the eruption (cast+travel are brief telegraph cues).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function compileGroundEruptionScenes(spec: SpellBuildSpec) {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+
+  const profile = eruptionProfileFor(spec.alignment);
+
+  const cast: SpellScene = {
+    ...node({
+      shape: "ring",
+      shaderId: spec.vfx.shaders.decal,
+      shaderPhase: "decal",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(1.4 * m.intensity),
+      size: Number((0.45 * m.scale).toFixed(2)),
+      motion: "spin",
+      motionSpeed: 3.2,
+      opacity: 0.7,
+    }),
+    children: [
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.9 * m.intensity),
+        size: 0.12 * m.scale,
+        motion: "rise",
+        motionSpeed: 0.8,
+        particleCount: Math.round(40 * m.intensity),
+        opacity: 0.6,
+      }),
+    ],
+  };
+
+  // Travel is a brief ground rumble telegraph (eruption resolves at target on cast).
+  const travel: SpellScene = {
+    ...node({
+      shape: "ring",
+      shaderId: spec.vfx.shaders.decal,
+      shaderPhase: "decal",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(1.2 * m.intensity),
+      size: Number((0.6 * m.scale).toFixed(2)),
+      motion: "expand",
+      motionSpeed: 2.0,
+      opacity: 0.6,
+    }),
+    children: [],
+  };
+
+  const eruptCount = Math.max(3, Math.min(8, Math.round(3 + m.intensity * 2)));
+  const eruptRadius = Number((0.55 * m.scale).toFixed(2));
+
+  const impact: SpellScene = {
+    // Rising primary geometry — the actual erupting shape, arranged in a ring.
+    ...node({
+      shape: profile.shape,
+      shaderId: profile.coreShader ?? spec.vfx.shaders.core,
+      shaderPhase: "core",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(profile.emissive * m.intensity),
+      size: Number((profile.size * m.scale).toFixed(2)),
+      position: [0, profile.basePivotY, 0],
+      rotation: profile.rotation,
+      motion: "erupt",
+      motionSpeed: 2.4,
+      arrange: "ring",
+      arrangeCount: eruptCount,
+      arrangeRadius: eruptRadius,
+      opacity: profile.opacity,
+    }),
+    children: [
+      // central tall pillar / vent
+      node({
+        shape: profile.centerShape,
+        shaderId: profile.centerShader ?? spec.vfx.shaders.core,
+        shaderPhase: "core",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit((profile.emissive + 0.4) * m.intensity),
+        size: Number((profile.centerSize * m.scale).toFixed(2)),
+        position: [0, profile.centerPivotY, 0],
+        rotation: profile.centerRotation,
+        motion: "erupt",
+        motionSpeed: 1.8,
+        opacity: 0.92,
+      }),
+      // dust/smoke kicked up by the eruption
+      node({
+        shape: "particle_cloud",
+        shaderId: cloudShader(spec),
+        shaderPhase: "impact",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.7 * m.intensity),
+        size: 0.3 * m.scale,
+        position: [0, 0.35, 0],
+        motion: "rise",
+        motionSpeed: 0.9,
+        particleCount: Math.round(120 * m.intensity),
+        opacity: 0.7,
+      }),
+      // shockwave at the base
+      node({
+        shape: "ring",
+        shaderId: "shockwave_ring",
+        shaderPhase: "impact",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.3 * m.intensity),
+        size: Number((0.95 * m.scale).toFixed(2)),
+        position: [0, 0.04, 0],
+        motion: "expand",
+        motionSpeed: 2.6,
+        opacity: 0.62,
+      }),
+      // lingering ground decal — sigil/cracks/frost
+      node({
+        shape: "disc",
+        shaderId: profile.decalShader ?? spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.dark,
+        emissiveIntensity: clampEmit(0.6 * m.intensity),
+        size: 1.05 * m.scale,
+        position: [0, 0.025, 0],
+        motion: "pulse",
+        motionSpeed: 0.4,
+        opacity: 0.7,
+      }),
+    ].slice(0, 6),
+  };
+
+  return { cast, travel, impact };
+}
+
+type EruptionProfile = {
+  shape: SceneLeaf["shape"];
+  size: number;
+  basePivotY: number;
+  rotation: SceneLeaf["rotation"];
+  emissive: number;
+  opacity: number;
+  centerShape: SceneLeaf["shape"];
+  centerSize: number;
+  centerPivotY: number;
+  centerRotation: SceneLeaf["rotation"];
+  coreShader?: SpellShaderId;
+  centerShader?: SpellShaderId;
+  decalShader?: SpellShaderId;
+};
+
+function eruptionProfileFor(alignment: SpellAlignmentId): EruptionProfile {
+  switch (alignment) {
+    case "earth":
+      return {
+        shape: "cone",
+        size: 0.85,
+        basePivotY: 0.4,
+        rotation: [0, 0, 0],
+        emissive: 0.6,
+        opacity: 0.96,
+        centerShape: "cone",
+        centerSize: 1.4,
+        centerPivotY: 0.7,
+        centerRotation: [0, 0, 0],
+        coreShader: "stone_rune",
+        centerShader: "stone_rune",
+        decalShader: "stone_rune",
+      };
+    case "fire":
+      return {
+        shape: "cone",
+        size: 0.75,
+        basePivotY: 0.35,
+        rotation: [0, 0, 0],
+        emissive: 2.4,
+        opacity: 0.9,
+        centerShape: "cylinder",
+        centerSize: 1.3,
+        centerPivotY: 0.65,
+        centerRotation: [0, 0, 0],
+        coreShader: "flame_core",
+        centerShader: "flame_core",
+        decalShader: "molten_crack",
+      };
+    case "water_ice":
+      return {
+        shape: "octa",
+        size: 0.72,
+        basePivotY: 0.36,
+        rotation: [0, 0, 0],
+        emissive: 1.8,
+        opacity: 0.92,
+        centerShape: "octa",
+        centerSize: 1.25,
+        centerPivotY: 0.62,
+        centerRotation: [0, 0, 0],
+        coreShader: "frost_crystal",
+        centerShader: "ice_glass",
+        decalShader: "water_ripple",
+      };
+    case "lightning":
+      return {
+        shape: "tetra",
+        size: 0.6,
+        basePivotY: 0.3,
+        rotation: [0, 0, 0],
+        emissive: 2.8,
+        opacity: 0.88,
+        centerShape: "cylinder",
+        centerSize: 1.4,
+        centerPivotY: 0.7,
+        centerRotation: [0, 0, 0],
+        coreShader: "plasma_arc",
+        centerShader: "storm_core",
+        decalShader: "ground_rune",
+      };
+    case "dark":
+      return {
+        shape: "tetra",
+        size: 0.7,
+        basePivotY: 0.35,
+        rotation: [0, 0, 0],
+        emissive: 1.6,
+        opacity: 0.9,
+        centerShape: "cylinder",
+        centerSize: 1.3,
+        centerPivotY: 0.65,
+        centerRotation: [0, 0, 0],
+        coreShader: "void_swirl",
+        centerShader: "shadow_smoke",
+        decalShader: "ground_rune",
+      };
+    case "light":
+      return {
+        shape: "cylinder",
+        size: 0.5,
+        basePivotY: 0.5,
+        rotation: [0, 0, 0],
+        emissive: 2.6,
+        opacity: 0.85,
+        centerShape: "cylinder",
+        centerSize: 1.5,
+        centerPivotY: 0.75,
+        centerRotation: [0, 0, 0],
+        coreShader: "sunbeam_core",
+        centerShader: "holy_radiance",
+        decalShader: "halo_ring",
+      };
+    case "meteor_cosmic":
+      return {
+        shape: "octa",
+        size: 0.8,
+        basePivotY: 0.4,
+        rotation: [0, 0, 0],
+        emissive: 2.2,
+        opacity: 0.94,
+        centerShape: "tetra",
+        centerSize: 1.4,
+        centerPivotY: 0.7,
+        centerRotation: [0, 0, 0],
+        coreShader: "meteor_ember",
+        centerShader: "starfield_core",
+        decalShader: "gravity_lens",
+      };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// aura_orbit — layered shells/rings/orbiting motes attached to caster.
+// Cast and impact are both authored as the aura state itself; impact is what
+// renders for the area lifetime (attached to caster via AreaSpellState).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function compileAuraOrbitScenes(spec: SpellBuildSpec) {
+  const a = getAlignment(spec.alignment);
+  const m = spec.modifiers;
+
+  const cast: SpellScene = {
+    ...node({
       shape: "torus",
       shaderId: spec.vfx.shaders.aura,
       shaderPhase: "aura",
-      color: alignment.palette.accent,
-      emissiveIntensity: clampEmit(1.3 * m.intensity),
-      size: 0.65 * m.scale,
-      motion: "spin",
-      motionSpeed: 1.1,
-      opacity: 0.62,
-    }));
-  }
-
-  return { ...root, children: children.slice(0, 6) };
-}
-
-function compileTravelScene(spec: SpellBuildSpec): SpellScene {
-  const alignment = getAlignment(spec.alignment);
-  const m = spec.modifiers;
-  const skyfall = spec.deliveryVehicle === "skyfall";
-  const hitscan = spec.deliveryVehicle === "instant_hitscan";
-  const root = node({
-    shape: hitscan ? "bar" : skyfall ? skyfallShape(spec) : coreShape(spec.vfx.coreMesh),
-    shaderId: skyfall ? skyfallCoreShader(spec) : shaderForCore(spec),
-    shaderPhase: hitscan ? "trail" : spec.deliveryVehicle === "aura_orbit" ? "aura" : "core",
-    color: alignment.palette.primary,
-    emissiveIntensity: clampEmit((skyfall ? 2.8 : hitscan ? 2.2 : 1.9) * m.intensity),
-    size: travelCoreSize(spec),
-    motion: travelRootMotion(spec),
-    motionSpeed: skyfall ? 3.2 : 1.4 + m.speed,
-    particleCount: spec.vfx.coreMesh === "none" && !hitscan ? Math.round(80 * m.intensity) : 0,
-    opacity: spec.vfx.coreMesh === "none" && !skyfall ? 0.28 : 0.95,
-  });
-
-  const children: SceneLeaf[] = [];
-  if (spec.vfx.travel.includes("particle_trail") || skyfall) {
-    children.push(node({
-      shape: "particle_cloud",
-      shaderId: skyfall ? skyfallTrailShader(spec) : spec.vfx.shaders.trail,
-      shaderPhase: "trail",
-      color: alignment.palette.secondary,
-      emissiveIntensity: clampEmit((skyfall ? 1.6 : 0.9) * m.intensity),
-      size: Number(((skyfall ? 0.22 : 0.14) * m.scale).toFixed(2)),
-      position: [0, 0, skyfall ? -0.95 * m.scale : -0.48 * m.scale],
-      motion: "drift",
-      motionSpeed: skyfall ? 0.45 : 1.3,
-      particleCount: Math.round((skyfall ? 150 : 58) * m.intensity),
-      opacity: skyfall ? 0.82 : 0.72,
-    }));
-  }
-  if (skyfall) {
-    children.push(node({
-      shape: "bar",
-      shaderId: skyfallTrailShader(spec),
-      shaderPhase: "trail",
-      color: alignment.palette.secondary,
-      emissiveIntensity: clampEmit(1.8 * m.intensity),
-      size: Number((0.48 * m.scale).toFixed(2)),
-      position: [0, 0, -0.82 * m.scale],
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(1.6 * m.intensity),
+      size: Number((0.7 * m.scale).toFixed(2)),
       rotation: [Math.PI / 2, 0, 0],
-      motion: "pulse",
-      motionSpeed: 2.4,
-      opacity: 0.64,
-    }));
-  }
-  if (spec.vfx.travel.includes("core_glow") || skyfall) {
-    children.push(node({
-      shape: "sphere",
-      shaderId: skyfall ? skyfallCoreShader(spec) : spec.vfx.shaders.core,
-      shaderPhase: "core",
-      color: alignment.palette.accent,
-      emissiveIntensity: clampEmit((skyfall ? 2.6 : 2.1) * m.intensity),
-      size: Number(((skyfall ? 0.55 : 0.42) * m.scale).toFixed(2)),
-      motion: "pulse",
-      motionSpeed: skyfall ? 2.2 : 1.8,
-      opacity: skyfall ? 0.54 : 0.42,
-    }));
-  }
-  if (spec.vfx.travel.includes("swirling_vortex") || skyfall) {
-    children.push(node({
-      shape: "ring",
-      shaderId: skyfall ? skyfallRingShader(spec) : spec.vfx.shaders.trail,
-      shaderPhase: "trail",
-      color: alignment.palette.accent,
-      emissiveIntensity: clampEmit((skyfall ? 1.5 : 1.2) * m.intensity),
-      size: Number(((skyfall ? 0.8 : 0.55) * m.scale).toFixed(2)),
       motion: "spin",
-      motionSpeed: skyfall ? 4.4 : 3.2,
-      arrange: "ring",
-      arrangeCount: skyfall ? 4 : 3,
-      arrangeRadius: Number(((skyfall ? 0.5 : 0.42) * m.scale).toFixed(2)),
-      opacity: skyfall ? 0.62 : 0.74,
-    }));
-  }
-  if (hitscan) {
-    children.push(node({
-      shape: "particle_cloud",
-      shaderId: spec.vfx.shaders.trail,
-      shaderPhase: "trail",
-      color: alignment.palette.accent,
-      emissiveIntensity: clampEmit(1.4 * m.intensity),
-      size: 0.08 * m.scale,
-      motion: "drift",
-      motionSpeed: 3.6,
-      particleCount: Math.round(72 * m.intensity),
-      opacity: 0.8,
-    }));
-  }
+      motionSpeed: 1.4,
+      opacity: 0.7,
+    }),
+    children: [
+      node({
+        shape: "sphere",
+        shaderId: spec.vfx.shaders.aura,
+        shaderPhase: "aura",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.2 * m.intensity),
+        size: 0.42 * m.scale,
+        motion: "pulse",
+        motionSpeed: 2.4,
+        opacity: 0.5,
+      }),
+      node({
+        shape: "ring",
+        shaderId: spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.8 * m.intensity),
+        size: 0.85 * m.scale,
+        position: [0, 0.04, 0],
+        motion: "spin",
+        motionSpeed: 2.2,
+        opacity: 0.55,
+      }),
+    ],
+  };
 
-  return { ...root, children: children.slice(0, 6) };
+  // Impact = the aura itself, attached to the caster for the area duration.
+  // Layered: outer torus shell, inner glow, orbiting motes, ground ring.
+  const impact: SpellScene = {
+    ...node({
+      shape: "torus",
+      shaderId: spec.vfx.shaders.aura,
+      shaderPhase: "aura",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(1.4 * m.intensity),
+      size: 1.0,
+      rotation: [Math.PI / 2, 0, 0],
+      motion: "spin",
+      motionSpeed: 0.8,
+      opacity: 0.7,
+    }),
+    children: [
+      // inner shell glow
+      node({
+        shape: "sphere",
+        shaderId: spec.vfx.shaders.aura,
+        shaderPhase: "aura",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.0 * m.intensity),
+        size: 0.65,
+        motion: "pulse",
+        motionSpeed: 1.6,
+        opacity: 0.32,
+      }),
+      // orbiting motes
+      node({
+        shape: "sphere",
+        shaderId: spec.vfx.shaders.aura,
+        shaderPhase: "aura",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.4 * m.intensity),
+        size: 0.16,
+        motion: "orbit",
+        motionSpeed: 1.6,
+        arrange: "ring",
+        arrangeCount: 6,
+        arrangeRadius: 1.05,
+        opacity: 0.85,
+      }),
+      // ground ring under caster
+      node({
+        shape: "ring",
+        shaderId: spec.vfx.shaders.decal,
+        shaderPhase: "decal",
+        color: a.palette.primary,
+        emissiveIntensity: clampEmit(0.9 * m.intensity),
+        size: 1.1,
+        position: [0, 0.04, 0],
+        motion: "spin",
+        motionSpeed: 1.4,
+        opacity: 0.6,
+      }),
+      // soft particle haze
+      node({
+        shape: "particle_cloud",
+        shaderId: spec.vfx.shaders.trail,
+        shaderPhase: "trail",
+        color: a.palette.secondary,
+        emissiveIntensity: clampEmit(0.6 * m.intensity),
+        size: 0.12,
+        motion: "swirl",
+        motionSpeed: 0.8,
+        particleCount: Math.round(80 * m.intensity),
+        opacity: 0.55,
+      }),
+    ].slice(0, 6),
+  };
+
+  // Travel is unused (aura doesn't travel) but must exist; render a small idle pulse.
+  const travel: SpellScene = {
+    ...node({
+      shape: "sphere",
+      shaderId: spec.vfx.shaders.aura,
+      shaderPhase: "aura",
+      color: a.palette.primary,
+      emissiveIntensity: clampEmit(0.6 * m.intensity),
+      size: 0.3,
+      motion: "pulse",
+      motionSpeed: 1.5,
+      opacity: 0.4,
+    }),
+    children: [],
+  };
+
+  return { cast, travel, impact };
 }
 
-function compileImpactScene(spec: SpellBuildSpec): SpellScene {
-  const alignment = getAlignment(spec.alignment);
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic impact scene — used by linear/hitscan; arcing/skyfall/eruption/aura
+// author their own. Mirrors the original module-driven impact behavior.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function compileGenericImpactScene(spec: SpellBuildSpec, a: AlignmentDefinition, opts: { lingering: boolean }): SpellScene {
   const m = spec.modifiers;
-  const lingering = spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal") || spec.deliveryVehicle === "aura_orbit";
+  const lingering = opts.lingering;
   const root = node({
-    shape: rootImpactShape(spec),
-    shaderId: rootImpactShader(spec),
-    shaderPhase: spec.deliveryVehicle === "aura_orbit" ? "aura" : "impact",
-    color: alignment.palette.primary,
+    shape: lingering ? "cylinder" : "sphere",
+    shaderId: spec.vfx.shaders.impact,
+    shaderPhase: "impact",
+    color: a.palette.primary,
     emissiveIntensity: clampEmit((lingering ? 1.1 : 2.4) * m.intensity),
-    size: impactRootSize(spec),
+    size: Number((1.15 * m.scale).toFixed(2)),
     motion: lingering ? "pulse" : "expand",
     motionSpeed: lingering ? 0.8 : 2.1,
     opacity: lingering ? 0.68 : 0.82,
   });
+
   const children: SceneLeaf[] = [];
 
   if (spec.vfx.impact.includes("flash")) {
@@ -200,12 +1032,12 @@ function compileImpactScene(spec: SpellBuildSpec): SpellScene {
       shape: "sphere",
       shaderId: spec.vfx.shaders.impact,
       shaderPhase: "impact",
-      color: alignment.palette.accent,
+      color: a.palette.accent,
       emissiveIntensity: clampEmit(3.4 * m.intensity),
       size: 0.8 * m.scale,
       motion: "expand",
       motionSpeed: 3.2,
-      opacity: 0.38,
+      opacity: 0.4,
     }));
   }
   if (spec.vfx.impact.includes("burst_explosion")) {
@@ -213,7 +1045,7 @@ function compileImpactScene(spec: SpellBuildSpec): SpellScene {
       shape: "particle_cloud",
       shaderId: spec.vfx.shaders.impact,
       shaderPhase: "impact",
-      color: alignment.palette.accent,
+      color: a.palette.accent,
       emissiveIntensity: clampEmit(1.4 * m.intensity),
       size: 0.24 * m.scale,
       motion: "expand",
@@ -225,7 +1057,7 @@ function compileImpactScene(spec: SpellBuildSpec): SpellScene {
       shape: "ring",
       shaderId: "shockwave_ring",
       shaderPhase: "impact",
-      color: alignment.palette.secondary,
+      color: a.palette.secondary,
       emissiveIntensity: clampEmit(1.4 * m.intensity),
       size: 0.9 * m.scale,
       motion: "expand",
@@ -238,7 +1070,7 @@ function compileImpactScene(spec: SpellBuildSpec): SpellScene {
       shape: "particle_cloud",
       shaderId: cloudShader(spec),
       shaderPhase: "impact",
-      color: alignment.palette.secondary,
+      color: a.palette.secondary,
       emissiveIntensity: clampEmit(0.6 * m.intensity),
       size: 0.34 * m.scale,
       position: [0, 0.35, 0],
@@ -253,7 +1085,7 @@ function compileImpactScene(spec: SpellBuildSpec): SpellScene {
       shape: "disc",
       shaderId: spec.vfx.shaders.decal,
       shaderPhase: "decal",
-      color: alignment.palette.primary,
+      color: a.palette.primary,
       emissiveIntensity: clampEmit(0.9 * m.intensity),
       size: 0.9 * m.scale,
       position: [0, 0.025, 0],
@@ -262,25 +1094,75 @@ function compileImpactScene(spec: SpellBuildSpec): SpellScene {
       opacity: 0.58,
     }));
   }
-  if (spec.deliveryVehicle === "aura_orbit") {
-    children.push(node({
-      shape: "sphere",
-      shaderId: spec.vfx.shaders.aura,
-      shaderPhase: "aura",
-      color: alignment.palette.accent,
-      emissiveIntensity: clampEmit(1.2 * m.intensity),
-      size: 0.16 * m.scale,
-      motion: "orbit",
-      motionSpeed: 1.5,
-      arrange: "ring",
-      arrangeCount: 6,
-      arrangeRadius: 1.1 * m.scale,
-      opacity: 0.85,
-    }));
-  }
 
   return { ...root, children: children.slice(0, 6) };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alignment-specific travel extras (linear/arcing) — small flavor children
+// ─────────────────────────────────────────────────────────────────────────────
+
+function alignmentTravelExtras(spec: SpellBuildSpec, a: AlignmentDefinition, kind: "linear" | "arcing"): SceneLeaf[] {
+  const m = spec.modifiers;
+  if (spec.alignment === "lightning") {
+    return [
+      node({
+        shape: "ring",
+        shaderId: "chain_bolt",
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.4 * m.intensity),
+        size: 0.45 * m.scale,
+        motion: "spin",
+        motionSpeed: 5.0,
+        arrange: "ring",
+        arrangeCount: 3,
+        arrangeRadius: 0.3 * m.scale,
+        opacity: 0.7,
+      }),
+    ];
+  }
+  if (spec.alignment === "fire" && kind === "linear") {
+    return [
+      node({
+        shape: "particle_cloud",
+        shaderId: "ember_trail",
+        shaderPhase: "trail",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.4 * m.intensity),
+        size: 0.08 * m.scale,
+        position: [0, 0, -0.7 * m.scale],
+        motion: "drift",
+        motionSpeed: 2.2,
+        particleCount: Math.round(40 * m.intensity),
+        opacity: 0.78,
+      }),
+    ];
+  }
+  if (spec.alignment === "water_ice") {
+    return [
+      node({
+        shape: "octa",
+        shaderId: "frost_crystal",
+        shaderPhase: "core",
+        color: a.palette.accent,
+        emissiveIntensity: clampEmit(1.0 * m.intensity),
+        size: 0.18 * m.scale,
+        motion: "spin",
+        motionSpeed: 4.0,
+        arrange: "ring",
+        arrangeCount: 3,
+        arrangeRadius: 0.32 * m.scale,
+        opacity: 0.85,
+      }),
+    ];
+  }
+  return [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function coreShape(mesh: SpellBuildSpec["vfx"]["coreMesh"]): SceneLeaf["shape"] {
   switch (mesh) {
@@ -300,44 +1182,9 @@ function coreSize(spec: SpellBuildSpec): number {
   return Number((base * spec.modifiers.scale).toFixed(2));
 }
 
-function travelCoreSize(spec: SpellBuildSpec): number {
-  if (spec.deliveryVehicle === "skyfall") return Number((1.18 * Math.max(1, spec.modifiers.scale)).toFixed(2));
-  if (spec.deliveryVehicle === "instant_hitscan") return Number((0.34 * spec.modifiers.scale).toFixed(2));
-  return Number((coreSize(spec) * 1.18).toFixed(2));
-}
-
-function rootCastMotion(spec: SpellBuildSpec): SceneLeaf["motion"] {
-  if (spec.deliveryVehicle === "projectile_arcing" || spec.deliveryVehicle === "skyfall") return "spin";
-  if (spec.deliveryVehicle === "aura_orbit") return "pulse";
-  if (spec.deliveryVehicle === "instant_hitscan") return "pulse";
-  return "spin";
-}
-
-function travelRootMotion(spec: SpellBuildSpec): SceneLeaf["motion"] {
-  if (spec.deliveryVehicle === "instant_hitscan") return "pulse";
-  if (spec.deliveryVehicle === "skyfall" || spec.deliveryVehicle === "projectile_arcing") return "spin";
-  return rootCastMotion(spec);
-}
-
 function skyfallShape(spec: SpellBuildSpec): SceneLeaf["shape"] {
   if (spec.vfx.coreMesh === "jagged_crystal") return "octa";
   return "tetra";
-}
-
-function rootImpactShape(spec: SpellBuildSpec): SceneLeaf["shape"] {
-  if (spec.deliveryVehicle === "aura_orbit") return "torus";
-  if (spec.deliveryVehicle === "instant_hitscan") return "bar";
-  if (spec.vfx.impact.includes("ground_decal")) return "ring";
-  return spec.vfx.impact.includes("lingering_cloud") ? "cylinder" : "sphere";
-}
-
-function impactRootSize(spec: SpellBuildSpec): number {
-  const base = spec.deliveryVehicle === "instant_hitscan" ? 1.5 : spec.deliveryVehicle === "aura_orbit" ? 1.1 : 1.15;
-  return Number((base * spec.modifiers.scale).toFixed(2));
-}
-
-function shaderForCore(spec: SpellBuildSpec): SpellShaderId {
-  return spec.deliveryVehicle === "aura_orbit" ? spec.vfx.shaders.aura : spec.vfx.shaders.core;
 }
 
 function skyfallCoreShader(spec: SpellBuildSpec): SpellShaderId {
@@ -357,8 +1204,13 @@ function skyfallRingShader(spec: SpellBuildSpec): SpellShaderId {
   return spec.vfx.shaders.trail;
 }
 
-function rootImpactShader(spec: SpellBuildSpec): SpellShaderId {
-  return spec.deliveryVehicle === "aura_orbit" ? spec.vfx.shaders.aura : spec.vfx.shaders.impact;
+function hitscanBeamShader(spec: SpellBuildSpec): SpellShaderId {
+  if (spec.alignment === "lightning") return "chain_bolt";
+  if (spec.alignment === "light") return "sunbeam_core";
+  if (spec.alignment === "dark") return "life_leech_tendril";
+  if (spec.alignment === "fire") return "ember_trail";
+  if (spec.alignment === "water_ice") return "frost_crystal";
+  return spec.vfx.shaders.core;
 }
 
 function cloudShader(spec: SpellBuildSpec): SpellShaderId {
