@@ -1,64 +1,59 @@
 import type { SpellScene } from "@/game/spells/sceneNode";
+import type {
+  DeliveryVehicleId,
+  SpellAlignmentId,
+  SpellBuildSpec,
+  SpellImpactShape,
+  SpellStatusEffectId,
+} from "@/game/spells/modules/spellIds";
+
+export type {
+  DeliveryVehicleId,
+  SpellAlignmentId,
+  SpellBuildSpec,
+  SpellImpactShape,
+  SpellStatusEffectId,
+};
 
 export type Vec3 = [number, number, number];
-
-export type SpellElement = "fire" | "ice" | "lightning" | "earth" | "arcane" | "shadow" | "nature";
-
-/**
- * Delivery family — how the spell reaches its target. Drives spawn behavior
- * and the speed component of derived stats. Replaces the old `delivery` field.
- *
- *   projectile → travels along the cast ray from the caster.
- *   beam       → near-instant line; brief travel time.
- *   sky        → spawns above the reticle target point and falls.
- *   self       → originates at the caster, stationary or expanding.
- */
-export type SpellDeliveryFamily = "projectile" | "beam" | "sky" | "self";
-
-/**
- * Impact family — what happens when the spell resolves. Used by the gameplay
- * layer (damage / status / shape of effect), independent of the visual scene.
- */
-export type SpellImpact = "single" | "aoe" | "vortex" | "wall" | "trap" | "burst" | "none";
-
-export type SpellPlacement = "target" | "front" | "self";
-
-export type SpellEffect = "burn" | "slow" | "stun" | "pull" | "knockback" | "shield_break" | "poison";
 
 export type GeneratedSpell = {
   id: string;
   name: string;
   prompt: string;
   reasoning?: string;
-  element: SpellElement;
-  deliveryFamily: SpellDeliveryFamily;
-  impact: SpellImpact;
-  placement: SpellPlacement;
+  buildSpec: SpellBuildSpec;
+  alignment: SpellAlignmentId;
+  deliveryVehicle: DeliveryVehicleId;
   powerTier: 1 | 2 | 3 | 4 | 5;
   count: number;
   damage: number;
   speed: number;
   radius: number;
   durationMs: number;
-  /**
-   * How long the impact area lingers after the spell resolves. Derived from
-   * the impact taxonomy: short flashes for single/burst, full durationMs for
-   * lingering impacts (aoe/vortex/wall/trap), 0 for none.
-   */
   impactDurationMs: number;
   cooldownMs: number;
   manaCost: number;
-  effects: SpellEffect[];
+  statusEffect: SpellStatusEffectId;
+  statusDurationMs: number;
+  statusStrength: number;
   color: string;
-  /**
-   * Two-stage visuals. `cast` is what the player sees while the spell
-   * travels (projectile body, beam core, sky-meteor, self-cast root). `impact`
-   * is the eruption / lingering field that spawns at the resolution point.
-   */
+  impactShape: SpellImpactShape;
   scenes: {
     cast: SpellScene;
+    travel: SpellScene;
     impact: SpellScene;
   };
+};
+
+export type ActiveStatusEffect = {
+  id: string;
+  effect: SpellStatusEffectId;
+  ownerId: string;
+  sourceSpellId: string;
+  expiresAt: number;
+  strength: number;
+  lastTickAt: number;
 };
 
 export type SpellSlot = GeneratedSpell | null;
@@ -77,6 +72,7 @@ export type PlayerState = {
   aura: number;
   score: number;
   status: PlayerStatus;
+  statusEffects: ActiveStatusEffect[];
   isShielded: boolean;
   spellSlots: SpellSlot[];
   cooldowns: Record<string, number>;
@@ -94,13 +90,9 @@ export type ManaMoteState = {
   id: string;
   position: Vec3;
   active: boolean;
-  /** When set, the mote will reappear at this timestamp after being collected. */
   respawnAt: number | null;
-  /** When set, the mote will permanently disappear at this timestamp (used for kill drops). */
   decayAt: number | null;
-  /** Mana restored on contact. */
   amount: number;
-  /** True for kill-drop motes — they decay rather than respawn. */
   ephemeral: boolean;
 };
 
@@ -109,15 +101,21 @@ export type AreaSpellState = {
   ownerId: string;
   spell: GeneratedSpell;
   position: Vec3;
-  /**
-   * Unit vector pointing in the direction the caster aimed when the area was
-   * spawned. Used by the renderer to orient impact-shape-aware geometry —
-   * e.g. walls face perpendicular to this, beams stretch along it.
-   */
   forward: Vec3;
+  attachedToId: string | null;
   createdAt: number;
   expiresAt: number;
   tickedAt: Record<string, number>;
+};
+
+export type CastVfxState = {
+  id: string;
+  ownerId: string;
+  spell: GeneratedSpell;
+  position: Vec3;
+  forward: Vec3;
+  createdAt: number;
+  expiresAt: number;
 };
 
 export type DummyTarget = {

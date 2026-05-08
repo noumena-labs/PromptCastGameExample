@@ -1,4 +1,5 @@
-import { ARENA_RADIUS, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
+export const ARENA_RADIUS = 60;
+export const PLAYABLE_RADIUS = 52;
 
 // Deterministic value noise — fast, smooth, no dependencies.
 function hash2(ix: number, iz: number): number {

@@ -1,8 +1,6 @@
 import type { CogentEngine } from "cogentlm";
 import { runConceptCall } from "@/game/ai/pipeline/conceptCall";
 import { runBalanceCall } from "@/game/ai/pipeline/balanceCall";
-import { runFormCall, type FormAttempt } from "@/game/ai/pipeline/formCall";
-import { runPaletteCall } from "@/game/ai/pipeline/paletteCall";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import { spellLog } from "@/game/ai/spellLog";
 import { composeSpell, type SpellBalance } from "@/game/spells/spellSchema";
@@ -11,18 +9,17 @@ import type { GeneratedSpell } from "@/game/types";
 /**
  * Pipeline orchestrator.
  *
- * Chains: concept → balance → form → palette → composeSpell. Each call is
- * grammar-constrained so failures are localised. The form call retries up to
- * its internal limit. During pre-release, stage failures surface loudly so we
- * can fix prompts and schemas instead of hiding bad outputs.
+ * Chains: concept → balance → composeSpell. The concept call selects catalog
+ * IDs and bounded modifiers; the composer compiles deterministic gameplay and
+ * VFX data from engine-owned modules.
  *
  * Token streaming: every stage's tokens flow up to `onProgress` as deltas,
  * coalesced via requestAnimationFrame so React re-renders cap at one per
- * frame. Stage transitions and form retries emit a `segmentStart` marker so
- * the UI can render a header/separator in its transcript.
+ * frame. Stage transitions emit a `segmentStart` marker so the UI can render a
+ * header/separator in its transcript.
  */
 
-export type PipelineStage = "concept" | "balance" | "form-cast" | "form-impact" | "palette" | "compose";
+export type PipelineStage = "concept" | "balance" | "compose";
 
 export type PipelineProgress = {
   stage: PipelineStage;
@@ -32,10 +29,8 @@ export type PipelineProgress = {
   reasoning: string;
   /** Newly emitted tokens since the last progress event. */
   tokenDelta: string;
-  /** Set on stage start or form retry — UI uses this to insert a header. */
+  /** Set on stage start or retry — UI uses this to insert a header. */
   segmentStart?: { stage: PipelineStage; attempt?: number; retryReason?: string };
-  /** Populated only during the form stages; null otherwise. */
-  formAttempt?: FormAttempt;
   /** Snapshot of every completed stage's final raw buffer. */
   outputs: Partial<Record<PipelineStage, string>>;
 };
@@ -67,7 +62,6 @@ export async function runSpellPipeline(opts: {
   const conceptReasoning = "";
   const conceptPhase: PipelineProgress["phase"] = "writing";
   let currentStage: PipelineStage = "concept";
-  let currentFormAttempt: FormAttempt | undefined;
   let pending = "";
   let rafHandle: number | null = null;
 
@@ -84,7 +78,6 @@ export async function runSpellPipeline(opts: {
       phase: conceptPhase,
       reasoning: conceptReasoning,
       tokenDelta: delta,
-      formAttempt: currentFormAttempt,
       outputs: { ...outputs },
     });
   };
@@ -113,7 +106,6 @@ export async function runSpellPipeline(opts: {
       reasoning: conceptReasoning,
       tokenDelta: "",
       segmentStart: { stage, attempt, retryReason },
-      formAttempt: stage === "form-cast" || stage === "form-impact" ? currentFormAttempt : undefined,
       outputs: { ...outputs },
     });
   };
@@ -153,55 +145,6 @@ export async function runSpellPipeline(opts: {
   outputs.balance = balanceResult.rawOutput;
   if (pending) flush();
 
-  // ── Form (cast + impact) ─────────────────────────────────────────────────
-  currentStage = "form-cast";
-  let lastFormStage: PipelineStage | undefined;
-  const formResult = await runFormCall({
-    engine,
-    prompt: cleanPrompt,
-    concept: conceptResult.concept,
-    signal,
-    onAttempt: (attempt) => {
-      const stageId: PipelineStage = attempt.scene === "cast" ? "form-cast" : "form-impact";
-      // Emit a fresh segment header on stage transition or on every retry.
-      if (stageId !== lastFormStage || attempt.n > 1) {
-        if (pending) flush();
-        currentStage = stageId;
-        lastFormStage = stageId;
-        currentFormAttempt = attempt;
-        emitSegmentStart(stageId, attempt.n, attempt.retryReason);
-      } else {
-        currentStage = stageId;
-        currentFormAttempt = attempt;
-      }
-    },
-    onToken: (token) => {
-      pending += token;
-      scheduleFlush();
-    },
-  });
-  outputs["form-cast"] = formResult.rawOutput.cast;
-  outputs["form-impact"] = formResult.rawOutput.impact;
-  if (pending) flush();
-
-  // ── Palette ──────────────────────────────────────────────────────────────
-  currentStage = "palette";
-  currentFormAttempt = undefined;
-  emitSegmentStart("palette");
-  const paletteResult = await runPaletteCall({
-    engine,
-    prompt: cleanPrompt,
-    concept: conceptResult.concept,
-    form: formResult.castForm,
-    signal,
-    onToken: (token) => {
-      pending += token;
-      scheduleFlush();
-    },
-  });
-  outputs.palette = paletteResult.rawOutput;
-  if (pending) flush();
-
   // ── Compose ──────────────────────────────────────────────────────────────
   currentStage = "compose";
   emitSegmentStart("compose");
@@ -212,9 +155,6 @@ export async function runSpellPipeline(opts: {
       reasoning: conceptResult.reasoning,
       concept: conceptResult.concept,
       balance,
-      castForm: formResult.castForm,
-      impactForm: formResult.impactForm,
-      palette: paletteResult.palette,
     });
   } catch (err) {
     spellLog.failure({
@@ -239,14 +179,12 @@ export async function runSpellPipeline(opts: {
   });
   spellLog.info("compose", "spell ready", {
     name: spell.name,
-    deliveryFamily: spell.deliveryFamily,
-    impact: spell.impact,
-    placement: spell.placement,
     powerTier: spell.powerTier,
     manaCost: spell.manaCost,
     cooldownMs: spell.cooldownMs,
     impactDurationMs: spell.impactDurationMs,
-    formAttempts: formResult.attempts,
+    alignment: spell.alignment,
+    deliveryVehicle: spell.deliveryVehicle,
   });
 
   return { spell, reasoning: conceptResult.reasoning };

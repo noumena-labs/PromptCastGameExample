@@ -1,122 +1,53 @@
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { clampTier, deriveStats, type PowerTier } from "@/game/spells/balance";
-import { clampScene, sceneSchema, type SpellScene } from "@/game/spells/sceneNode";
-import type { GeneratedSpell, SpellElement } from "@/game/types";
+import { getAlignment } from "@/game/spells/modules/alignments";
+import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
+import { normalizeSpellBuildSpec, spellBuildSpecSchema } from "@/game/spells/modules/spellBuildSpec";
+import { clampScene } from "@/game/spells/sceneNode";
+import { compileVfxPayload } from "@/game/spells/vfx/compileVfxPayload";
+import type { GeneratedSpell } from "@/game/types";
+import type { SpellBuildSpec } from "@/game/spells/modules/spellIds";
 
-export const spellElements = ["fire", "ice", "lightning", "earth", "arcane", "shadow", "nature"] as const;
-export const spellDeliveryFamilies = ["projectile", "beam", "sky", "self"] as const;
-export const spellImpacts = ["single", "aoe", "vortex", "wall", "trap", "burst", "none"] as const;
-export const spellPlacements = ["target", "front", "self"] as const;
-export const spellEffects = ["burn", "slow", "stun", "pull", "knockback", "shield_break", "poison"] as const;
-
-export const elementColors: Record<SpellElement, string> = {
-  fire: "#ff6a2a",
-  ice: "#8ae9ff",
-  lightning: "#fff36a",
-  earth: "#b4834b",
-  arcane: "#9d7cff",
-  shadow: "#8d5aa8",
-  nature: "#62e37b",
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 1 — concept: name, element, delivery family, impact, intent summary.
-// No archetype; the LLM is no longer choosing from a fixed catalog.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const conceptSchema = z.object({
-  name: z.string().min(1).max(32).catch("Wild Spell"),
-  element: z.enum(spellElements).catch("arcane"),
-  deliveryFamily: z.enum(spellDeliveryFamilies).catch("projectile"),
-  impact: z.enum(spellImpacts).catch("single"),
-  placement: z.enum(spellPlacements).catch("target"),
-  intent_summary: z.string().max(200).catch(""),
-  cast_imagery: z.string().max(240).catch(""),
-  impact_imagery: z.string().max(240).catch(""),
-  effects: z.array(z.enum(spellEffects)).max(3).catch([]),
-  count: z.coerce.number().int().min(1).max(10).catch(1),
-});
+export const conceptSchema = spellBuildSpecSchema;
 export type SpellConcept = z.infer<typeof conceptSchema>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 2 — balance: a single power tier 1..5. Engine derives every stat.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const balanceSchema = z.object({
   powerTier: z.coerce.number().int().min(1).max(5),
 });
 export type SpellBalance = z.infer<typeof balanceSchema>;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 3 — form: the SpellScene tree (DSL).
-// Defined in sceneNode.ts; re-exported here for pipeline call ergonomics.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const formSchema = sceneSchema;
-export type SpellForm = SpellScene;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 4 — palette: globally tunes emissive intensity + provides primary
-// color when the form call did not commit one. Everything else stays per-node.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
-
-export const paletteSchema = z.object({
-  primary: hexColor.catch("#ffffff"),
-  emissiveBoost: z.coerce.number().min(0).max(2).catch(1),
-});
-export type SpellPalette = z.infer<typeof paletteSchema>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Composer — assembles a final GeneratedSpell from the four stage outputs.
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type ComposeInput = {
   prompt: string;
   reasoning?: string;
   concept: SpellConcept;
   balance: SpellBalance;
-  castForm: SpellForm;
-  impactForm: SpellForm;
-  palette: SpellPalette;
 };
 
-const titleCase = (value: string) =>
-  value
-    .replace(/[_-]/g, " ")
-    .replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .slice(0, 32);
-
 export function composeSpell(input: ComposeInput): GeneratedSpell {
-  const { concept, balance, castForm, impactForm, palette, prompt, reasoning } = input;
-
-  const tier: PowerTier = clampTier(balance.powerTier);
-  const derived = deriveStats(tier, concept.deliveryFamily);
-  const impactDurationMs = impactDurationFor(concept.impact, derived.durationMs);
-
-  const countCap =
-    concept.deliveryFamily === "sky" ? 10 : concept.deliveryFamily === "projectile" ? 5 : 1;
-  const count = Math.max(1, Math.min(countCap, concept.count));
-
-  const castScene = clampScene(applyEmissiveBoost(castForm, palette.emissiveBoost));
-  const impactScene = clampScene(applyEmissiveBoost(impactForm, palette.emissiveBoost * 1.25));
-
-  const color =
-    palette.primary || castForm.color || impactForm.color || elementColors[concept.element];
+  const spec = normalizeSpellBuildSpec(input.concept as SpellBuildSpec);
+  const tier: PowerTier = clampTier(input.balance.powerTier);
+  const alignment = getAlignment(spec.alignment);
+  const delivery = getDeliveryVehicle(spec.deliveryVehicle);
+  const derived = deriveStats(tier, spec.deliveryVehicle, spec.modifiers);
+  const impactDurationMs = impactDurationFor(spec, derived.durationMs);
+  const compiledScenes = compileVfxPayload(spec);
+  const scenes = {
+    cast: clampScene(compiledScenes.cast),
+    travel: clampScene(compiledScenes.travel),
+    impact: clampScene(compiledScenes.impact),
+  };
 
   return {
     id: `spell-${nanoid(8)}`,
-    name: titleCase(concept.name || `${concept.element} ${concept.deliveryFamily}`),
-    prompt,
-    reasoning,
-    element: concept.element,
-    deliveryFamily: concept.deliveryFamily,
-    impact: concept.impact,
-    placement: concept.placement,
+    name: spec.name,
+    prompt: input.prompt,
+    reasoning: input.reasoning,
+    buildSpec: spec,
+    alignment: spec.alignment,
+    deliveryVehicle: spec.deliveryVehicle,
     powerTier: tier,
-    count,
+    count: spec.count,
     damage: derived.damage,
     speed: derived.speed,
     radius: derived.radius,
@@ -124,37 +55,56 @@ export function composeSpell(input: ComposeInput): GeneratedSpell {
     impactDurationMs,
     cooldownMs: derived.cooldownMs,
     manaCost: derived.manaCost,
-    effects: [...new Set(concept.effects)].slice(0, 3),
-    color,
-    scenes: { cast: castScene, impact: impactScene },
+    statusEffect: alignment.statusEffect,
+    statusDurationMs: derived.statusDurationMs,
+    statusStrength: derived.statusStrength,
+    color: alignment.palette.primary,
+    impactShape: impactShapeFor(spec, delivery.impactShape),
+    scenes,
   };
 }
 
-function impactDurationFor(impact: SpellConcept["impact"], spellDurationMs: number): number {
-  switch (impact) {
-    case "single":
-      return 1200;
-    case "burst":
-      return 1400;
-    case "none":
-      return 0;
-    case "aoe":
-    case "vortex":
-    case "wall":
-    case "trap":
-      return spellDurationMs;
+export const generatedSpellSchema: z.ZodType<GeneratedSpell> = z.custom<GeneratedSpell>((value) => {
+  const spell = value as Partial<GeneratedSpell> | null;
+  if (!spell || typeof spell !== "object") return false;
+  if (!spell.buildSpec) return false;
+  if (typeof spell.id !== "string" || typeof spell.name !== "string" || typeof spell.prompt !== "string") return false;
+  if (![1, 2, 3, 4, 5].includes(spell.powerTier ?? 0)) return false;
+  return spellBuildSpecSchema.safeParse(spell.buildSpec).success;
+});
+
+export function validateGeneratedSpell(value: unknown): GeneratedSpell {
+  const incoming = value as Partial<GeneratedSpell> | null;
+  const parsed = generatedSpellSchema.safeParse(value);
+  const spec = spellBuildSpecSchema.safeParse(incoming?.buildSpec);
+  if (!incoming || !parsed.success || !spec.success) throw new Error("Invalid generated spell payload");
+  if (typeof incoming.id !== "string" || typeof incoming.name !== "string" || typeof incoming.prompt !== "string") {
+    throw new Error("Invalid generated spell identity");
   }
-}
-
-function applyEmissiveBoost(form: SpellForm, boost: number): SpellScene {
+  if (![1, 2, 3, 4, 5].includes(incoming.powerTier ?? 0)) {
+    throw new Error("Invalid generated spell power tier");
+  }
+  const reasoning = typeof incoming.reasoning === "string" ? incoming.reasoning : undefined;
+  const compiled = composeSpell({
+    prompt: incoming.prompt,
+    reasoning,
+    concept: spec.data,
+    balance: { powerTier: incoming.powerTier as 1 | 2 | 3 | 4 | 5 },
+  });
   return {
-    ...form,
-    emissiveIntensity: clamp01x4(form.emissiveIntensity * boost),
-    children: form.children.map((child) => ({
-      ...child,
-      emissiveIntensity: clamp01x4(child.emissiveIntensity * boost),
-    })),
+    ...compiled,
+    id: incoming.id,
+    name: incoming.name,
   };
 }
 
-const clamp01x4 = (v: number) => Math.max(0, Math.min(4, v));
+function impactDurationFor(spec: SpellBuildSpec, spellDurationMs: number): number {
+  if (spec.deliveryVehicle === "aura_orbit") return spellDurationMs;
+  if (spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal")) return spellDurationMs;
+  return 1200;
+}
+
+function impactShapeFor(spec: SpellBuildSpec, fallback: GeneratedSpell["impactShape"]): GeneratedSpell["impactShape"] {
+  if (spec.deliveryVehicle === "ground_eruption" && spec.vfx.coreMesh === "boulder") return "wall";
+  return fallback;
+}

@@ -1,148 +1,64 @@
-/**
- * GBNF grammars for the multi-call spell pipeline.
- *
- * Cogentlm's `ChatOptions.grammar` accepts a GBNF string (llama.cpp dialect).
- * We constrain each call to a tight JSON shape so the model physically cannot
- * emit prose, fenced code blocks, or trailing commentary.
- *
- * Notes:
- *   - GBNF is permissive about whitespace; we always allow optional `ws`.
- *   - Numbers are kept loose (signed integers + floats) — Zod re-clamps.
- *   - llama.cpp GBNF requires single-line rule bodies. The `root ::=` for each
- *     grammar MUST be on one line — do NOT line-wrap rule bodies.
- *   - Every stage emits structured JSON directly. We use the Instruct model
- *     and keep prompts aligned with the grammar: no hidden thinking prefix,
- *     no fenced code blocks, no commentary.
- */
+/** GBNF grammars for catalog-driven modular spell generation. */
 
-const COMMON = `
-ws ::= [ \\t\\n\\r]*
-sign ::= "-"?
+import {
+  coreVisualMeshIds,
+  deliveryVehicleIds,
+  impactVfxIds,
+  spellAlignmentIds,
+  spellShaderIds,
+  travelVfxIds,
+} from "@/game/spells/modules/spellIds";
+
+const COMMON = String.raw`
+ws ::= (" " | "\t" | "\n" | "\r")*
 digit ::= [0-9]
 digits ::= digit+
-number ::= sign digits ("." digits)? ([eE] sign digits)?
-string-char ::= [^"\\\\] | "\\\\" ["\\\\/bfnrt]
-string ::= "\\"" string-char* "\\""
-hexdigit ::= [0-9a-fA-F]
-hexcolor ::= "\\"#" hexdigit hexdigit hexdigit hexdigit hexdigit hexdigit "\\""
-bool ::= "true" | "false"
+number ::= digits ("." digits)?
+string ::= "\"" string-char* "\""
+string-char ::= [A-Za-z0-9 _.,:;!?'/()-]
 `.trim();
 
-const lit = (xs: readonly string[]) => xs.map((s) => `"\\"${s}\\""`).join(" | ");
+const token = (value: string) => JSON.stringify(value);
+const quotedToken = (value: string) => `${token("\"")} ${token(value)} ${token("\"")}`;
+const prop = (name: string) => quotedToken(name);
+const lit = (xs: readonly string[]) => xs.map(quotedToken).join(" | ");
 
-const elementLit = lit(["fire", "ice", "lightning", "earth", "arcane", "shadow", "nature"]);
-const deliveryLit = lit(["projectile", "beam", "sky", "self"]);
-const impactLit = lit(["single", "aoe", "vortex", "wall", "trap", "burst", "none"]);
-const placementLit = lit(["target", "front", "self"]);
-const effectLit = lit(["burn", "slow", "stun", "pull", "knockback", "shield_break", "poison"]);
-const shapeLit = lit([
-  "sphere",
-  "box",
-  "cylinder",
-  "cone",
-  "torus",
-  "ring",
-  "plane",
-  "tetra",
-  "octa",
-  "bar",
-  "disc",
-  "particle_cloud",
-]);
-const motionLit = lit([
-  "static",
-  "spin",
-  "orbit",
-  "pulse",
-  "drift",
-  "fall",
-  "rise",
-  "swirl",
-  "expand",
-  "shake",
-]);
-const arrangeLit = lit(["single", "ring", "line", "stack", "random"]);
+function boundedArray(itemRule: string, min: number, max: number): string {
+  const alternatives: string[] = [];
+  if (min === 0) alternatives.push(`${token("[")} ws ${token("]")}`);
+  for (let count = Math.max(1, min); count <= max; count += 1) {
+    const items = Array.from({ length: count }, (_, index) =>
+      index === 0 ? itemRule : `${token(",")} ws ${itemRule}`,
+    ).join(" ws ");
+    alternatives.push(`${token("[")} ws ${items} ws ${token("]")}`);
+  }
+  return alternatives.join(" | ");
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 1 — concept
-// ─────────────────────────────────────────────────────────────────────────────
+const alignmentLit = lit(spellAlignmentIds);
+const deliveryLit = lit(deliveryVehicleIds);
+const coreMeshLit = lit(coreVisualMeshIds);
+const travelLit = lit(travelVfxIds);
+const impactLit = lit(impactVfxIds);
+const shaderLit = lit(spellShaderIds);
 
-const CONCEPT_FIELDS = [
-  `"\\"name\\"" ws ":" ws string`,
-  `"\\"element\\"" ws ":" ws element`,
-  `"\\"deliveryFamily\\"" ws ":" ws delivery`,
-  `"\\"impact\\"" ws ":" ws impact`,
-  `"\\"placement\\"" ws ":" ws placement`,
-  `"\\"intent_summary\\"" ws ":" ws string`,
-  `"\\"cast_imagery\\"" ws ":" ws string`,
-  `"\\"impact_imagery\\"" ws ":" ws string`,
-  `"\\"effects\\"" ws ":" ws effect-array`,
-  `"\\"count\\"" ws ":" ws number`,
-].join(` ws "," ws `);
+export const CONCEPT_GRAMMAR = [
+  COMMON,
+  `root ::= ws ${token("{")} ws ${prop("name")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("alignment")} ws ${token(":")} ws alignment ws ${token(",")} ws ${prop("deliveryVehicle")} ws ${token(":")} ws delivery ws ${token(",")} ws ${prop("vfx")} ws ${token(":")} ws vfx ws ${token(",")} ws ${prop("modifiers")} ws ${token(":")} ws modifiers ws ${token(",")} ws ${prop("count")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("intentSummary")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("castImagery")} ws ${token(":")} ws string ws ${token(",")} ws ${prop("impactImagery")} ws ${token(":")} ws string ws ${token("}")} ws`,
+  `vfx ::= ${token("{")} ws ${prop("coreMesh")} ws ${token(":")} ws coremesh ws ${token(",")} ws ${prop("travel")} ws ${token(":")} ws travel-array ws ${token(",")} ws ${prop("impact")} ws ${token(":")} ws impact-array ws ${token(",")} ws ${prop("shaders")} ws ${token(":")} ws shaders ws ${token("}")}`,
+  `shaders ::= ${token("{")} ws ${prop("core")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("trail")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("impact")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("decal")} ws ${token(":")} ws shader ws ${token(",")} ws ${prop("aura")} ws ${token(":")} ws shader ws ${token("}")}`,
+  `modifiers ::= ${token("{")} ws ${prop("scale")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("speed")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("duration")} ws ${token(":")} ws number ws ${token(",")} ws ${prop("intensity")} ws ${token(":")} ws number ws ${token("}")}`,
+  `travel-array ::= ${boundedArray("travel", 0, 3)}`,
+  `impact-array ::= ${boundedArray("impact", 1, 4)}`,
+  `alignment ::= ${alignmentLit}`,
+  `delivery ::= ${deliveryLit}`,
+  `coremesh ::= ${coreMeshLit}`,
+  `travel ::= ${travelLit}`,
+  `impact ::= ${impactLit}`,
+  `shader ::= ${shaderLit}`,
+].join("\n");
 
-export const CONCEPT_GRAMMAR = `
-${COMMON}
-root ::= ws "{" ws ${CONCEPT_FIELDS} ws "}" ws
-element ::= ${elementLit}
-delivery ::= ${deliveryLit}
-impact ::= ${impactLit}
-placement ::= ${placementLit}
-effect ::= ${effectLit}
-effect-array ::= "[" ws "]" | "[" ws effect (ws "," ws effect)* ws "]"
-`.trim();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 2 — balance
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const BALANCE_GRAMMAR = `
-${COMMON}
-root ::= ws "{" ws "\\"powerTier\\"" ws ":" ws number ws "}" ws
-`.trim();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 3 — form (SceneNode DSL, depth ≤ 1)
-//
-// Root has all leaf fields plus optional "children" array (≤ 6 leaves). Leaves
-// have no children. We model both with a `node-body` rule for the per-field
-// content and split root vs leaf at the top level (children only on root).
-// ─────────────────────────────────────────────────────────────────────────────
-
-const VEC3_RULE = `vec3 ::= "[" ws number ws "," ws number ws "," ws number ws "]"`;
-
-// All shared leaf fields, in fixed order. Single-line.
-const NODE_FIELDS = [
-  `"\\"shape\\"" ws ":" ws shape`,
-  `"\\"color\\"" ws ":" ws hexcolor`,
-  `"\\"emissiveIntensity\\"" ws ":" ws number`,
-  `"\\"size\\"" ws ":" ws number`,
-  `"\\"position\\"" ws ":" ws vec3`,
-  `"\\"rotation\\"" ws ":" ws vec3`,
-  `"\\"motion\\"" ws ":" ws motion`,
-  `"\\"motionSpeed\\"" ws ":" ws number`,
-  `"\\"arrange\\"" ws ":" ws arrange`,
-  `"\\"arrangeCount\\"" ws ":" ws number`,
-  `"\\"arrangeRadius\\"" ws ":" ws number`,
-  `"\\"particleCount\\"" ws ":" ws number`,
-  `"\\"opacity\\"" ws ":" ws number`,
-].join(` ws "," ws `);
-
-export const FORM_GRAMMAR = `
-${COMMON}
-${VEC3_RULE}
-root ::= ws "{" ws ${NODE_FIELDS} ws "," ws "\\"children\\"" ws ":" ws children-array ws "}" ws
-leaf ::= "{" ws ${NODE_FIELDS} ws "}"
-children-array ::= "[" ws "]" | "[" ws leaf (ws "," ws leaf)* ws "]"
-shape ::= ${shapeLit}
-motion ::= ${motionLit}
-arrange ::= ${arrangeLit}
-`.trim();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 4 — palette
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const PALETTE_GRAMMAR = `
-${COMMON}
-root ::= ws "{" ws "\\"primary\\"" ws ":" ws hexcolor ws "," ws "\\"emissiveBoost\\"" ws ":" ws number ws "}" ws
-`.trim();
+export const BALANCE_GRAMMAR = [
+  COMMON,
+  `root ::= ws ${token("{")} ws ${prop("powerTier")} ws ${token(":")} ws number ws ${token("}")} ws`,
+].join("\n");

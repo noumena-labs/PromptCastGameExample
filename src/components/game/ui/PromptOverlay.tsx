@@ -4,12 +4,13 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { generateSpellFromPrompt } from "@/game/ai/cogentSpellGenerator";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import type { SpellStage } from "@/game/ai/spellLog";
-import type { FormAttempt } from "@/game/ai/pipeline/formCall";
 import type { PipelineStage } from "@/game/ai/pipeline";
 import { useGameStore } from "@/game/state/gameStore";
 import { SANCTUARY_DURATION_MS } from "@/game/config/gameConfig";
 import type { GeneratedSpell } from "@/game/types";
 import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
+import { getAlignment } from "@/game/spells/modules/alignments";
+import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
 
 const examplePrompts = [
   "A cage of obsidian bars that drops onto the target",
@@ -27,9 +28,6 @@ const TIMER_TICK_MS = 250;
 const PIPELINE_STAGES = [
   "concept",
   "balance",
-  "form-cast",
-  "form-impact",
-  "palette",
   "compose",
 ] as const;
 type StageStatus = "pending" | "active" | "done";
@@ -38,9 +36,6 @@ type StageProgress = Record<PipelineStage, StageStatus>;
 const STAGE_LABEL: Record<PipelineStage, string> = {
   concept: "Concept",
   balance: "Balance",
-  "form-cast": "Form · Cast",
-  "form-impact": "Form · Impact",
-  palette: "Palette",
   compose: "Compose",
 };
 
@@ -48,9 +43,6 @@ function makeInitialStages(): StageProgress {
   return {
     concept: "active",
     balance: "pending",
-    "form-cast": "pending",
-    "form-impact": "pending",
-    palette: "pending",
     compose: "pending",
   };
 }
@@ -87,7 +79,6 @@ type ErrorDetails = {
 
 type PreviewMeta = {
   elapsedMs: number;
-  formAttempts?: number;
   outputs: Partial<Record<PipelineStage, string>>;
 };
 
@@ -98,8 +89,6 @@ type Phase =
       startedAt: number;
       currentStage: PipelineStage;
       stages: StageProgress;
-      formAttempt?: FormAttempt;
-      maxFormAttempt: number;
       transcript: TranscriptSegment[];
       outputs: Partial<Record<PipelineStage, string>>;
       reasoning: string;
@@ -246,7 +235,6 @@ export function PromptOverlay() {
       startedAt,
       currentStage: "concept",
       stages: makeInitialStages(),
-      maxFormAttempt: 0,
       transcript: [],
       outputs: {},
       reasoning: "",
@@ -267,10 +255,6 @@ export function PromptOverlay() {
                 ? advanceStages(current.stages, pipelineStage)
                 : current.stages;
 
-            const maxFormAttempt = progress.formAttempt
-              ? Math.max(current.maxFormAttempt, progress.formAttempt.n)
-              : current.maxFormAttempt;
-
             let transcript = current.transcript;
             if (progress.segmentStart) {
               const k = ++segmentKeyRef.current;
@@ -286,7 +270,7 @@ export function PromptOverlay() {
               ];
             }
             if (progress.tokenDelta) {
-              const attempt = progress.formAttempt?.n ?? 1;
+              const attempt = 1;
               const last = transcript[transcript.length - 1];
               if (
                 last &&
@@ -318,8 +302,6 @@ export function PromptOverlay() {
               ...current,
               currentStage: pipelineStage,
               stages,
-              formAttempt: progress.formAttempt,
-              maxFormAttempt,
               transcript,
               outputs: progress.outputs,
               reasoning: progress.reasoning || current.reasoning,
@@ -336,8 +318,6 @@ export function PromptOverlay() {
       const reasoning = spell.reasoning ?? result.reasoning ?? "";
 
       setPhase((current) => {
-        const maxFormAttempt =
-          current.kind === "thinking" ? current.maxFormAttempt : 0;
         const outputs =
           current.kind === "thinking" ? current.outputs : {};
         return {
@@ -346,7 +326,6 @@ export function PromptOverlay() {
           reasoning,
           meta: {
             elapsedMs: Date.now() - startedAt,
-            formAttempts: maxFormAttempt > 0 ? maxFormAttempt : undefined,
             outputs,
           },
         };
@@ -501,7 +480,6 @@ export function PromptOverlay() {
           <div className="runeCardBody">
             <StageRail
               stages={phase.stages}
-              formAttempt={phase.formAttempt}
               elapsedMs={thinkingElapsedMs}
             />
             <SageStream transcript={phase.transcript} />
@@ -642,11 +620,9 @@ function formatElapsed(ms: number): string {
 
 function StageRail({
   stages,
-  formAttempt,
   elapsedMs,
 }: {
   stages: StageProgress;
-  formAttempt?: FormAttempt;
   elapsedMs: number;
 }) {
   return (
@@ -654,11 +630,6 @@ function StageRail({
       <ol className="runeCardStageRail" aria-label="Spell generation pipeline">
         {PIPELINE_STAGES.map((stage, i) => {
           const status = stages[stage];
-          const isForm = stage === "form-cast" || stage === "form-impact";
-          const detail =
-            isForm && status === "active" && formAttempt && formAttempt.n > 1
-              ? `${formAttempt.n}/${formAttempt.total}`
-              : null;
           return (
             <li
               key={stage}
@@ -668,7 +639,6 @@ function StageRail({
             >
               <span className="runeCardStagePillIndex">{i + 1}</span>
               <span className="runeCardStagePillLabel">{STAGE_LABEL[stage]}</span>
-              {detail ? <span className="runeCardStagePillDetail">{detail}</span> : null}
             </li>
           );
         })}
@@ -736,19 +706,17 @@ function SageStream({ transcript }: { transcript: TranscriptSegment[] }) {
 }
 
 function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
-  const composition =
-    spell.deliveryFamily === "self"
-      ? `self · ${spell.impact} · ${spell.placement}`
-      : spell.count > 1
-        ? `${spell.count}× ${spell.deliveryFamily} · ${spell.impact} · ${spell.placement}`
-        : `${spell.deliveryFamily} · ${spell.impact} · ${spell.placement}`;
+  const alignment = getAlignment(spell.alignment);
+  const delivery = getDeliveryVehicle(spell.deliveryVehicle);
+  const composition = spell.count > 1 ? `${spell.count}x ${delivery.label}` : delivery.label;
+  const shaders = spell.buildSpec.vfx.shaders;
 
   return (
     <div className="runeCardSpell" style={{ borderColor: spell.color }}>
       <div className="runeCardSpellHead">
         <span className="runeCardSpellSwatch" style={{ background: spell.color }} aria-hidden />
         <div>
-          <strong>{spell.element.toUpperCase()}</strong>
+          <strong>{alignment.label.toUpperCase()}</strong>
           <span>&middot; {composition}</span>
         </div>
       </div>
@@ -763,48 +731,58 @@ function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
         <div><dt>Duration</dt><dd>{(spell.durationMs / 1000).toFixed(1)}s</dd></div>
         <div><dt>Cooldown</dt><dd>{(spell.cooldownMs / 1000).toFixed(1)}s</dd></div>
         <div><dt>Mana</dt><dd>{spell.manaCost}</dd></div>
+        <div><dt>Status</dt><dd>{spell.statusEffect}</dd></div>
       </dl>
 
-      {spell.effects.length > 0 ? (
-        <div className="runeCardSpellEffects">
-          {spell.effects.map((effect) => (
-            <span key={effect}>{effect.replace("_", " ")}</span>
-          ))}
-        </div>
-      ) : null}
+      <div className="runeCardSpellEffects">
+        <span>{spell.buildSpec.vfx.coreMesh.replaceAll("_", " ")}</span>
+        {spell.buildSpec.vfx.travel.map((effect) => <span key={effect}>{effect.replaceAll("_", " ")}</span>)}
+        {spell.buildSpec.vfx.impact.map((effect) => <span key={effect}>{effect.replaceAll("_", " ")}</span>)}
+      </div>
+      <div className="runeCardSpellEffects">
+        <span>{shaders.core}</span>
+        <span>{shaders.trail}</span>
+        <span>{shaders.impact}</span>
+      </div>
     </div>
   );
 }
 
 function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: PreviewMeta }) {
   const castSummary = describeScene(spell.scenes.cast);
+  const travelSummary = describeScene(spell.scenes.travel);
   const impactSummary = describeScene(spell.scenes.impact);
   return (
     <div className="runeCardErrorDetails">
       <div className="runeCardErrorTechnical">
         <strong>Pipeline:</strong>{" "}
         elapsed {(meta.elapsedMs / 1000).toFixed(1)}s
-        {meta.formAttempts && meta.formAttempts > 1
-          ? ` · form attempts: ${meta.formAttempts}`
-          : ""}
       </div>
       <div className="runeCardErrorTechnical">
-        <strong>Delivery:</strong> {spell.deliveryFamily} · <strong>Impact:</strong> {spell.impact}
-        {" · "}<strong>Placement:</strong> {spell.placement}
+        <strong>Alignment:</strong> {spell.alignment} · <strong>Delivery:</strong> {spell.deliveryVehicle}
+        {" · "}<strong>Impact shape:</strong> {spell.impactShape}
         {" · "}<strong>Tier:</strong> {spell.powerTier}
         {" · "}<strong>Count:</strong> {spell.count}
         {" · "}<strong>Impact dur:</strong> {spell.impactDurationMs}ms
       </div>
       <div className="runeCardErrorTechnical">
+        <strong>Build spec:</strong>
+      </div>
+      <pre className="runeCardErrorRaw">{JSON.stringify(spell.buildSpec, null, 2)}</pre>
+      <div className="runeCardErrorTechnical">
         <strong>Cast scene:</strong>
       </div>
       <pre className="runeCardErrorRaw">{castSummary}</pre>
+      <div className="runeCardErrorTechnical">
+        <strong>Travel scene:</strong>
+      </div>
+      <pre className="runeCardErrorRaw">{travelSummary}</pre>
       <div className="runeCardErrorTechnical">
         <strong>Impact scene:</strong>
       </div>
       <pre className="runeCardErrorRaw">{impactSummary}</pre>
 
-      {(["concept", "balance", "form-cast", "form-impact", "palette"] as const).map((stage) => {
+      {(["concept", "balance"] as const).map((stage) => {
         const out = meta.outputs[stage];
         if (!out) return null;
         return (
@@ -836,6 +814,7 @@ function describeNode(node: SceneLeaf, depth: number): string {
   const pad = depth === 0 ? "▸ " : "  ├─ ";
   const parts = [
     `${node.shape}`,
+    `shader=${node.shaderId}`,
     node.color,
     `emit=${node.emissiveIntensity.toFixed(2)}`,
     `size=${node.size.toFixed(2)}`,

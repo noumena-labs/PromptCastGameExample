@@ -1,6 +1,5 @@
 import type { CogentEngine } from "cogentlm";
 import { runSpellPipeline, type PipelineProgress, type PipelineStage } from "@/game/ai/pipeline";
-import type { FormAttempt } from "@/game/ai/pipeline/formCall";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import { spellLog } from "@/game/ai/spellLog";
 import type { GeneratedSpell } from "@/game/types";
@@ -64,10 +63,8 @@ export type SpellGenerationProgress = {
   stage: PipelineProgress["stage"];
   /** Newly emitted tokens since the last progress event. */
   tokenDelta: string;
-  /** Set on stage start or form retry — UI inserts a header/separator. */
+  /** Set on stage start — UI inserts a header/separator. */
   segmentStart?: { stage: PipelineStage; attempt?: number; retryReason?: string };
-  /** Populated only during the form stage; absent on other stages. */
-  formAttempt?: FormAttempt;
   /** Snapshot of every completed stage's final raw buffer. */
   outputs: Partial<Record<PipelineStage, string>>;
 };
@@ -141,17 +138,9 @@ export async function generateSpellFromPrompt(
           stage: progress.stage,
           tokenDelta: progress.tokenDelta,
           segmentStart: progress.segmentStart,
-          formAttempt: progress.formAttempt,
           outputs: progress.outputs,
         });
       },
-    });
-    onProgress?.({
-      reasoning,
-      phase: "done",
-      stage: "compose",
-      tokenDelta: "",
-      outputs: {},
     });
     return { spell, reasoning };
   } catch (err) {

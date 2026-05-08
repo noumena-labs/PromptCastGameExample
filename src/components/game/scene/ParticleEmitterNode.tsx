@@ -2,8 +2,10 @@
 
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { AdditiveBlending, BufferGeometry, Float32BufferAttribute, Points } from "three";
+import { AdditiveBlending, BufferGeometry, Color, Float32BufferAttribute, ShaderMaterial } from "three";
 import type { SceneLeaf } from "@/game/spells/sceneNode";
+import { getShaderPreset } from "@/game/spells/modules/shaderPresets";
+import { particleFragmentShader, particleVertexShader } from "@/components/game/scene/spellShaderPrograms";
 
 /**
  * Particle emitter for `shape: "particle_cloud"` nodes.
@@ -27,8 +29,9 @@ export function ParticleEmitterNode({
   opacityMultiplier?: number;
   burst?: boolean;
 }) {
-  const pointsRef = useRef<Points>(null);
+  const materialRef = useRef<ShaderMaterial>(null);
   const count = Math.max(1, Math.min(HARD_CAP, Math.round(node.particleCount)));
+  const shader = getShaderPreset(node.shaderId);
 
   // Spread (initial outward velocity scale) and lifetime are derived from
   // motion + size so the LLM doesn't have to pick them.
@@ -41,18 +44,35 @@ export function ParticleEmitterNode({
     const velocities = new Float32Array(count * 3);
     const ages = new Float32Array(count);
     const lifetimes = new Float32Array(count);
+    const seeds = new Float32Array(count);
     for (let i = 0; i < count; i += 1) {
       respawn(i, positions, velocities, ages, lifetimes, spread, lifetime);
       ages[i] = burst ? 0 : Math.random() * lifetimes[i]!;
+      seeds[i] = Math.random();
     }
-    return { positions, velocities, ages, lifetimes };
+    return { positions, velocities, ages, lifetimes, seeds };
   }, [burst, count, spread, lifetime]);
 
   const geometry = useMemo(() => {
     const g = new BufferGeometry();
     g.setAttribute("position", new Float32BufferAttribute(state.positions, 3));
+    g.setAttribute("aSeed", new Float32BufferAttribute(state.seeds, 1));
     return g;
-  }, [state.positions]);
+  }, [state.positions, state.seeds]);
+
+  const drawSize = Math.max(0.04, node.size * (burst ? 0.7 : 0.5));
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uColorA: { value: new Color(shader.colorA) },
+      uColorB: { value: new Color(shader.colorB) },
+      uIntensity: { value: shader.intensity },
+      uOpacity: { value: Math.max(0, Math.min(1, node.opacity * shader.opacity * opacityMultiplier)) },
+      uPointSize: { value: drawSize * 5 * Math.max(0.7, shader.intensity) },
+      uSpeed: { value: shader.speed },
+    }),
+    [drawSize, node.opacity, opacityMultiplier, shader.colorA, shader.colorB, shader.intensity, shader.opacity, shader.speed],
+  );
 
   useFrame((_, delta) => {
     const { positions, velocities, ages, lifetimes } = state;
@@ -75,19 +95,20 @@ export function ParticleEmitterNode({
     }
     const attr = geometry.attributes.position as Float32BufferAttribute;
     attr.needsUpdate = true;
+    if (materialRef.current) {
+      materialRef.current.uniforms.uTime.value += delta;
+      materialRef.current.uniforms.uOpacity.value = Math.max(0, Math.min(1, node.opacity * shader.opacity * opacityMultiplier));
+    }
   });
 
-  const drawSize = Math.max(0.04, node.size * (burst ? 0.7 : 0.5));
-
   return (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    <points ref={pointsRef as any} geometry={geometry}>
-      <pointsMaterial
-        color={node.color}
-        size={drawSize * 5}
+    <points geometry={geometry}>
+      <shaderMaterial
+        ref={materialRef}
+        vertexShader={particleVertexShader}
+        fragmentShader={particleFragmentShader}
+        uniforms={uniforms}
         transparent
-        opacity={Math.max(0, Math.min(1, node.opacity * opacityMultiplier))}
-        sizeAttenuation
         blending={AdditiveBlending}
         depthWrite={false}
         toneMapped={false}

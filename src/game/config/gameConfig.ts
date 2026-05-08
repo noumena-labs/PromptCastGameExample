@@ -1,5 +1,9 @@
 import type { CrystalState, DummyTarget, GeneratedSpell, ManaMoteState, Vec3 } from "@/game/types";
-import { scatterPositions } from "@/game/arena/terrain";
+import type { SpellBuildSpec } from "@/game/spells/modules/spellIds";
+import { ARENA_RADIUS, PLAYABLE_RADIUS, scatterPositions } from "@/game/arena/terrain";
+import { composeSpell } from "@/game/spells/spellSchema";
+
+export { ARENA_RADIUS, PLAYABLE_RADIUS };
 
 export const LOCAL_PLAYER_ID = "local-player";
 export const AURA_THRESHOLD = 3;
@@ -8,8 +12,12 @@ export const PLAYER_MAX_HEALTH = 100;
 export const PLAYER_MAX_MANA = 100;
 /** Mana now comes from collecting motes; passive regen is disabled. */
 export const MANA_REGEN_PER_SECOND = 0;
-export const ARENA_RADIUS = 60;
-export const PLAYABLE_RADIUS = 52; // inside the hill ring
+export const PLAYER_SPAWN_POINTS: Vec3[] = [
+  [0, 0, 18],
+  [18, 0, 0],
+  [0, 0, -18],
+  [-18, 0, 0],
+];
 
 export const MANA_MOTE_VALUE = 15;
 export const MANA_MOTE_RESPAWN_MIN_MS = 9000;
@@ -17,91 +25,42 @@ export const MANA_MOTE_RESPAWN_MAX_MS = 14000;
 export const MANA_MOTE_DROP_DECAY_MS = 12000;
 export const MANA_MOTE_DROP_COUNT = 3;
 
+const magicMissileSpec: SpellBuildSpec = {
+  name: "Magic Missile",
+  alignment: "light",
+  deliveryVehicle: "projectile_linear",
+  vfx: {
+    coreMesh: "sphere",
+    travel: ["particle_trail", "core_glow"],
+    impact: ["burst_explosion", "flash"],
+    shaders: {
+      core: "holy_radiance",
+      trail: "sunbeam_core",
+      impact: "halo_ring",
+      decal: "ground_rune",
+      aura: "halo_ring",
+    },
+  },
+  modifiers: { scale: 0.75, speed: 1.35, duration: 0.9, intensity: 0.9 },
+  count: 1,
+  intentSummary: "A reliable bright bolt for steady pressure.",
+  castImagery: "A compact golden mote cuts forward with a clean glimmering tail.",
+  impactImagery: "A quick pale-gold pop flashes at the hit point with a tiny shock ring.",
+};
+
 export const MAGIC_MISSILE: GeneratedSpell = {
+  ...composeSpell({ prompt: "A reliable bright bolt for steady pressure.", concept: magicMissileSpec, balance: { powerTier: 1 } }),
   id: "magic_missile",
   name: "Magic Missile",
-  prompt: "A reliable arcane bolt for steady pressure.",
-  element: "arcane",
-  deliveryFamily: "projectile",
-  impact: "single",
-  placement: "target",
-  powerTier: 1,
-  count: 1,
   damage: 15,
-  speed: 32,
-  radius: 0.42,
+  speed: 30,
+  radius: 0.55,
   durationMs: 2400,
   impactDurationMs: 1200,
   cooldownMs: 280,
   manaCost: 4,
-  effects: [],
-  color: "#c9a85c",
-  scenes: {
-    cast: {
-      shape: "sphere",
-      color: "#c9a85c",
-      emissiveIntensity: 1.8,
-      size: 0.45,
-      position: [0, 0, 0],
-      rotation: [0, 0, 0],
-      motion: "spin",
-      motionSpeed: 2,
-      arrange: "single",
-      arrangeCount: 1,
-      arrangeRadius: 0,
-      particleCount: 0,
-      opacity: 1,
-      children: [
-        {
-          shape: "particle_cloud",
-          color: "#fff0b8",
-          emissiveIntensity: 0.6,
-          size: 0.12,
-          position: [0, 0, 0],
-          rotation: [0, 0, 0],
-          motion: "drift",
-          motionSpeed: 1.2,
-          arrange: "single",
-          arrangeCount: 1,
-          arrangeRadius: 0,
-          particleCount: 24,
-          opacity: 0.85,
-        },
-      ],
-    },
-    impact: {
-      shape: "sphere",
-      color: "#fff0b8",
-      emissiveIntensity: 2.4,
-      size: 0.9,
-      position: [0, 0, 0],
-      rotation: [0, 0, 0],
-      motion: "pulse",
-      motionSpeed: 3,
-      arrange: "single",
-      arrangeCount: 1,
-      arrangeRadius: 0,
-      particleCount: 0,
-      opacity: 0.9,
-      children: [
-        {
-          shape: "particle_cloud",
-          color: "#c9a85c",
-          emissiveIntensity: 1.2,
-          size: 0.18,
-          position: [0, 0, 0],
-          rotation: [0, 0, 0],
-          motion: "drift",
-          motionSpeed: 2,
-          arrange: "single",
-          arrangeCount: 1,
-          arrangeRadius: 0,
-          particleCount: 32,
-          opacity: 0.8,
-        },
-      ],
-    },
-  },
+  statusDurationMs: 500,
+  statusStrength: 0.4,
 };
 
 const ringPoints = (count: number, radius: number, y: number, offset = 0): Vec3[] =>
@@ -113,18 +72,7 @@ const ringPoints = (count: number, radius: number, y: number, offset = 0): Vec3[
 /** Aura Crystals are rare and sparse — only 8 across the meadow. */
 export const CRYSTAL_SPAWN_POINTS: Vec3[] = [
   ...ringPoints(3, 14, 1, Math.PI / 6),
-  ...ringPoints(3, 28, 1, 0),
-  ...ringPoints(2, 42, 1, Math.PI / 4),
-];
-
-export const PLAYER_SPAWN_POINTS: Vec3[] = ringPoints(6, 38, 2, Math.PI / 12);
-
-export const DUMMY_TARGETS: DummyTarget[] = [
-  { id: "dummy-1", position: [-22, 1.2, -10], health: 65, maxHealth: 65, respawnAt: null },
-  { id: "dummy-2", position: [22, 1.2, -10], health: 65, maxHealth: 65, respawnAt: null },
-  { id: "dummy-3", position: [0, 1.2, -28], health: 80, maxHealth: 80, respawnAt: null },
-  { id: "dummy-4", position: [-30, 1.2, 18], health: 65, maxHealth: 65, respawnAt: null },
-  { id: "dummy-5", position: [30, 1.2, 18], health: 65, maxHealth: 65, respawnAt: null },
+  ...ringPoints(5, 31, 1, Math.PI / 5),
 ];
 
 export const INITIAL_CRYSTALS: CrystalState[] = CRYSTAL_SPAWN_POINTS.map((position, index) => ({
@@ -134,17 +82,18 @@ export const INITIAL_CRYSTALS: CrystalState[] = CRYSTAL_SPAWN_POINTS.map((positi
   respawnAt: null,
 }));
 
-/**
- * Mana motes: numerous, scattered across the playable meadow. Deterministic
- * positions via the terrain scatter helper so every client agrees.
- */
-const MANA_MOTE_COUNT = 28;
-export const INITIAL_MANA_MOTES: ManaMoteState[] = scatterPositions(MANA_MOTE_COUNT, 6, PLAYABLE_RADIUS - 4, 911).map((spot, index) => ({
-  id: `mana-mote-${index + 1}`,
-  position: [spot.x, spot.y + 0.9, spot.z] as Vec3,
+export const INITIAL_MANA_MOTES: ManaMoteState[] = scatterPositions(28, 7, 43, 31337).map((position, index) => ({
+  id: `mana-${index + 1}`,
+  position: [position[0], position[1] + 0.4, position[2]],
   active: true,
   respawnAt: null,
   decayAt: null,
   amount: MANA_MOTE_VALUE,
   ephemeral: false,
 }));
+
+export const DUMMY_TARGETS: DummyTarget[] = [
+  { id: "dummy-north", position: [0, 0.2, -14], health: 120, maxHealth: 120, respawnAt: null },
+  { id: "dummy-east", position: [15, 0.2, -2], health: 120, maxHealth: 120, respawnAt: null },
+  { id: "dummy-west", position: [-15, 0.2, -2], health: 120, maxHealth: 120, respawnAt: null },
+];

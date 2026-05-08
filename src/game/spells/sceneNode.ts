@@ -1,19 +1,20 @@
 /**
- * SceneNode DSL — the LLM emits a small Three.js-flavored scene tree per spell.
+ * SceneNode DSL — the engine's VFX compiler emits a small Three.js-flavored scene tree per spell.
  *
  * Constraints:
  *   - Tree depth ≤ 1 (root + up to 6 children; children are leaves).
  *   - 12 shape primitives, 10 motion modes, 5 arrange modes.
- *   - particle_count is only meaningful when shape === "particle_cloud".
+ *   - particleCount is only meaningful when shape === "particle_cloud".
  *   - Particle sum across the whole scene is hard-capped at 200 (engine clamps).
  *   - Light-emitting nodes (emissiveIntensity > 0) are limited to 2 per scene
  *     (renderer enforces; not validated here so the LLM has slack).
  *
  * The renderer is responsible for actually instantiating Three.js objects from
- * this declarative tree. This module owns ONLY the schema + a defensive clamp.
+ * this declarative tree. This module owns ONLY the schema + a particle budget clamp.
  */
 
 import { z } from "zod";
+import { shaderPhaseIds, spellShaderIds } from "@/game/spells/modules/spellIds";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Enumerations
@@ -65,18 +66,20 @@ const vec3 = z.tuple([z.number(), z.number(), z.number()]);
  */
 export const sceneLeafSchema = z.object({
   shape: z.enum(sceneShapes),
-  color: hexColor.catch("#ffffff"),
-  emissiveIntensity: z.coerce.number().min(0).max(4).catch(0),
-  size: z.coerce.number().min(0.05).max(8).catch(1),
-  position: vec3.catch([0, 0, 0]),
-  rotation: vec3.catch([0, 0, 0]),
-  motion: z.enum(sceneMotions).catch("static"),
-  motionSpeed: z.coerce.number().min(0).max(8).catch(1),
-  arrange: z.enum(sceneArranges).catch("single"),
-  arrangeCount: z.coerce.number().int().min(1).max(12).catch(1),
-  arrangeRadius: z.coerce.number().min(0).max(8).catch(1),
-  particleCount: z.coerce.number().int().min(0).max(200).catch(0),
-  opacity: z.coerce.number().min(0).max(1).catch(1),
+  shaderId: z.enum(spellShaderIds),
+  shaderPhase: z.enum(shaderPhaseIds),
+  color: hexColor,
+  emissiveIntensity: z.coerce.number().min(0).max(4),
+  size: z.coerce.number().min(0.05).max(8),
+  position: vec3,
+  rotation: vec3,
+  motion: z.enum(sceneMotions),
+  motionSpeed: z.coerce.number().min(0).max(8),
+  arrange: z.enum(sceneArranges),
+  arrangeCount: z.coerce.number().int().min(1).max(12),
+  arrangeRadius: z.coerce.number().min(0).max(8),
+  particleCount: z.coerce.number().int().min(0).max(200),
+  opacity: z.coerce.number().min(0).max(1),
 });
 export type SceneLeaf = z.infer<typeof sceneLeafSchema>;
 
@@ -84,7 +87,7 @@ export type SceneLeaf = z.infer<typeof sceneLeafSchema>;
  * Root node — same shape as a leaf, plus optional `children` (≤ 6 leaves).
  */
 export const sceneRootSchema = sceneLeafSchema.extend({
-  children: z.array(sceneLeafSchema).max(6).catch([]),
+  children: z.array(sceneLeafSchema).max(6),
 });
 export type SceneRoot = z.infer<typeof sceneRootSchema>;
 

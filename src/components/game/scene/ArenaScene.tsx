@@ -14,6 +14,9 @@ import { Shrine } from "@/components/game/scene/Shrine";
 import { SpellEntities } from "@/components/game/scene/SpellEntities";
 import { Trees } from "@/components/game/scene/Trees";
 import { Flowers, GrassClumps } from "@/components/game/scene/Flowers";
+import { shaderPresetCatalog } from "@/game/spells/modules/shaderPresets";
+import { SpellShaderMaterial } from "@/components/game/scene/SpellShaderMaterial";
+import type { SpellShaderId } from "@/game/spells/modules/spellIds";
 
 export function ArenaScene() {
   return (
@@ -74,6 +77,7 @@ function ShaderPrewarm() {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const camera = useThree((state) => state.camera);
+  const shaderIds = Object.keys(shaderPresetCatalog) as SpellShaderId[];
 
   useEffect(() => {
     const handle = requestAnimationFrame(() => {
@@ -82,5 +86,14 @@ function ShaderPrewarm() {
     return () => cancelAnimationFrame(handle);
   }, [gl, scene, camera]);
 
-  return null;
+  return (
+    <group position={[0, -5000, 0]} scale={0.01}>
+      {shaderIds.map((id) => (
+        <mesh key={id}>
+          <planeGeometry args={[1, 1]} />
+          <SpellShaderMaterial shaderId={id} animated={false} />
+        </mesh>
+      ))}
+    </group>
+  );
 }

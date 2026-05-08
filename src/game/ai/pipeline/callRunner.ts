@@ -51,23 +51,42 @@ export async function runChatCall(opts: PipelineCallOptions): Promise<PipelineCa
   const warnAtChars = Math.floor(opts.maxTokens * CHARS_PER_TOKEN * WARN_RATIO);
   const budgetChars = opts.maxTokens * CHARS_PER_TOKEN;
   let warned = false;
-  const reply = await opts.engine.chat(messages, {
-    maxTokens: opts.maxTokens,
-    signal: opts.signal,
-    grammar: opts.grammar,
-    onToken: (token: string) => {
-      buffer += token;
-      if (opts.stage && !warned && buffer.length >= warnAtChars) {
-        warned = true;
-        spellLog.warn(opts.stage, "token budget near limit", {
-          maxTokens: opts.maxTokens,
-          bufferChars: buffer.length,
-          ratio: WARN_RATIO,
-        });
-      }
-      opts.onToken?.(token);
-    },
-  });
+  const onToken = (token: string) => {
+    buffer += token;
+    if (opts.stage && !warned && buffer.length >= warnAtChars) {
+      warned = true;
+      spellLog.warn(opts.stage, "token budget near limit", {
+        maxTokens: opts.maxTokens,
+        bufferChars: buffer.length,
+        ratio: WARN_RATIO,
+      });
+    }
+    opts.onToken?.(token);
+  };
+
+  const chat = (grammar?: string) =>
+    opts.engine.chat(messages, {
+      maxTokens: opts.maxTokens,
+      signal: opts.signal,
+      grammar,
+      onToken,
+    });
+
+  let reply: string;
+  try {
+    reply = await chat(opts.grammar);
+  } catch (err) {
+    if (!opts.grammar || !isGrammarSamplerFailure(err)) throw err;
+    if (opts.stage) {
+      spellLog.warn(opts.stage, "grammar sampler failed; retrying without grammar", {
+        cause: (err as Error).message,
+        grammarChars: opts.grammar.length,
+      });
+    }
+    buffer = "";
+    warned = false;
+    reply = await chat(undefined);
+  }
 
   if (opts.stage && buffer.length >= budgetChars) {
     spellLog.error(opts.stage, "token budget exceeded; output likely truncated", {
@@ -77,6 +96,10 @@ export async function runChatCall(opts: PipelineCallOptions): Promise<PipelineCa
   }
 
   return { text: reply || buffer, buffer };
+}
+
+function isGrammarSamplerFailure(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("Failed to build per-slot grammar sampler");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { AdditiveBlending, Group } from "three";
+import { Group } from "three";
 import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
 import {
   applyMotion,
@@ -11,6 +11,7 @@ import {
   type MotionDelta,
 } from "@/components/game/scene/sceneMotion";
 import { ParticleEmitterNode } from "@/components/game/scene/ParticleEmitterNode";
+import { SpellShaderMaterial } from "@/components/game/scene/SpellShaderMaterial";
 
 /**
  * Recursive renderer for the SceneNode DSL.
@@ -22,8 +23,8 @@ import { ParticleEmitterNode } from "@/components/game/scene/ParticleEmitterNode
  * Light cap: Three.js point lights are expensive on a forward renderer. We
  * count emissive nodes (emissiveIntensity > 0.5) across the whole scene and
  * keep at most 2. This is enforced HERE rather than in clampScene so the
- * LLM can author scenes with broad emissive intent and the renderer just
- * picks the strongest two.
+ * VFX templates can author scenes with broad emissive intent and the renderer
+ * just picks the strongest two.
  */
 
 const LIGHT_CAP = 2;
@@ -189,16 +190,7 @@ function ShapePrimitive({
   const opacity = Math.max(0, Math.min(1, node.opacity * opacityMultiplier));
 
   const material = (
-    <meshStandardMaterial
-      color={node.color}
-      emissive={node.color}
-      emissiveIntensity={node.emissiveIntensity}
-      transparent={opacity < 1}
-      opacity={opacity}
-      toneMapped={false}
-      blending={node.emissiveIntensity > 1.5 ? AdditiveBlending : undefined}
-      depthWrite={opacity >= 0.95}
-    />
+    <SpellShaderMaterial shaderId={node.shaderId} opacityMultiplier={opacity} />
   );
 
   const s = node.size;

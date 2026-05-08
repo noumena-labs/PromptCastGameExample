@@ -7,7 +7,7 @@ import type { RapierRigidBody } from "@react-three/rapier";
 import { useCallback, useEffect, useRef } from "react";
 import { Group, MathUtils, Vector3 } from "three";
 import { Ray, type KinematicCharacterController, type World } from "@dimforge/rapier3d-compat";
-import { LOCAL_PLAYER_ID, MAGIC_MISSILE, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
+import { MAGIC_MISSILE, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
 import { getGroundHeight } from "@/game/arena/terrain";
 import { toVec3 } from "@/game/math/vector";
 import type { Vec3 } from "@/game/types";
@@ -62,6 +62,7 @@ export function LocalWizard() {
   const pointerLocked = useRef(false);
   const lastMagicMissileAt = useRef(0);
   const diagLogged = useRef(false);
+  const appliedStatusImpulses = useRef(new Set<string>());
 
   const getControls = useKeyboardControls<ControlName>()[1];
   const { camera, gl } = useThree();
@@ -175,11 +176,14 @@ export function LocalWizard() {
         event.code === "Digit3" ||
         event.code === "Digit4"
       ) {
+        const current = useGameStore.getState().players[useGameStore.getState().localPlayerId];
+        if (current?.statusEffects.some((effect) => effect.effect === "stun" || effect.effect === "crush" || effect.effect === "stagger")) return;
         const slot =
           event.code === "Digit1" ? 0 : event.code === "Digit2" ? 1 : event.code === "Digit3" ? 2 : 3;
         const cast = buildCastGeometry();
         console.debug("[CastTarget] slot", { slot, source: cast.targetSource, point: cast.targetPoint });
-        castSlot(slot, cast.origin, cast.direction, cast.targetPoint);
+        const blinded = current?.statusEffects.some((effect) => effect.effect === "blind") ?? false;
+        castSlot(slot, cast.origin, cast.direction, blinded ? jitterTarget(cast.targetPoint) : cast.targetPoint);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -228,6 +232,10 @@ export function LocalWizard() {
 
     const sanctuary = player.status === "sanctuary";
     const dead = player.status === "dead";
+    const stunned = player.statusEffects.some((effect) => effect.effect === "stun" || effect.effect === "crush" || effect.effect === "stagger");
+    const chill = player.statusEffects.find((effect) => effect.effect === "chill");
+    const blind = player.statusEffects.some((effect) => effect.effect === "blind");
+    const speedMultiplier = stunned ? 0 : chill ? Math.max(0.35, 1 - chill.strength * 0.14) : 1;
     const controls = getControls();
     const dt = Math.min(delta, 1 / 30);
 
@@ -245,15 +253,15 @@ export function LocalWizard() {
     const right = tmpRight.current.set(Math.cos(yaw.current), 0, -Math.sin(yaw.current));
     const move = tmpMove.current.set(0, 0, 0);
 
-    if (!sanctuary && !dead && !promptOpen) {
+    if (!sanctuary && !dead && !promptOpen && !stunned) {
       if (controls.forward) move.add(forward);
       if (controls.backward) move.sub(forward);
       if (controls.right) move.add(right);
       if (controls.left) move.sub(right);
       if (move.lengthSq() > 0) move.normalize();
 
-      velocity.current.x = MathUtils.damp(velocity.current.x, move.x * MOVE_SPEED, ACCEL, dt);
-      velocity.current.z = MathUtils.damp(velocity.current.z, move.z * MOVE_SPEED, ACCEL, dt);
+      velocity.current.x = MathUtils.damp(velocity.current.x, move.x * MOVE_SPEED * speedMultiplier, ACCEL, dt);
+      velocity.current.z = MathUtils.damp(velocity.current.z, move.z * MOVE_SPEED * speedMultiplier, ACCEL, dt);
 
       if (controls.jump && grounded.current) {
         velocity.current.y = JUMP_VELOCITY;
@@ -262,6 +270,21 @@ export function LocalWizard() {
     } else {
       velocity.current.x = MathUtils.damp(velocity.current.x, 0, 12, dt);
       velocity.current.z = MathUtils.damp(velocity.current.z, 0, 12, dt);
+    }
+
+    for (const effect of player.statusEffects) {
+      if (effect.effect !== "stagger" && effect.effect !== "crush") continue;
+      if (appliedStatusImpulses.current.has(effect.id)) continue;
+      appliedStatusImpulses.current.add(effect.id);
+      const owner = useGameStore.getState().players[effect.ownerId];
+      if (!owner) continue;
+      const dx = center.current.x - owner.position[0];
+      const dz = center.current.z - owner.position[2];
+      const len = Math.hypot(dx, dz) || 1;
+      const force = effect.effect === "crush" ? 8 + effect.strength * 1.5 : 5 + effect.strength;
+      velocity.current.x += (dx / len) * force;
+      velocity.current.z += (dz / len) * force;
+      velocity.current.y = Math.max(velocity.current.y, 2.5);
     }
 
     // Gravity / sanctuary float.
@@ -361,12 +384,12 @@ export function LocalWizard() {
     // Click-to-cast Magic Missile. Origin = shoulder; direction = camera
     // forward (which by camera lookAt tuning points at the fixed centered
     // reticle's world target).
-    if (mouseDown.current && !promptOpen && !dead && !sanctuary && pointerLocked.current) {
+    if (mouseDown.current && !promptOpen && !dead && !sanctuary && !stunned && pointerLocked.current) {
       const t = Date.now();
       if (t - lastMagicMissileAt.current > MAGIC_MISSILE.cooldownMs) {
         const cast = buildCastGeometry();
         console.debug("[CastTarget] mouse", { source: cast.targetSource, point: cast.targetPoint });
-        if (castSpell(MAGIC_MISSILE, cast.origin, cast.direction, cast.targetPoint)) lastMagicMissileAt.current = t;
+        if (castSpell(MAGIC_MISSILE, cast.origin, cast.direction, blind ? jitterTarget(cast.targetPoint) : cast.targetPoint)) lastMagicMissileAt.current = t;
       }
     }
   });
@@ -387,6 +410,14 @@ export function LocalWizard() {
       </group>
     </>
   );
+}
+
+function jitterTarget(target: Vec3): Vec3 {
+  return [
+    target[0] + (Math.random() - 0.5) * 4,
+    target[1],
+    target[2] + (Math.random() - 0.5) * 4,
+  ];
 }
 
 function resolveAimTarget(
@@ -462,5 +493,3 @@ function intersectTerrain(origin: Vector3, direction: Vector3, maxDistance: numb
   }
   return null;
 }
-
-void LOCAL_PLAYER_ID;

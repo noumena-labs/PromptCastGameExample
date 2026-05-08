@@ -18,8 +18,6 @@ export type SpellStage =
   | "load"
   | "concept"
   | "balance"
-  | "form"
-  | "palette"
   | "compose"
   | "validate"
   | "repair";

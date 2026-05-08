@@ -1,20 +1,5 @@
-/**
- * Balance derivation — single `powerTier` knob ∈ 1..5 collapses all numerical
- * balance fields. The LLM's job in the balance call is just to pick the tier;
- * the engine does the rest deterministically.
- *
- * Formula (chosen so tier 3 ≈ today's "standard" spell):
- *   manaCost   = 8  + 12 * t
- *   damage     = 10 + 14 * t
- *   durationMs = 800 + 400 * t
- *   cooldownMs = 600 + 500 * t
- *   radius     = 1.5 + 0.7 * t
- *
- * Speed depends on delivery family, not tier — sky drops are fast, beams are
- * instant-ish, projectiles mid-range, self-cast is stationary.
- */
-
-import type { SpellDeliveryFamily } from "@/game/types";
+import type { DeliveryVehicleId, SpellModifierSet } from "@/game/spells/modules/spellIds";
+import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
 
 export type PowerTier = 1 | 2 | 3 | 4 | 5;
 
@@ -25,6 +10,8 @@ export type DerivedStats = {
   cooldownMs: number;
   radius: number;
   speed: number;
+  statusDurationMs: number;
+  statusStrength: number;
 };
 
 export function clampTier(value: number): PowerTier {
@@ -34,27 +21,23 @@ export function clampTier(value: number): PowerTier {
   return rounded as PowerTier;
 }
 
-export function deriveStats(tier: PowerTier, delivery: SpellDeliveryFamily): DerivedStats {
+export function deriveStats(tier: PowerTier, deliveryId: DeliveryVehicleId, modifiers: SpellModifierSet): DerivedStats {
+  const delivery = getDeliveryVehicle(deliveryId);
   const t = tier;
+  const scale = modifiers.scale;
+  const durationScale = modifiers.duration;
+  const speed = delivery.baseSpeed === 0 ? 0 : Math.round(delivery.baseSpeed * modifiers.speed);
+  const damage = Math.round((10 + 14 * t) * (1 + (modifiers.intensity - 1) * 0.22));
+  const radius = Number(((1.45 + 0.72 * t) * scale).toFixed(2));
+  const durationMs = Math.round((800 + 400 * t) * durationScale);
   return {
-    manaCost: 8 + 12 * t,
-    damage: 10 + 14 * t,
-    durationMs: 800 + 400 * t,
-    cooldownMs: 600 + 500 * t,
-    radius: Number((1.5 + 0.7 * t).toFixed(2)),
-    speed: speedForDelivery(delivery),
+    manaCost: Math.round(8 + 12 * t + (scale - 1) * 8 + (durationScale - 1) * 6 + Math.max(0, modifiers.intensity - 1) * 8),
+    damage,
+    durationMs,
+    cooldownMs: Math.round(600 + 500 * t + Math.max(0, scale - 1) * 220 + Math.max(0, durationScale - 1) * 180),
+    radius,
+    speed,
+    statusDurationMs: Math.round((700 + 260 * t) * Math.min(1.8, durationScale)),
+    statusStrength: Number((0.75 + t * 0.25 + (modifiers.intensity - 1) * 0.25).toFixed(2)),
   };
-}
-
-function speedForDelivery(delivery: SpellDeliveryFamily): number {
-  switch (delivery) {
-    case "projectile":
-      return 22;
-    case "beam":
-      return 45;
-    case "sky":
-      return 30;
-    case "self":
-      return 0;
-  }
 }

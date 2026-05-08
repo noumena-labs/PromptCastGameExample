@@ -19,6 +19,7 @@ import {
 } from "@/game/config/gameConfig";
 import type {
   AreaSpellState,
+  CastVfxState,
   CrystalState,
   DummyTarget,
   GeneratedSpell,
@@ -26,6 +27,7 @@ import type {
   ManaMoteState,
   MatchMode,
   PlayerState,
+  SpellStatusEffectId,
   SequencedCastPayload,
   SequencedCrystalPayload,
   Vec3,
@@ -34,14 +36,19 @@ import { projectileMotion } from "@/game/state/projectileMotion";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { rotateAroundY } from "@/game/math/vector";
 import { getGroundHeight } from "@/game/arena/terrain";
+import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
 
 const now = () => Date.now();
+
+function groundedSpawn(position: Vec3): Vec3 {
+  return [position[0], getGroundHeight(position[0], position[2]), position[2]];
+}
 
 const createLocalPlayer = (): PlayerState => ({
   id: LOCAL_PLAYER_ID,
   name: "You",
   color: "#74f7d0",
-  position: PLAYER_SPAWN_POINTS[0],
+  position: groundedSpawn(PLAYER_SPAWN_POINTS[0]),
   rotationY: 0,
   velocity: [0, 0, 0],
   health: PLAYER_MAX_HEALTH,
@@ -49,6 +56,7 @@ const createLocalPlayer = (): PlayerState => ({
   aura: 0,
   score: 0,
   status: "alive",
+  statusEffects: [],
   isShielded: false,
   spellSlots: [null, null, null, null],
   cooldowns: {},
@@ -64,6 +72,7 @@ export type GameStore = {
   crystals: CrystalState[];
   manaMotes: ManaMoteState[];
   projectileIds: string[];
+  castVfx: CastVfxState[];
   areas: AreaSpellState[];
   dummyTargets: DummyTarget[];
   promptOpen: boolean;
@@ -100,9 +109,12 @@ export type GameStore = {
   castSpell: (spell: GeneratedSpell, origin: Vec3, direction: Vec3, targetPoint: Vec3, ownerId?: string) => boolean;
   castSlot: (slot: number, origin: Vec3, direction: Vec3, targetPoint: Vec3) => boolean;
   tickCooldowns: () => void;
+  tickCastVfx: () => void;
   removeProjectile: (projectileId: string) => void;
   damageDummy: (dummyId: string, amount: number, ownerId: string) => void;
   damagePlayer: (playerId: string, amount: number, ownerId: string) => void;
+  applyStatusEffect: (playerId: string, effect: SpellStatusEffectId, ownerId: string, sourceSpellId: string, durationMs: number, strength: number) => void;
+  tickStatusEffects: () => void;
   tickRespawns: () => void;
   tickAreas: () => void;
   resetMatch: () => void;
@@ -114,20 +126,39 @@ const moteRespawnDelay = () =>
 function resolvePlacementPoint(
   spell: GeneratedSpell,
   casterPosition: Vec3,
-  direction: Vec3,
   targetPoint: Vec3,
 ): Vec3 {
-  if (spell.placement === "self") {
+  if (spell.deliveryVehicle === "aura_orbit") {
     return [casterPosition[0], casterPosition[1] + 0.05, casterPosition[2]];
   }
-  if (spell.placement === "front") {
-    const len = Math.hypot(direction[0], direction[2]) || 1;
-    const distance = Math.max(3, Math.min(8, spell.radius * 1.4 + 2));
-    const x = casterPosition[0] + (direction[0] / len) * distance;
-    const z = casterPosition[2] + (direction[2] / len) * distance;
-    return [x, getGroundHeight(x, z) + 0.05, z];
-  }
   return targetPoint;
+}
+
+function normalizeDirection(direction: Vec3): Vec3 {
+  const len = Math.hypot(direction[0], direction[1], direction[2]) || 1;
+  return [direction[0] / len, direction[1] / len, direction[2] / len];
+}
+
+function impactAreaRadius(spell: GeneratedSpell): number {
+  return hasLingeringImpact(spell) ? spell.radius : Math.max(0.7, spell.radius * 1.35);
+}
+
+function areaDuration(spell: GeneratedSpell): number {
+  return spell.impactDurationMs > 0 ? spell.impactDurationMs : spell.durationMs;
+}
+
+function castVfxDuration(spell: GeneratedSpell): number {
+  if (spell.deliveryVehicle === "skyfall") return 420;
+  if (spell.deliveryVehicle === "ground_eruption" || spell.deliveryVehicle === "aura_orbit") return 520;
+  return 260;
+}
+
+function hasLingeringImpact(spell: GeneratedSpell): boolean {
+  return (
+    spell.deliveryVehicle === "aura_orbit" ||
+    spell.buildSpec.vfx.impact.includes("lingering_cloud") ||
+    spell.buildSpec.vfx.impact.includes("ground_decal")
+  );
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -139,6 +170,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   crystals: INITIAL_CRYSTALS,
   manaMotes: INITIAL_MANA_MOTES,
   projectileIds: [],
+  castVfx: [],
   areas: [],
   dummyTargets: DUMMY_TARGETS,
   promptOpen: false,
@@ -195,6 +227,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             ...existing,
             ...incoming,
             spellSlots: incoming.spellSlots ?? existing?.spellSlots ?? [null, null, null, null],
+            statusEffects: incoming.statusEffects ?? existing?.statusEffects ?? [],
             cooldowns: incoming.cooldowns ?? existing?.cooldowns ?? {},
           },
         },
@@ -415,12 +448,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
       : {};
 
     const baseId = `${spell.id}-${timestamp}-${Math.random().toString(16).slice(2)}`;
-    const resolvedPoint = resolvePlacementPoint(spell, player.position, direction, targetPoint);
+    const resolvedPoint = resolvePlacementPoint(spell, player.position, targetPoint);
+    const castVfx: CastVfxState = {
+      id: `${baseId}-cast`,
+      ownerId,
+      spell,
+      position: origin,
+      forward: normalizeDirection(direction),
+      createdAt: timestamp,
+      expiresAt: timestamp + castVfxDuration(spell),
+    };
     console.debug("[CastPlacement]", {
       spell: spell.name,
-      deliveryFamily: spell.deliveryFamily,
-      impact: spell.impact,
-      placement: spell.placement,
+      alignment: spell.alignment,
+      deliveryVehicle: spell.deliveryVehicle,
+      impactShape: spell.impactShape,
       targetPoint,
       resolvedPoint,
     });
@@ -429,28 +471,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // doesn't self-collide on spawn.
     const ownerColliderHandle = colliderRegistry.findWizardHandle(ownerId);
 
-    // SELF / FRONT: defensive and caster-centered spells resolve immediately
-    // as impact areas instead of travelling projectiles.
-    if (spell.placement === "self" || spell.placement === "front" || spell.deliveryFamily === "self") {
-      // Normalize the cast direction so the renderer can orient walls/beams
-      // perpendicular to the player's aim. Self-cast walls face whichever
-      // way the caster was looking when they triggered the spell.
-      const dirLen = Math.hypot(direction[0], direction[1], direction[2]) || 1;
-      const forward: Vec3 = [direction[0] / dirLen, direction[1] / dirLen, direction[2] / dirLen];
-      const areaDurationMs = spell.impactDurationMs > 0 ? spell.impactDurationMs : spell.durationMs;
-      const isLingering = spell.impact === "aoe" || spell.impact === "vortex" || spell.impact === "wall" || spell.impact === "trap";
-      const areaRadius = isLingering ? spell.radius : Math.max(0.7, spell.radius * 1.4);
+    const delivery = getDeliveryVehicle(spell.deliveryVehicle);
+
+    if (spell.deliveryVehicle === "ground_eruption" || spell.deliveryVehicle === "aura_orbit") {
+      const forward = normalizeDirection(direction);
+      const areaDurationMs = areaDuration(spell);
+      const areaRadius = impactAreaRadius(spell);
       set({
         ...networkUpdate,
         players: { ...state.players, [ownerId]: nextPlayer },
+        castVfx: [...state.castVfx, castVfx],
         areas: [
           ...state.areas,
           {
             id: baseId,
             ownerId,
-            spell: { ...spell, durationMs: areaDurationMs, radius: areaRadius },
+            spell: { ...spell, radius: areaRadius },
             position: resolvedPoint,
             forward,
+            attachedToId: delivery.attachesToCaster ? ownerId : null,
             createdAt: timestamp,
             expiresAt: timestamp + areaDurationMs,
             tickedAt: {},
@@ -460,42 +499,49 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return true;
     }
 
-    // SKY: spawn N projectiles falling from above the targetPoint.
-    if (spell.deliveryFamily === "sky") {
+    if (spell.deliveryVehicle === "skyfall") {
       const newMotions: string[] = [];
-      const skyHeight = 28;
-      const skyTravelMs = Math.ceil((skyHeight / Math.max(1, spell.speed)) * 1000) + 500;
+      const skyHeight = skyfallHeight(spell);
+      const skyTravelMs = skyfallTravelMs(spell);
       for (let i = 0; i < spell.count; i += 1) {
         const angle = Math.random() * Math.PI * 2;
         const radius = i === 0 ? 0 : Math.random() * Math.max(1.5, spell.radius);
+        const lateralOffset = i === 0 ? 0 : (Math.random() - 0.5) * 5;
         const tx = resolvedPoint[0] + Math.cos(angle) * radius;
         const tz = resolvedPoint[2] + Math.sin(angle) * radius;
         const ty = getGroundHeight(tx, tz) + 0.05;
         const id = `${baseId}-${i}`;
         const meteorTarget: Vec3 = [tx, ty, tz];
-        const motionPosition: Vec3 = [tx, ty + skyHeight, tz];
+        const motionPosition: Vec3 = [tx + Math.cos(angle + Math.PI / 2) * lateralOffset, ty + skyHeight + i * 1.2, tz + Math.sin(angle + Math.PI / 2) * lateralOffset];
+        const directionToTarget = normalizeDirection([meteorTarget[0] - motionPosition[0], meteorTarget[1] - motionPosition[1], meteorTarget[2] - motionPosition[2]]);
+        const fallDistance = Math.hypot(meteorTarget[0] - motionPosition[0], meteorTarget[1] - motionPosition[1], meteorTarget[2] - motionPosition[2]);
+        const fallSpeed = fallDistance / (skyTravelMs / 1000);
         projectileMotion.register({
           id,
           ownerId,
           ownerColliderHandle,
           spell,
+          mode: "skyfall",
           position: motionPosition,
-          direction: [0, -1, 0],
+          direction: directionToTarget,
+          velocity: [directionToTarget[0] * fallSpeed, directionToTarget[1] * fallSpeed, directionToTarget[2] * fallSpeed],
           targetPoint: meteorTarget,
-          createdAt: timestamp + i * 90,
-          expiresAt: timestamp + i * 90 + Math.max(spell.durationMs, skyTravelMs),
+          createdAt: timestamp,
+          expiresAt: timestamp + skyTravelMs + 450,
+          resolvedAt: null,
         });
         newMotions.push(id);
       }
       set({
         ...networkUpdate,
         players: { ...state.players, [ownerId]: nextPlayer },
+        castVfx: [...state.castVfx, castVfx],
         projectileIds: [...state.projectileIds, ...newMotions],
       });
       return true;
     }
 
-    // PROJECTILE / BEAM: 1+ projectiles fanned from origin toward targetPoint.
+    // Projectile-like vehicles: linear bolts, arcing lobs, and brief hitscan tracers.
     const newMotions: string[] = [];
     const fanDeg = spell.count > 1 ? 6 : 0;
     const baseDir = direction;
@@ -510,23 +556,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
     );
     for (let i = 0; i < spell.count; i += 1) {
       const offsetDeg = spell.count === 1 ? 0 : (i - (spell.count - 1) / 2) * fanDeg;
-      const dir = rotateAroundY(baseDir, (offsetDeg * Math.PI) / 180);
+      const rawDir = rotateAroundY(baseDir, (offsetDeg * Math.PI) / 180);
       const id = `${baseId}-${i}`;
+      const directToTarget = normalizeDirection([resolvedPoint[0] - origin[0], resolvedPoint[1] - origin[1], resolvedPoint[2] - origin[2]]);
+      const aimsAtResolvedPoint = spell.deliveryVehicle === "instant_hitscan" || spell.deliveryVehicle === "projectile_arcing";
+      const dir = aimsAtResolvedPoint ? directToTarget : rawDir;
       const projectileTarget: Vec3 = [
-        origin[0] + dir[0] * targetDistance,
-        origin[1] + dir[1] * targetDistance,
-        origin[2] + dir[2] * targetDistance,
+        aimsAtResolvedPoint ? resolvedPoint[0] : origin[0] + dir[0] * targetDistance,
+        aimsAtResolvedPoint ? resolvedPoint[1] : origin[1] + dir[1] * targetDistance,
+        aimsAtResolvedPoint ? resolvedPoint[2] : origin[2] + dir[2] * targetDistance,
       ];
       projectileMotion.register({
         id,
         ownerId,
         ownerColliderHandle,
         spell,
+        mode: spell.deliveryVehicle === "projectile_arcing" ? "arc" : spell.deliveryVehicle === "instant_hitscan" ? "hitscan_visual" : "linear",
         position: [origin[0], origin[1], origin[2]],
         direction: dir,
+        velocity: initialVelocityFor(spell, origin, projectileTarget, dir),
         targetPoint: projectileTarget,
         createdAt: timestamp,
-        expiresAt: travelExpiresAt,
+        expiresAt: spell.deliveryVehicle === "instant_hitscan" ? timestamp + 120 : travelExpiresAt,
+        resolvedAt: null,
       });
       newMotions.push(id);
     }
@@ -534,6 +586,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       ...networkUpdate,
       players: { ...state.players, [ownerId]: nextPlayer },
+      castVfx: [...state.castVfx, castVfx],
       projectileIds: [...state.projectileIds, ...newMotions],
     });
     return true;
@@ -547,6 +600,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   tickCooldowns: () => set((state) => ({ players: { ...state.players } })),
+
+  tickCastVfx: () =>
+    set((state) => {
+      const timestamp = now();
+      return { castVfx: state.castVfx.filter((item) => item.expiresAt > timestamp) };
+    }),
 
   removeProjectile: (projectileId) => {
     projectileMotion.unregister(projectileId);
@@ -597,6 +656,40 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (killPosition) get().dropManaMotesAt(killPosition);
   },
 
+  applyStatusEffect: (playerId, effect, ownerId, sourceSpellId, durationMs, strength) =>
+    set((state) => {
+      const player = state.players[playerId];
+      if (!player || player.status === "dead" || player.isShielded) return state;
+      const expiresAt = now() + durationMs;
+      const owner = state.players[ownerId];
+      const knockback = effect === "stagger" || effect === "crush";
+      const dx = owner ? player.position[0] - owner.position[0] : 0;
+      const dz = owner ? player.position[2] - owner.position[2] : 0;
+      const len = Math.hypot(dx, dz) || 1;
+      const distance = knockback ? Math.min(5, 1.4 + strength * 0.9) : 0;
+      const px = player.position[0] + (dx / len) * distance;
+      const pz = player.position[2] + (dz / len) * distance;
+      const position: Vec3 = knockback ? [px, getGroundHeight(px, pz), pz] : player.position;
+      const statusEffects = [
+        ...player.statusEffects.filter((item) => item.effect !== effect || item.sourceSpellId !== sourceSpellId),
+        { id: `${sourceSpellId}-${effect}-${expiresAt}`, effect, ownerId, sourceSpellId, expiresAt, strength, lastTickAt: 0 },
+      ];
+      return { players: { ...state.players, [playerId]: { ...player, position, statusEffects } } };
+    }),
+
+  tickStatusEffects: () =>
+    set((state) => {
+      const timestamp = now();
+      const players = { ...state.players };
+      for (const player of Object.values(players)) {
+        const statusEffects = player.statusEffects.filter((effect) => effect.expiresAt > timestamp);
+        if (statusEffects.length !== player.statusEffects.length) {
+          players[player.id] = { ...player, statusEffects };
+        }
+      }
+      return { players };
+    }),
+
   tickRespawns: () =>
     set((state) => {
       const timestamp = now();
@@ -605,10 +698,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (player.status === "dead" && player.respawnAt && player.respawnAt <= timestamp) {
           players[player.id] = {
             ...player,
-            position: PLAYER_SPAWN_POINTS[index % PLAYER_SPAWN_POINTS.length],
+            position: groundedSpawn(PLAYER_SPAWN_POINTS[index % PLAYER_SPAWN_POINTS.length]),
             health: PLAYER_MAX_HEALTH,
             mana: PLAYER_MAX_MANA,
             status: "alive",
+            statusEffects: [],
             respawnAt: null,
           };
         }
@@ -634,6 +728,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       crystals: INITIAL_CRYSTALS.map((crystal) => ({ ...crystal })),
       manaMotes: INITIAL_MANA_MOTES.map((mote) => ({ ...mote })),
       projectileIds: [],
+      castVfx: [],
       areas: [],
       dummyTargets: DUMMY_TARGETS.map((dummy) => ({ ...dummy })),
       promptOpen: false,
@@ -646,3 +741,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
 }));
 
 export { MAGIC_MISSILE };
+
+function initialVelocityFor(spell: GeneratedSpell, origin: Vec3, target: Vec3, direction: Vec3): Vec3 {
+  if (spell.deliveryVehicle !== "projectile_arcing") {
+    return [direction[0] * spell.speed, direction[1] * spell.speed, direction[2] * spell.speed];
+  }
+  const dx = target[0] - origin[0];
+  const dz = target[2] - origin[2];
+  const horizontalDistance = Math.max(1, Math.hypot(dx, dz));
+  const travelTime = Math.max(0.6, horizontalDistance / Math.max(6, spell.speed));
+  const gravity = -18;
+  return [
+    dx / travelTime,
+    (target[1] - origin[1] - 0.5 * gravity * travelTime * travelTime) / travelTime,
+    dz / travelTime,
+  ];
+}
+
+function skyfallHeight(spell: GeneratedSpell): number {
+  return Math.max(34, Math.min(54, 34 + spell.powerTier * 3 + spell.buildSpec.modifiers.scale * 4));
+}
+
+function skyfallTravelMs(spell: GeneratedSpell): number {
+  return Math.round(Math.max(1250, Math.min(2300, 1750 + spell.powerTier * 90 + (spell.buildSpec.modifiers.scale - 1) * 180)));
+}

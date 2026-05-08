@@ -16,11 +16,14 @@ export type ProjectileMotion = {
    */
   ownerColliderHandle: number | null;
   spell: GeneratedSpell;
+  mode: "linear" | "arc" | "skyfall" | "hitscan_visual";
   position: Vec3;
   direction: Vec3;
+  velocity: Vec3;
   targetPoint: Vec3;
   createdAt: number;
   expiresAt: number;
+  resolvedAt: number | null;
 };
 
 const projectiles = new Map<string, ProjectileMotion>();

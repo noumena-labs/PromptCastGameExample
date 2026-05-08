@@ -6,12 +6,6 @@ import { useShallow } from "zustand/react/shallow";
 import { AURA_THRESHOLD, MAGIC_MISSILE, PLAYER_MAX_HEALTH, PLAYER_MAX_MANA, SANCTUARY_DURATION_MS } from "@/game/config/gameConfig";
 import { useGameStore } from "@/game/state/gameStore";
 
-const formatCooldown = (expiresAt: number | undefined, currentTime: number) => {
-  if (!expiresAt) return "Ready";
-  const remaining = Math.max(0, expiresAt - currentTime);
-  return remaining <= 0 ? "Ready" : `${(remaining / 1000).toFixed(1)}s`;
-};
-
 const slotKeys = ["I", "II", "III", "IV"];
 
 export function GameHud() {
@@ -79,6 +73,12 @@ export function GameHud() {
           <span>Aura Crystals (Nam-shub)</span>
           <strong>{player?.aura ?? 0} / {AURA_THRESHOLD}</strong>
         </div>
+        {player?.statusEffects.length ? (
+          <div className="auraRow">
+            <span>Status</span>
+            <strong>{player.statusEffects.map((effect) => effect.effect).join(", ")}</strong>
+          </div>
+        ) : null}
         <div className="hint">
           Click to lock the camera. WASD to move, Space to leap, Left Click to loose Magic Missile, E to enter Sanctuary (3 Aura Crystals), I-IV to wield bound spells.
         </div>
@@ -133,9 +133,6 @@ export function GameHud() {
     </div>
   );
 }
-
-void formatCooldown;
-
 function ScoreEntry({ id }: { id: string }) {
   const name = useGameStore((state) => state.players[id]?.name);
   const color = useGameStore((state) => state.players[id]?.color);

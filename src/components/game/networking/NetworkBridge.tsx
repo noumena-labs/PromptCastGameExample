@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { useGameStore } from "@/game/state/gameStore";
 import type { NetworkMessage } from "@/game/networking/messages";
+import { validateGeneratedSpell } from "@/game/spells/spellSchema";
 
 export function NetworkBridge() {
   const lastTransformAt = useRef(0);
@@ -103,7 +104,7 @@ function handleMessage(message: NetworkMessage) {
 
   if (message.type === "player_cast_spell") {
     if (message.playerId === state.localPlayerId) return;
-    state.castSpell(message.spell, message.origin, message.direction, message.targetPoint, message.playerId);
+    state.castSpell(validateGeneratedSpell(message.spell), message.origin, message.direction, message.targetPoint, message.playerId);
     return;
   }
 
