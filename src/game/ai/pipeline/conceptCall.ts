@@ -63,7 +63,7 @@ SHADER PRESETS:
 - generic: soft_glow, additive_sprite, dissolve_fade. ground_rune is only for decal, impact, or aura phases.
 
 MODIFIERS:
-- scale 0.5..3.0. Larger visible size and gameplay radius.
+- scale 0.5..3.0. Gameplay AoE radius only; object/effect meshes stay authored size.
 - speed 0.5..2.0. Ignored by instant/aura/eruption.
 - duration 0.5..3.0. Lingering zones and auras.
 - intensity 0.5..3.0. Brightness and damage pressure.

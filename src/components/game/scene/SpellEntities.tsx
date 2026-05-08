@@ -9,7 +9,7 @@ import { useGameStore } from "@/game/state/gameStore";
 import { projectileMotion, type ProjectileMotion } from "@/game/state/projectileMotion";
 import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
 import { SpellShaderMaterial } from "@/components/game/scene/SpellShaderMaterial";
-import type { Vec3 } from "@/game/types";
+import type { AreaSpellState, Vec3 } from "@/game/types";
 import type { SpellImpactShape } from "@/game/spells/modules/spellIds";
 
 /**
@@ -209,29 +209,55 @@ function AreaSpell({ areaId }: { areaId: string }) {
 
   if (!area) return null;
 
-  // Scale the scene to the area's radius. Authored sizes are in meters
-  // assuming a ~1m unit scene; the renderer's local 1.0 is mapped onto the
-  // actual radius here.
-  const radius = area.spell.radius;
   const rotation = orientationFor(area);
 
   return (
     <group ref={groupRef} position={area.position} rotation-y={rotation}>
-      <group scale={[radius, 1, radius]}>
-        <SceneNodeRenderer
-          scene={area.spell.scenes.impact}
-          spellId={area.spell.id}
-          spawnedAt={area.createdAt}
-          lifetimeSeconds={Math.max(0.6, (area.expiresAt - area.createdAt) / 1000)}
-          variant="impact"
-        />
-      </group>
+      <AreaFootprint area={area} />
+      <SceneNodeRenderer
+        scene={area.spell.scenes.impact}
+        spellId={area.spell.id}
+        spawnedAt={area.createdAt}
+        lifetimeSeconds={Math.max(0.6, (area.expiresAt - area.createdAt) / 1000)}
+        variant="impact"
+      />
       <Billboard position={[0, 0.18, 0]}>
         <Text fontSize={0.32} color={area.spell.color} anchorX="center" anchorY="middle">
           {area.spell.name}
         </Text>
       </Billboard>
     </group>
+  );
+}
+
+function AreaFootprint({ area }: { area: AreaSpellState }) {
+  const radius = Math.max(0.1, area.spell.radius);
+  const opacity = area.spell.impactShape === "aura" ? 0.18 : 0.28;
+  const shaderId = area.spell.buildSpec.vfx.shaders.decal;
+
+  if (area.spell.impactShape === "line") {
+    return (
+      <mesh position={[0, 0.035, radius * 1.75]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[Math.max(0.8, radius * 0.84), radius * 3.5]} />
+        <SpellShaderMaterial shaderId={shaderId} opacityMultiplier={opacity} />
+      </mesh>
+    );
+  }
+
+  if (area.spell.impactShape === "wall") {
+    return (
+      <mesh position={[0, 0.035, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[Math.max(0.6, radius), radius * 5.2]} />
+        <SpellShaderMaterial shaderId={shaderId} opacityMultiplier={opacity} />
+      </mesh>
+    );
+  }
+
+  return (
+    <mesh position={[0, 0.035, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <ringGeometry args={[radius * 0.92, radius, 72]} />
+      <SpellShaderMaterial shaderId={shaderId} opacityMultiplier={opacity} />
+    </mesh>
   );
 }
 

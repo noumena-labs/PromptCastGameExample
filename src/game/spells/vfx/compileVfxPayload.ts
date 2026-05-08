@@ -34,20 +34,35 @@ const node = (
 });
 
 export function compileVfxPayload(spec: SpellBuildSpec): { cast: SpellScene; travel: SpellScene; impact: SpellScene } {
-  switch (spec.deliveryVehicle) {
+  // Gameplay `modifiers.scale` is consumed by deriveStats() as AoE radius.
+  // Keep rendered spell objects at fixed authored size so large AoEs don't
+  // stretch rocks, particles, billboards, or procedural geometry.
+  const visualSpec = fixedVisualScale(spec);
+  switch (visualSpec.deliveryVehicle) {
     case "projectile_linear":
-      return compileLinearProjectileScenes(spec);
+      return compileLinearProjectileScenes(visualSpec);
     case "projectile_arcing":
-      return compileArcingProjectileScenes(spec);
+      return compileArcingProjectileScenes(visualSpec);
     case "skyfall":
-      return compileSkyfallScenes(spec);
+      return compileSkyfallScenes(visualSpec);
     case "instant_hitscan":
-      return compileHitscanScenes(spec);
+      return compileHitscanScenes(visualSpec);
     case "ground_eruption":
-      return compileGroundEruptionScenes(spec);
+      return compileGroundEruptionScenes(visualSpec);
     case "aura_orbit":
-      return compileAuraOrbitScenes(spec);
+      return compileAuraOrbitScenes(visualSpec);
   }
+}
+
+function fixedVisualScale(spec: SpellBuildSpec): SpellBuildSpec {
+  if (spec.modifiers.scale === 1) return spec;
+  return {
+    ...spec,
+    modifiers: {
+      ...spec.modifiers,
+      scale: 1,
+    },
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

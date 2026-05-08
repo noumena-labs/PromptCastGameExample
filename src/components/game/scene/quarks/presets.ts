@@ -78,7 +78,10 @@ const _loader = new THREE.TextureLoader();
  * mark `needsUpdate` once it's ready. If the load fails the white pixel
  * remains, which is visually a benign no-op.
  */
-export function loadVfxTexture(filename: string): THREE.Texture {
+export function loadVfxTexture(
+  filename: string,
+  colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace,
+): THREE.Texture {
   const cached = _textureCache.get(filename);
   if (cached) return cached;
 
@@ -90,7 +93,9 @@ export function loadVfxTexture(filename: string): THREE.Texture {
     tex.image = makeFallbackCanvas();
     tex.needsUpdate = true;
   }
-  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.colorSpace = colorSpace;
+  tex.premultiplyAlpha = false;
+  tex.anisotropy = 4;
   _textureCache.set(filename, tex);
 
   // Asynchronously load the real PNG and copy its image onto our texture.
@@ -103,6 +108,9 @@ export function loadVfxTexture(filename: string): THREE.Texture {
       tex.wrapS = loaded.wrapS;
       tex.wrapT = loaded.wrapT;
       tex.generateMipmaps = true;
+      tex.colorSpace = colorSpace;
+      tex.premultiplyAlpha = false;
+      tex.anisotropy = 4;
       tex.needsUpdate = true;
       // The temp `loaded` texture isn't bound anywhere; let it GC.
       loaded.dispose();
@@ -256,6 +264,8 @@ function buildSmokePlumeDark(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.NormalBlending,
+      alphaTest: 0.02,
+      toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
@@ -293,6 +303,8 @@ function buildSmokePlumeDust(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.NormalBlending,
+      alphaTest: 0.02,
+      toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
@@ -328,6 +340,7 @@ function buildEmbersRising(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
@@ -372,6 +385,7 @@ function buildSparksBurst(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      toneMapped: false,
     }),
     renderMode: RenderMode.StretchedBillBoard,
     speedFactor: 0.05,
@@ -406,6 +420,7 @@ function buildFireCore(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     startTileIndex: new ConstantValue(0),
@@ -501,6 +516,8 @@ function buildDustPuff(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.NormalBlending,
+      alphaTest: 0.02,
+      toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
@@ -543,6 +560,7 @@ function buildLavaDroplets(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      toneMapped: false,
     }),
     renderMode: RenderMode.BillBoard,
     behaviors: [
@@ -586,6 +604,7 @@ function buildLightningArcs(cfg: QuarksPresetConfig): ParticleSystem {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      toneMapped: false,
     }),
     renderMode: RenderMode.StretchedBillBoard,
     speedFactor: 0.08,
