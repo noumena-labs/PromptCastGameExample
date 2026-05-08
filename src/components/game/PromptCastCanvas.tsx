@@ -10,6 +10,7 @@ import { ModelLoader } from "@/components/game/ui/ModelLoader";
 import { PromptOverlay } from "@/components/game/ui/PromptOverlay";
 import { ReticleHUD } from "@/components/game/ui/ReticleHUD";
 import { NetworkBridge } from "@/components/game/networking/NetworkBridge";
+import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
 
 const controls = [
   { name: "forward", keys: ["KeyW", "ArrowUp"] },
@@ -36,6 +37,7 @@ export function PromptCastCanvas() {
         <ReticleHUD />
         <GameHud />
         <PromptOverlay />
+        <MultiplayerDebugPanel />
       </main>
     </ModelLoader>
   );

@@ -37,6 +37,7 @@ const PITCH_MAX = 1.55;
 
 const SPAWN_X = 0;
 const SPAWN_Z = 18;
+const INITIAL_CENTER_POSITION = [SPAWN_X, getGroundHeight(SPAWN_X, SPAWN_Z) + CAPSULE_FOOT_OFFSET, SPAWN_Z] as const;
 
 // Aim/cast geometry. Projectiles spawn at the wizard's shoulder, but every
 // spell resolves against the centered reticle's world intersection point.
@@ -53,7 +54,7 @@ export function LocalWizard() {
   const colliderHandleRef = useRef<number | null>(null);
 
   // Center of the capsule (not the feet). World position used for movement.
-  const center = useRef(new Vector3(SPAWN_X, getGroundHeight(SPAWN_X, SPAWN_Z) + CAPSULE_FOOT_OFFSET, SPAWN_Z));
+  const center = useRef(new Vector3(...INITIAL_CENTER_POSITION));
   const velocity = useRef(new Vector3());
   const yaw = useRef(Math.PI);
   const pitch = useRef(-0.18);
@@ -241,7 +242,6 @@ export function LocalWizard() {
 
     if (!diagLogged.current) {
       diagLogged.current = true;
-      // eslint-disable-next-line no-console
       console.log("[LocalWizard] Rapier ready", {
         bodies: world.bodies.len(),
         colliders: world.colliders.len(),
@@ -400,7 +400,7 @@ export function LocalWizard() {
         ref={bodyRef}
         type="kinematicPosition"
         colliders={false}
-        position={[center.current.x, center.current.y, center.current.z]}
+        position={INITIAL_CENTER_POSITION}
         enabledRotations={[false, false, false]}
       >
         <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} collisionGroups={WIZARD_GROUPS} />

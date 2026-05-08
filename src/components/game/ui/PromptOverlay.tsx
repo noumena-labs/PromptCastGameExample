@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, startTransition } from "react";
 import { generateSpellFromPrompt } from "@/game/ai/cogentSpellGenerator";
 import { SpellGenerationError } from "@/game/ai/spellGenerationError";
 import type { SpellStage } from "@/game/ai/spellLog";
@@ -157,9 +157,11 @@ export function PromptOverlay() {
   useEffect(() => {
     if (!promptOpen) {
       clearAllTimers();
-      setPhase({ kind: "compose" });
-      setThinkingElapsedMs(0);
-      setShowPreviewDetails(false);
+      startTransition(() => {
+        setPhase({ kind: "compose" });
+        setThinkingElapsedMs(0);
+        setShowPreviewDetails(false);
+      });
     }
   }, [promptOpen, clearAllTimers]);
 
@@ -183,7 +185,7 @@ export function PromptOverlay() {
       clearComposeTick();
       return;
     }
-    setNow(Date.now());
+    window.setTimeout(() => setNow(Date.now()), 0);
     composeTickRef.current = window.setInterval(() => setNow(Date.now()), TIMER_TICK_MS);
     return () => clearComposeTick();
   }, [promptOpen, phase.kind, clearComposeTick]);
@@ -194,7 +196,7 @@ export function PromptOverlay() {
       return;
     }
     const startedAt = phase.startedAt;
-    setThinkingElapsedMs(Date.now() - startedAt);
+    window.setTimeout(() => setThinkingElapsedMs(Date.now() - startedAt), 0);
     thinkingTickRef.current = window.setInterval(() => {
       setThinkingElapsedMs(Date.now() - startedAt);
     }, TIMER_TICK_MS);
@@ -214,7 +216,7 @@ export function PromptOverlay() {
     if (shieldRemainingMs > 0) return;
 
     clearComposeTick();
-    setPhase({ kind: "shattering" });
+    startTransition(() => setPhase({ kind: "shattering" }));
     shatterTimer.current = window.setTimeout(() => {
       shatterTimer.current = null;
       exitSanctuary();

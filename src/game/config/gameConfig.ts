@@ -84,7 +84,7 @@ export const INITIAL_CRYSTALS: CrystalState[] = CRYSTAL_SPAWN_POINTS.map((positi
 
 export const INITIAL_MANA_MOTES: ManaMoteState[] = scatterPositions(28, 7, 43, 31337).map((position, index) => ({
   id: `mana-${index + 1}`,
-  position: [position[0], position[1] + 0.4, position[2]],
+  position: [position.x, position.y + 0.4, position.z],
   active: true,
   respawnAt: null,
   decayAt: null,

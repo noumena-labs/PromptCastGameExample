@@ -23,13 +23,16 @@ import type {
   CrystalState,
   DummyTarget,
   GeneratedSpell,
+  HostStateSnapshot,
   LobbyPlayer,
   ManaMoteState,
   MatchMode,
   PlayerState,
+  AppliedHostSnapshotInfo,
   SpellStatusEffectId,
   SequencedCastPayload,
   SequencedCrystalPayload,
+  SequencedManaMotePayload,
   Vec3,
 } from "@/game/types";
 import { projectileMotion } from "@/game/state/projectileMotion";
@@ -82,11 +85,14 @@ export type GameStore = {
   networkSequence: number;
   lastLocalCast: SequencedCastPayload | null;
   lastCrystalCollect: SequencedCrystalPayload | null;
+  lastManaMoteCollect: SequencedManaMotePayload | null;
+  hostSnapshotSequence: number;
+  lastHostSnapshot: AppliedHostSnapshotInfo | null;
   log: string[];
   setMode: (mode: MatchMode, roomCode?: string | null) => void;
   setLocalIdentity: (id: string, name: string, color: string) => void;
   setLocalPlayerProfile: (name: string, color: string) => void;
-  setLobbyPlayers: (players: LobbyPlayer[]) => void;
+  setLobbyPlayers: (players: LobbyPlayer[], pruneMissing?: boolean) => void;
   addLog: (message: string) => void;
   updateLocalTransform: (position: Vec3, rotationY: number, velocity: Vec3) => void;
   upsertRemotePlayer: (player: Partial<PlayerState> & Pick<PlayerState, "id" | "name" | "color">) => void;
@@ -95,8 +101,10 @@ export type GameStore = {
   collectCrystal: (crystalId: string) => void;
   collectCrystalForPlayer: (crystalId: string, playerId: string) => void;
   applyCrystalState: (crystals: CrystalState[]) => void;
+  applyHostSnapshot: (snapshot: HostStateSnapshot) => void;
   respawnCrystals: () => void;
   collectManaMote: (moteId: string) => void;
+  collectManaMoteForPlayer: (moteId: string, playerId: string) => void;
   applyManaMoteState: (manaMotes: ManaMoteState[]) => void;
   respawnManaMotes: () => void;
   dropManaMotesAt: (position: Vec3, count?: number) => void;
@@ -180,6 +188,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   networkSequence: 0,
   lastLocalCast: null,
   lastCrystalCollect: null,
+  lastManaMoteCollect: null,
+  hostSnapshotSequence: 0,
+  lastHostSnapshot: null,
   log: ["PromptCast prototype initialized."],
 
   setMode: (mode, roomCode = null) => set({ mode, roomCode }),
@@ -200,7 +211,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return { players: { ...state.players, [player.id]: { ...player, name, color } } };
     }),
 
-  setLobbyPlayers: (lobbyPlayers) => set({ lobbyPlayers }),
+  setLobbyPlayers: (lobbyPlayers, pruneMissing = false) =>
+    set((state) => {
+      if (!pruneMissing) return { lobbyPlayers };
+      const knownIds = new Set(lobbyPlayers.map((player) => player.id));
+      const players = { ...state.players };
+      for (const id of Object.keys(players)) {
+        if (id !== state.localPlayerId && !knownIds.has(id)) delete players[id];
+      }
+      return { lobbyPlayers, players };
+    }),
 
   addLog: (message) => set((state) => ({ log: [message, ...state.log].slice(0, 5) })),
 
@@ -294,16 +314,74 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   applyCrystalState: (crystals) => set({ crystals }),
 
+  applyHostSnapshot: (snapshot) =>
+    set((state) => {
+      if (snapshot.sequence <= state.hostSnapshotSequence) return state;
+      const players: Record<string, PlayerState> = {};
+      for (const player of snapshot.players) {
+        const current = state.players[player.id];
+        const isLocal = player.id === state.localPlayerId;
+        players[player.id] = {
+          ...player,
+          spellSlots: isLocal ? current?.spellSlots ?? player.spellSlots : player.spellSlots ?? current?.spellSlots ?? [null, null, null, null],
+          statusEffects: player.statusEffects ?? current?.statusEffects ?? [],
+          cooldowns: player.cooldowns ?? current?.cooldowns ?? {},
+        };
+      }
+
+      const localPlayer = players[state.localPlayerId] ?? state.players[state.localPlayerId];
+      if (localPlayer && !players[state.localPlayerId]) players[state.localPlayerId] = localPlayer;
+
+      return {
+        players,
+        crystals: snapshot.crystals,
+        manaMotes: snapshot.manaMotes,
+        dummyTargets: snapshot.dummyTargets,
+        hostSnapshotSequence: snapshot.sequence,
+        lastHostSnapshot: {
+          sequence: snapshot.sequence,
+          serverTime: snapshot.serverTime,
+          receivedAt: now(),
+        },
+      };
+    }),
+
   respawnCrystals: () =>
-    set((state) => ({
-      crystals: state.crystals.map((crystal) =>
-        !crystal.active && crystal.respawnAt && crystal.respawnAt <= now() ? { ...crystal, active: true, respawnAt: null } : crystal,
-      ),
-    })),
+    set((state) => {
+      if (state.mode === "client") return state;
+      return {
+        crystals: state.crystals.map((crystal) =>
+          !crystal.active && crystal.respawnAt && crystal.respawnAt <= now() ? { ...crystal, active: true, respawnAt: null } : crystal,
+        ),
+      };
+    }),
 
   collectManaMote: (moteId) =>
     set((state) => {
       const player = state.players[state.localPlayerId];
+      const mote = state.manaMotes.find((item) => item.id === moteId);
+      if (!player || !mote?.active || player.status === "dead") return state;
+      const sequence = state.networkSequence + 1;
+      const nextMana = Math.min(PLAYER_MAX_MANA, player.mana + mote.amount);
+      const motes = mote.ephemeral
+        ? state.manaMotes.filter((item) => item.id !== moteId)
+        : state.manaMotes.map((item) =>
+            item.id === moteId ? { ...item, active: false, respawnAt: now() + moteRespawnDelay() } : item,
+          );
+      return {
+        networkSequence: sequence,
+        lastManaMoteCollect: { sequence, playerId: player.id, moteId },
+        manaMotes: motes,
+        players: {
+          ...state.players,
+          [player.id]: { ...player, mana: nextMana },
+        },
+      };
+    }),
+
+  collectManaMoteForPlayer: (moteId, playerId) =>
+    set((state) => {
+      const player = state.players[playerId];
       const mote = state.manaMotes.find((item) => item.id === moteId);
       if (!player || !mote?.active || player.status === "dead") return state;
       const nextMana = Math.min(PLAYER_MAX_MANA, player.mana + mote.amount);
@@ -325,6 +403,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   respawnManaMotes: () =>
     set((state) => {
+      if (state.mode === "client") return state;
       const timestamp = now();
       const next: ManaMoteState[] = [];
       for (const mote of state.manaMotes) {
@@ -619,6 +698,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   damageDummy: (dummyId, amount, ownerId) => {
     let scoredPosition: Vec3 | null = null;
     set((state) => {
+      if (state.mode === "client") return state;
       const dummyTargets = state.dummyTargets.map((dummy) => {
         if (dummy.id !== dummyId || dummy.respawnAt) return dummy;
         const health = Math.max(0, dummy.health - amount);
@@ -640,6 +720,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   damagePlayer: (playerId, amount, ownerId) => {
     let killPosition: Vec3 | null = null;
     set((state) => {
+      if (state.mode === "client") return state;
       const player = state.players[playerId];
       if (!player || player.isShielded || player.status === "dead") return state;
       const health = Math.max(0, player.health - amount);
@@ -662,6 +743,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   applyStatusEffect: (playerId, effect, ownerId, sourceSpellId, durationMs, strength) =>
     set((state) => {
+      if (state.mode === "client") return state;
       const player = state.players[playerId];
       if (!player || player.status === "dead" || player.isShielded) return state;
       const expiresAt = now() + durationMs;
@@ -683,6 +765,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   tickStatusEffects: () =>
     set((state) => {
+      if (state.mode === "client") return state;
       const timestamp = now();
       const players = { ...state.players };
       for (const player of Object.values(players)) {
@@ -696,6 +779,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   tickRespawns: () =>
     set((state) => {
+      if (state.mode === "client") return state;
       const timestamp = now();
       const players = { ...state.players };
       Object.values(players).forEach((player, index) => {
@@ -727,14 +811,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   resetMatch: () => {
     projectileMotion.clear();
+    const state = get();
+    if (state.mode === "client") {
+      set({ projectileIds: [], castVfx: [], areas: [], log: ["Awaiting host snapshot.", ...state.log].slice(0, 5) });
+      return;
+    }
+    const currentPlayer = state.players[state.localPlayerId] ?? createLocalPlayer();
+    const localPlayer = {
+      ...createLocalPlayer(),
+      id: state.localPlayerId,
+      name: currentPlayer.name,
+      color: currentPlayer.color,
+    };
     set({
-      players: { [LOCAL_PLAYER_ID]: createLocalPlayer() },
+      players: { [state.localPlayerId]: localPlayer },
       crystals: INITIAL_CRYSTALS.map((crystal) => ({ ...crystal })),
       manaMotes: INITIAL_MANA_MOTES.map((mote) => ({ ...mote })),
       projectileIds: [],
       castVfx: [],
       areas: [],
       dummyTargets: DUMMY_TARGETS.map((dummy) => ({ ...dummy })),
+      hostSnapshotSequence: 0,
+      lastHostSnapshot: null,
+      lastLocalCast: null,
+      lastCrystalCollect: null,
+      lastManaMoteCollect: null,
       promptOpen: false,
       selectedSlot: 0,
       sanctuaryEndsAt: null,

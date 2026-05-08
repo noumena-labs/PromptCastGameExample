@@ -48,7 +48,7 @@ export function GameHud() {
 
       <div className="bottomActions">
         <button type="button" onClick={resetMatch}>
-          Reset
+          {mode === "client" ? "Resync" : "Reset"}
         </button>
         <Link href="/">Lobby</Link>
       </div>

@@ -1,10 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { usePeerSession } from "@/game/networking/usePeerSession";
 import { useGameStore } from "@/game/state/gameStore";
+import type { NetworkMessage } from "@/game/networking/messages";
+import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
 
 const colors = ["#7a1f1f", "#365a3a", "#2c4a7c", "#b88a2c", "#5a2470", "#8a4a1c"];
 
@@ -42,8 +44,26 @@ export default function Home() {
   const setLocalIdentity = useGameStore((state) => state.setLocalIdentity);
   const setLocalPlayerProfile = useGameStore((state) => state.setLocalPlayerProfile);
   const setMode = useGameStore((state) => state.setMode);
+  const localPlayerId = useGameStore((state) => state.localPlayerId);
+  const localIdentityApplied = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!session.peerId || session.role === "offline" || localIdentityApplied.current === session.peerId || localPlayerId === session.peerId) return;
+    localIdentityApplied.current = session.peerId;
+    setLocalIdentity(session.peerId, name || (session.role === "host" ? "Host Wizard" : "Guest Wizard"), color);
+  }, [color, localPlayerId, name, session.peerId, session.role, setLocalIdentity]);
+
+  useEffect(() => {
+    const unsubscribe = peerSession.onMessage((message: NetworkMessage) => {
+      if (message.type !== "match_start") return;
+      setMode("client", message.roomCode);
+      router.push(`/game?mode=client&room=${message.roomCode}`);
+    });
+    return () => unsubscribe();
+  }, [router, setMode]);
 
   const startSolo = () => {
+    peerSession.disconnect();
     setLocalPlayerProfile(name || "Apprentice", color);
     setMode("solo", null);
     router.push("/game");
@@ -67,10 +87,6 @@ export default function Home() {
     setBusy(true);
     try {
       await peerSession.joinRoom(roomCode, name || "Guest Wizard", color);
-      window.setTimeout(() => {
-        const peerId = peerSession.getSnapshot().peerId;
-        if (peerId) setLocalIdentity(peerId, name || "Guest Wizard", color);
-      }, 500);
       setMode("client", roomCode.toUpperCase());
     } finally {
       setBusy(false);
@@ -113,7 +129,7 @@ export default function Home() {
           <button type="button" className="sealButton" onClick={startSolo}>
             Enter the Meadow
           </button>
-          <button type="button" className="sealButton ghost" onClick={() => router.push("/game")}>
+          <button type="button" className="sealButton ghost" onClick={startSolo}>
             Practice Grounds
           </button>
         </div>
@@ -152,6 +168,7 @@ export default function Home() {
               <button type="button" className="sealButton" onClick={startHostedMatch} disabled={!session.connected}>
                 Begin the Duel
               </button>
+              <small>{session.peerOpen ? `${session.connectionCount} joined` : "Opening sigil..."}</small>
             </div>
           ) : null}
         </div>
@@ -184,11 +201,12 @@ export default function Home() {
           <h2>Wizards Gathered</h2>
           {session.players.map((player) => (
             <span key={player.id} style={{ borderColor: player.color }}>
-              {player.name} {player.isHost ? "— Hostkeeper" : ""}
+              {player.name} {player.isHost ? "- Hostkeeper" : ""}
             </span>
           ))}
         </section>
       ) : null}
+      <MultiplayerDebugPanel />
     </main>
   );
 }

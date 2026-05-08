@@ -130,7 +130,6 @@ export async function runSpellPipeline(opts: {
   // ── Balance ──────────────────────────────────────────────────────────────
   currentStage = "balance";
   emitSegmentStart("balance");
-  let balance: SpellBalance;
   const balanceResult = await runBalanceCall({
     engine,
     prompt: cleanPrompt,
@@ -141,7 +140,7 @@ export async function runSpellPipeline(opts: {
       scheduleFlush();
     },
   });
-  balance = balanceResult.balance;
+  const balance: SpellBalance = balanceResult.balance;
   outputs.balance = balanceResult.rawOutput;
   if (pending) flush();
 

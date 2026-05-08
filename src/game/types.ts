@@ -129,6 +129,15 @@ export type DummyTarget = {
   respawnAt: number | null;
 };
 
+export type HostStateSnapshot = {
+  sequence: number;
+  serverTime: number;
+  players: PlayerState[];
+  crystals: CrystalState[];
+  manaMotes: ManaMoteState[];
+  dummyTargets: DummyTarget[];
+};
+
 export type MatchMode = "solo" | "host" | "client";
 
 export type NetworkRole = "offline" | "host" | "client";
@@ -156,4 +165,16 @@ export type SequencedCrystalPayload = {
   sequence: number;
   playerId: string;
   crystalId: string;
+};
+
+export type SequencedManaMotePayload = {
+  sequence: number;
+  playerId: string;
+  moteId: string;
+};
+
+export type AppliedHostSnapshotInfo = {
+  sequence: number;
+  serverTime: number;
+  receivedAt: number;
 };

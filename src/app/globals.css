@@ -417,6 +417,166 @@ h1, h2, h3 {
   border-radius: 4px;
 }
 
+.networkDebug {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  color: var(--parchment-light);
+  pointer-events: auto;
+}
+
+.networkDebugToggle,
+.networkDebugPanel button {
+  padding: 7px 10px;
+  color: var(--parchment-light);
+  background: linear-gradient(135deg, rgba(31, 56, 35, 0.96), rgba(10, 18, 12, 0.96));
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 0.72rem;
+}
+
+.networkDebugPanel {
+  width: min(520px, calc(100vw - 36px));
+  max-height: min(680px, calc(100vh - 84px));
+  margin-top: 8px;
+  padding: 14px;
+  overflow: auto;
+  background: rgba(10, 8, 5, 0.94);
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+.networkDebugHeader,
+.networkDebugActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.networkDebugHeader strong {
+  color: var(--gold-light);
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.networkDebug dl {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) 1fr;
+  gap: 5px 10px;
+  margin: 12px 0;
+  font-size: 0.75rem;
+}
+
+.networkDebug dt {
+  color: var(--gold-light);
+  text-transform: uppercase;
+}
+
+.networkDebug dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: rgba(243, 230, 196, 0.88);
+}
+
+.networkDebugEvents {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 0.72rem;
+}
+
+.networkDebugEvent {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  gap: 7px;
+  align-items: baseline;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid rgba(243, 230, 196, 0.35);
+}
+
+.networkDebugEvent.in { border-left-color: #5a8fc4; }
+.networkDebugEvent.out { border-left-color: #74f7d0; }
+.networkDebugEvent.drop { border-left-color: #c43838; }
+.networkDebugEvent.system { border-left-color: var(--gold-light); }
+
+.networkDebugEvent code,
+.networkDebugEvent small,
+.networkDebugEvent em {
+  overflow-wrap: anywhere;
+}
+
+.networkDebugEvent em {
+  grid-column: 1 / -1;
+  color: #ffb4a8;
+  font-style: normal;
+}
+
+.networkDebugSection {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(184, 138, 44, 0.35);
+}
+
+.networkDebugSection h3 {
+  margin: 0 0 8px;
+  color: var(--gold-light);
+  font-family: inherit;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.networkDebug table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.68rem;
+}
+
+.networkDebug th,
+.networkDebug td {
+  padding: 4px 5px;
+  border-bottom: 1px solid rgba(243, 230, 196, 0.12);
+  text-align: left;
+  vertical-align: top;
+}
+
+.networkDebug th {
+  color: var(--gold-light);
+  font-weight: 700;
+}
+
+.networkDebugChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.networkDebugChips span {
+  padding: 3px 6px;
+  border: 1px solid rgba(243, 230, 196, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.66rem;
+}
+
+.networkDebugChips span.ok {
+  border-color: rgba(116, 247, 208, 0.5);
+  color: #bdf9e7;
+}
+
+.networkDebugChips span.stale {
+  border-color: rgba(255, 180, 168, 0.5);
+  color: #ffcabf;
+}
+
 /* ============================================================
    GAME SHELL
    ============================================================ */
@@ -1929,5 +2089,3 @@ h1, h2, h3 {
   font-style: italic;
   color: var(--crimson-deep);
 }
-
-

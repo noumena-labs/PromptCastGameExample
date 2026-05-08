@@ -20,6 +20,7 @@ export function GameplaySystems() {
 
   useFrame((_, delta) => {
     const state = useGameStore.getState();
+    const hostAuthoritative = state.mode !== "client";
     accumulator.current += delta;
 
     advanceProjectiles(delta, world);
@@ -28,15 +29,17 @@ export function GameplaySystems() {
 
     if (accumulator.current > 0.12) {
       accumulator.current = 0;
-      state.respawnCrystals();
-      state.respawnManaMotes();
-      state.tickRespawns();
-      state.tickStatusEffects();
       state.tickCastVfx();
       state.tickAreas();
       state.tickCooldowns();
-      resolveStatusTicks();
-      resolveAreas();
+      if (hostAuthoritative) {
+        state.respawnCrystals();
+        state.respawnManaMotes();
+        state.tickRespawns();
+        state.tickStatusEffects();
+        resolveStatusTicks();
+        resolveAreas();
+      }
     }
   });
 
@@ -120,8 +123,8 @@ function advanceProjectiles(delta: number, world: World) {
     const stepDistance = vec3Distance(previous, motion.position);
     if (stepDistance <= 0) continue;
 
-    const hit = raycastStep(world, previous, stepDirection, stepDistance, motion.ownerColliderHandle);
-    if (hit) {
+      const hit = raycastStep(world, previous, stepDirection, stepDistance, motion.ownerColliderHandle);
+      if (hit) {
       const impact: Vec3 = [
         previous[0] + stepDirection[0] * hit.timeOfImpact,
         previous[1] + stepDirection[1] * hit.timeOfImpact,
@@ -191,6 +194,7 @@ function raycastStep(world: World, origin: Vec3, direction: Vec3, distance: numb
 
 function resolveDirectHit(colliderHandle: number, spell: GeneratedSpell, ownerId: string) {
   const state = useGameStore.getState();
+  if (state.mode === "client") return;
   const entry = colliderRegistry.get(colliderHandle);
   if (!entry) return;
   if (entry.kind === "dummy") {
