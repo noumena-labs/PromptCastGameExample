@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.19.2",
+    "@dimforge/rapier3d-compat": "0.19.2",
     "@react-three/drei": "latest",
     "@react-three/fiber": "latest",
     "@react-three/rapier": "latest",
@@ -33,5 +33,8 @@
     "eslint": "latest",
     "eslint-config-next": "latest",
     "typescript": "latest"
+  },
+  "resolutions": {
+    "@dimforge/rapier3d-compat": "0.19.2"
   }
 }

@@ -146,20 +146,10 @@
     "@babel/helper-string-parser" "^7.27.1"
     "@babel/helper-validator-identifier" "^7.28.5"
 
-"@dimforge/rapier3d-compat@0.19.2":
+"@dimforge/rapier3d-compat@0.19.2", "@dimforge/rapier3d-compat@~0.12.0":
   version "0.19.2"
   resolved "https://registry.yarnpkg.com/@dimforge/rapier3d-compat/-/rapier3d-compat-0.19.2.tgz#3eaa0557398ea2ffb19f6d94802e718b95ddad66"
   integrity sha512-AZHL1jqUF55QJkJyU1yKeh4ImX2J93bVLIezT1+o0FZqTix6O06MOaqpKoJ4MmbDCsoZmwO+qc471/SDMDm2AA==
-
-"@dimforge/rapier3d-compat@^0.19.2":
-  version "0.19.3"
-  resolved "https://registry.yarnpkg.com/@dimforge/rapier3d-compat/-/rapier3d-compat-0.19.3.tgz#b7092f4c75e696750c817c9ff6046a8d13015864"
-  integrity sha512-mMVdSj1PRTT108s9Swbu2GQOmHbn8kbJANRV5xfczL3s0T4vkgZAuoMRgvBzQcHanpKusbC0ZJj6z3mC3aj3vg==
-
-"@dimforge/rapier3d-compat@~0.12.0":
-  version "0.12.0"
-  resolved "https://registry.yarnpkg.com/@dimforge/rapier3d-compat/-/rapier3d-compat-0.12.0.tgz#7b3365e1dfdc5cd957b45afe920b4ac06c7cd389"
-  integrity sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==
 
 "@emnapi/core@^1.4.3":
   version "1.10.0"
