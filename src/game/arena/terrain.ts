@@ -1,5 +1,5 @@
-export const ARENA_RADIUS = 60;
-export const PLAYABLE_RADIUS = 52;
+export const ARENA_RADIUS = 120;
+export const PLAYABLE_RADIUS = 104;
 
 // Deterministic value noise — fast, smooth, no dependencies.
 function hash2(ix: number, iz: number): number {
@@ -66,7 +66,18 @@ export function getGroundHeight(x: number, z: number): number {
     hill += hillNoise * blend;
   }
 
-  return rolling + microRoll + hill;
+  const terrainHeight = rolling + microRoll + hill;
+
+  // Keep the tower footprint level, then blend smoothly back into meadow terrain.
+  const plateauRadius = 18;
+  const plateauBlendRadius = 30;
+  if (r <= plateauRadius) return 0;
+  if (r < plateauBlendRadius) {
+    const t = smooth((r - plateauRadius) / (plateauBlendRadius - plateauRadius));
+    return terrainHeight * t;
+  }
+
+  return terrainHeight;
 }
 
 export type TerrainGeometryData = {

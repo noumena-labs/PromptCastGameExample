@@ -1,6 +1,6 @@
 import type { CrystalState, DummyTarget, GeneratedSpell, ManaMoteState, Vec3 } from "@/game/types";
 import type { SpellBuildSpec } from "@/game/spells/modules/spellIds";
-import { ARENA_RADIUS, PLAYABLE_RADIUS, scatterPositions } from "@/game/arena/terrain";
+import { ARENA_RADIUS, PLAYABLE_RADIUS, getGroundHeight, scatterPositions } from "@/game/arena/terrain";
 import { composeSpell } from "@/game/spells/spellSchema";
 
 export { ARENA_RADIUS, PLAYABLE_RADIUS };
@@ -13,10 +13,10 @@ export const PLAYER_MAX_MANA = 100;
 /** Mana now comes from collecting motes; passive regen is disabled. */
 export const MANA_REGEN_PER_SECOND = 0;
 export const PLAYER_SPAWN_POINTS: Vec3[] = [
-  [0, 0, 18],
-  [18, 0, 0],
-  [0, 0, -18],
-  [-18, 0, 0],
+  [0, 0, 42],
+  [42, 0, 0],
+  [0, 0, -42],
+  [-42, 0, 0],
 ];
 
 export const MANA_MOTE_VALUE = 15;
@@ -66,13 +66,16 @@ export const MAGIC_MISSILE: GeneratedSpell = {
 const ringPoints = (count: number, radius: number, y: number, offset = 0): Vec3[] =>
   Array.from({ length: count }, (_, index) => {
     const angle = offset + (index / count) * Math.PI * 2;
-    return [Math.cos(angle) * radius, y, Math.sin(angle) * radius];
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    return [x, getGroundHeight(x, z) + y, z];
   });
 
-/** Aura Crystals are rare and sparse — only 8 across the meadow. */
+/** Aura Crystals are sparse, but spread across the larger arena. */
 export const CRYSTAL_SPAWN_POINTS: Vec3[] = [
-  ...ringPoints(3, 14, 1, Math.PI / 6),
-  ...ringPoints(5, 31, 1, Math.PI / 5),
+  ...ringPoints(4, 32, 1, Math.PI / 6),
+  ...ringPoints(4, 62, 1, Math.PI / 5),
+  ...ringPoints(4, 88, 1, Math.PI / 7),
 ];
 
 export const INITIAL_CRYSTALS: CrystalState[] = CRYSTAL_SPAWN_POINTS.map((position, index) => ({
@@ -82,7 +85,7 @@ export const INITIAL_CRYSTALS: CrystalState[] = CRYSTAL_SPAWN_POINTS.map((positi
   respawnAt: null,
 }));
 
-export const INITIAL_MANA_MOTES: ManaMoteState[] = scatterPositions(28, 7, 43, 31337).map((position, index) => ({
+export const INITIAL_MANA_MOTES: ManaMoteState[] = scatterPositions(52, 22, 94, 31337).map((position, index) => ({
   id: `mana-${index + 1}`,
   position: [position.x, position.y + 0.4, position.z],
   active: true,
@@ -92,8 +95,16 @@ export const INITIAL_MANA_MOTES: ManaMoteState[] = scatterPositions(28, 7, 43, 3
   ephemeral: false,
 }));
 
+const dummyTarget = (id: string, x: number, z: number): DummyTarget => ({
+  id,
+  position: [x, getGroundHeight(x, z) + 0.2, z],
+  health: 120,
+  maxHealth: 120,
+  respawnAt: null,
+});
+
 export const DUMMY_TARGETS: DummyTarget[] = [
-  { id: "dummy-north", position: [0, 0.2, -14], health: 120, maxHealth: 120, respawnAt: null },
-  { id: "dummy-east", position: [15, 0.2, -2], health: 120, maxHealth: 120, respawnAt: null },
-  { id: "dummy-west", position: [-15, 0.2, -2], health: 120, maxHealth: 120, respawnAt: null },
+  dummyTarget("dummy-north", 0, -48),
+  dummyTarget("dummy-east", 44, -10),
+  dummyTarget("dummy-west", -44, -10),
 ];

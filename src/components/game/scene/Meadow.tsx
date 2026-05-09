@@ -16,7 +16,7 @@ import {
 } from "@/components/game/scene/materials/terrainMorphMaterial";
 
 export function Meadow() {
-  return <MorphingTerrainMesh size={220} segments={160} />;
+  return <MorphingTerrainMesh size={440} segments={256} />;
 }
 
 export function MorphingTerrainMesh({

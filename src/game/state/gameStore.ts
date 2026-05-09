@@ -57,7 +57,7 @@ function spawnForPlayerId(playerId: string): Vec3 {
     hash = (hash * 31 + playerId.charCodeAt(i)) >>> 0;
   }
   const angle = (hash / 0xffffffff) * Math.PI * 2;
-  const radius = 12 + ((hash >>> 8) % 18);
+  const radius = 34 + ((hash >>> 8) % 43);
   return groundedSpawn([Math.cos(angle) * radius, 0, Math.sin(angle) * radius]);
 }
 

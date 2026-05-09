@@ -38,13 +38,13 @@ const PITCH_MIN = -1.85;
 const PITCH_MAX = 1.55;
 
 const FALLBACK_SPAWN_X = 0;
-const FALLBACK_SPAWN_Z = 18;
+const FALLBACK_SPAWN_Z = 42;
 const FALLBACK_CENTER_POSITION = [FALLBACK_SPAWN_X, getGroundHeight(FALLBACK_SPAWN_X, FALLBACK_SPAWN_Z) + CAPSULE_FOOT_OFFSET, FALLBACK_SPAWN_Z] as const;
 
 // Aim/cast geometry. Projectiles spawn at the wizard's shoulder, but every
 // spell resolves against the centered reticle's world intersection point.
 const SHOULDER_OFFSET_Y = 1.7; // above capsule center, ~chest height
-const CAST_TARGET_DISTANCE = 70;
+const CAST_TARGET_DISTANCE = 125;
 const TERRAIN_RAY_STEPS = 80;
 
 type AimTarget = { point: Vec3; source: "rapier-hit" | "terrain-hit" | "front-fallback" };

@@ -20,8 +20,8 @@ type Tree = { x: number; z: number; y: number; rot: number; scale: number; kind:
 export function Trees() {
   const trees = useMemo<Tree[]>(() => {
     // Sparse inside playable area, dense ring on hills.
-    const inner = scatterPositions(60, 18, PLAYABLE_RADIUS - 4, 11);
-    const ring = scatterPositions(220, PLAYABLE_RADIUS - 2, ARENA_RADIUS + 6, 23);
+    const inner = scatterPositions(130, 24, PLAYABLE_RADIUS - 4, 11);
+    const ring = scatterPositions(360, PLAYABLE_RADIUS - 2, ARENA_RADIUS + 8, 23);
     return [...inner, ...ring].map((tree, idx) => ({
       ...tree,
       kind: idx % 3 === 0 ? "birch" : "oak",

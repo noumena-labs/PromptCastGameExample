@@ -37,7 +37,7 @@ export function Flowers({ color, count, seed, innerRadius = 6 }: { color: string
 }
 
 export function GrassClumps() {
-  const clusters = useMemo(() => scatterPositions(420, 6, PLAYABLE_RADIUS, 113), []);
+  const clusters = useMemo(() => scatterPositions(760, 22, PLAYABLE_RADIUS, 113), []);
   const matrices = useMemo(() => {
     const dummy = new Object3D();
     return clusters.map((c) => {
