@@ -238,6 +238,248 @@ h1, h2, h3 {
   color: var(--crimson-deep);
 }
 
+.heroKeyStrip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px 22px;
+  margin: 22px auto 0;
+  max-width: 720px;
+  font-family: var(--font-flavor);
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+
+.heroKeyStrip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.heroKeyStrip kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--parchment-light), var(--parchment-dark));
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25), inset 0 -2px 0 rgba(122, 80, 30, 0.25);
+}
+
+/* Landing-page footer: marginal keyboard reference at the bottom of the page.
+   Low visual weight by design — players who need it can read it, veterans
+   ignore it. Hairline gold border-top only, italic flavor font. */
+.landingFooter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px 24px;
+  margin: 36px auto 14px;
+  padding: 14px 22px 0;
+  max-width: 820px;
+  border-top: 1px solid rgba(184, 138, 44, 0.35);
+  font-family: var(--font-flavor);
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  opacity: 0.7;
+  transition: opacity 0.18s ease;
+}
+
+.landingFooter:hover {
+  opacity: 0.95;
+}
+
+.landingFooter span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.landingFooter kbd {
+  display: inline-block;
+  padding: 0 6px;
+  font-family: var(--font-display);
+  font-style: normal;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--parchment-light), var(--parchment-dark));
+  border: 1px solid rgba(184, 138, 44, 0.55);
+  border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.18), inset 0 -1px 0 rgba(122, 80, 30, 0.2);
+}
+
+.heroAttribution {
+  margin: 28px auto 0;
+  max-width: 680px;
+  padding: 18px 22px;
+  border-top: 1px solid rgba(184, 138, 44, 0.45);
+  border-bottom: 1px solid rgba(184, 138, 44, 0.25);
+  text-align: center;
+}
+
+.heroAttribution p {
+  margin: 0 0 14px;
+  font-family: var(--font-flavor);
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.heroAttribution strong {
+  color: var(--crimson-deep);
+  font-style: normal;
+  letter-spacing: 0.02em;
+}
+
+.heroAttributionActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.sealButton.small {
+  padding: 8px 16px;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+}
+
+.browserChip {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--parchment-light);
+  background: linear-gradient(135deg, rgba(77, 16, 16, 0.92), rgba(40, 8, 8, 0.92));
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.browserChip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+.browserChip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--gold-light), 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+.browserChipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f3a847;
+  box-shadow: 0 0 8px rgba(243, 168, 71, 0.85);
+  animation: browserChipPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes browserChipPulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+.profileRow {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.profileRow .wizardSilhouette {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 120px;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
+}
+
+.profileFields {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profileFields label {
+  margin-top: 0;
+}
+
+.tabBar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: rgba(122, 80, 30, 0.12);
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  border-radius: 4px;
+}
+
+.tabBar button {
+  flex: 1 1 0;
+  padding: 9px 12px;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+  font-variant: small-caps;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.tabBar button:hover {
+  color: var(--crimson-deep);
+  background: rgba(255, 245, 215, 0.4);
+}
+
+.tabBar button.active {
+  color: var(--parchment-light);
+  background: linear-gradient(135deg, var(--crimson) 0%, var(--crimson-deep) 100%);
+  border-color: var(--gold);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 150, 0.3), inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.tabBar button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--gold-light);
+}
+
+.multiplayerCard [role="tabpanel"] {
+  display: block;
+}
+
+@media (max-width: 540px) {
+  .profileRow {
+    flex-direction: column;
+    align-items: center;
+  }
+  .profileRow .wizardSilhouette {
+    width: 80px;
+    height: 100px;
+  }
+  .heroAttributionActions {
+    flex-direction: column;
+  }
+}
+
 .sealButton {
   position: relative;
   padding: 14px 28px;
@@ -712,26 +954,92 @@ a.sealButton {
   letter-spacing: 0.12em;
 }
 
-.scoreBoard {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 14px;
+/* ============================================================
+   ROLL OF WIZARDS — top-right scoreboard panel
+   ============================================================
+   Replaces the older `.scoreBoard` capsule row. A small parchment scroll
+   with corner flourishes; one row per wizard with sigil + full name + a
+   tally of kills rendered as runic ✦ glyphs (falls back to "✦ × N" past 5).
+*/
+
+.rollOfWizards {
+  position: relative;
+  margin-top: 56px;
+  min-width: 200px;
+  max-width: min(320px, 32vw);
+  padding: 10px 16px 12px;
   background:
-    linear-gradient(135deg, rgba(243, 230, 196, 0.92), rgba(216, 195, 147, 0.92));
+    radial-gradient(ellipse at 30% 20%, rgba(255, 235, 180, 0.55), transparent 55%),
+    linear-gradient(135deg, var(--parchment-light), var(--parchment-dark));
   color: var(--ink);
   border: 2px solid var(--gold);
-  border-radius: 4px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  border-radius: 6px;
+  box-shadow: inset 0 0 24px rgba(122, 80, 30, 0.18), 0 6px 18px rgba(0, 0, 0, 0.5);
 }
 
-.scoreBoard span {
-  padding: 4px 10px;
+.rollOfWizards .tomeCorner {
+  color: var(--gold);
+  width: 22px;
+  height: 22px;
+}
+
+.rollEyebrow {
+  margin: 2px 0 8px;
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  letter-spacing: 0.18em;
+  text-align: center;
+  color: var(--crimson-deep);
+  text-transform: none;
+  font-weight: 700;
+}
+
+.rollList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rollEntry {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+  border-bottom: 1px dashed rgba(184, 138, 44, 0.35);
+}
+
+.rollEntry:last-child {
+  border-bottom: none;
+}
+
+.rollSigil {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--gold);
+  box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.45), 0 0 4px rgba(224, 189, 94, 0.45);
+}
+
+.rollName {
   font-family: var(--font-flavor);
-  font-size: 0.92rem;
-  border: 1px solid;
-  border-radius: 999px;
-  background: rgba(255, 250, 230, 0.45);
+  font-style: italic;
+  font-size: 0.98rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.rollTally {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
 }
 
 /* Crosshair removed: world-space Reticle is rendered in the R3F scene. */
@@ -894,9 +1202,9 @@ a.sealButton {
 .runestone .key {
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   color: var(--crimson-deep);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
 }
 
 .runestone .name {
@@ -934,6 +1242,170 @@ a.sealButton {
   font-size: 1.4rem;
   color: var(--gold-light);
   z-index: 1;
+}
+
+/* Cooldown radial sweep — a conic-gradient overlay that "wipes" clockwise as
+   the spell recovers. The conic-gradient is set inline; this rule supplies
+   the box-model. Sits below `.cooldown` numeric label (z-index 1). */
+.runestone.cooling .cooldownSweep {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Suppress the default flat-overlay tint when the sweep is present so the
+   radial wipe reads cleanly. */
+.runestone.cooling::after {
+  background: rgba(20, 12, 6, 0.18);
+}
+
+/* Mana-empty flash: red pulse when a cast is rejected for insufficient mana. */
+.meter.manaFail {
+  animation: meter-mana-fail 0.6s ease-out;
+}
+
+@keyframes meter-mana-fail {
+  0%   { box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 0 rgba(196, 56, 56, 0.0); }
+  20%  { box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 4px rgba(196, 56, 56, 0.85); }
+  100% { box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 0 rgba(196, 56, 56, 0.0); }
+}
+
+/* Aura crystal pips — three diamond pips representing the 3-aura threshold. */
+.auraPips {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.auraPip {
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: rgba(122, 80, 30, 0.18);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.auraPip.filled {
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  box-shadow: 0 0 6px rgba(224, 189, 94, 0.7), inset 0 -1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* Status-effect chips — small pill rows showing active debuffs/buffs with
+   their remaining duration. */
+.statusChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.82rem;
+  letter-spacing: 0;
+  color: var(--ink);
+  background: rgba(255, 245, 215, 0.7);
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+}
+
+.statusChip small {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.74rem;
+  letter-spacing: 0;
+  color: var(--ink-soft);
+  text-transform: none;
+}
+
+/* HUD footer — bottom-edge keyboard hint strip. Centered, low-opacity,
+   `pointer-events: none` so it never blocks gameplay clicks. Italic flavor
+   text reads as marginalia rather than prominent UI chrome. */
+.hudFooter {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 18px;
+  padding: 6px 14px;
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.78rem;
+  color: var(--parchment-light);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity 0.18s ease;
+}
+
+.hudFooter:hover {
+  opacity: 0.92;
+}
+
+.hudFooter span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.hudFooter kbd {
+  display: inline-block;
+  padding: 0 5px;
+  font-family: var(--font-display);
+  font-style: normal;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--parchment-light), var(--parchment-dark));
+  border: 1px solid rgba(184, 138, 44, 0.65);
+  border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* Aura-full state — when the wizard has all 3 crystals, the row pulses with
+   a gilt glow and the label shifts to "Sanctuary Ready" in crimson. The
+   global `prefers-reduced-motion` rule zeroes the keyframes safely. */
+.auraRow.full {
+  color: var(--crimson-deep);
+  text-transform: none;
+  letter-spacing: 0.04em;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+}
+
+.auraRow.full .auraPip.filled {
+  animation: auraPipGlow 1.6s ease-in-out infinite;
+  box-shadow:
+    0 0 10px rgba(224, 189, 94, 0.95),
+    0 0 16px rgba(224, 189, 94, 0.55),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes auraPipGlow {
+  0%, 100% {
+    box-shadow:
+      0 0 10px rgba(224, 189, 94, 0.95),
+      0 0 16px rgba(224, 189, 94, 0.55),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 16px rgba(224, 189, 94, 1),
+      0 0 26px rgba(224, 189, 94, 0.7),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.25);
+  }
 }
 
 .baseSpell {
@@ -1038,24 +1510,19 @@ a.sealButton {
 .bottomActions {
   position: absolute;
   right: 18px;
-  top: 75px;
+  top: 18px;
   display: flex;
   gap: 10px;
   pointer-events: auto;
+  z-index: 5;
 }
 
 .bottomActions button,
 .bottomActions a {
-  padding: 8px 16px;
+  /* The bottom-action controls now use `.sealButton.small`; this rule is
+     retained as a no-op-ish fallback for any future bare button/link in
+     this region. */
   font-family: var(--font-display);
-  font-size: 0.74rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--parchment-light);
-  background: linear-gradient(135deg, var(--forest), var(--forest-deep));
-  border: 2px solid var(--gold);
-  border-radius: 3px;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
 }
 
 /* ============================================================
@@ -2019,6 +2486,69 @@ a.sealButton {
   50%      { box-shadow: 0 0 16px rgba(122, 31, 31, 0.55); }
 }
 
+/* "Shield Paused" indicator — shown during thinking/previewing/bound/error
+   when the sanctuary timer has been paused server-side. Visually muted
+   compared to the active shield timer to signal "frozen, not draining". */
+.runeCardTimer[data-state="paused"] {
+  color: var(--ink-soft);
+  border-color: rgba(184, 138, 44, 0.45);
+  background: rgba(122, 80, 30, 0.08);
+  animation: none;
+}
+
+.runeCardTimer[data-state="paused"] .runeCardTimerLabel {
+  color: var(--ink-soft);
+}
+
+.runeCardTimer[data-state="paused"] .runeCardTimerValue {
+  color: var(--ink-soft);
+  opacity: 0.85;
+}
+
+/* Tabbed debug panel inside the spell preview "Show details" disclosure. */
+.runeCardDebugTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 4px;
+  background: rgba(122, 80, 30, 0.12);
+  border: 1px solid rgba(184, 138, 44, 0.4);
+  border-radius: 4px;
+}
+
+.runeCardDebugTab {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+  font-variant: small-caps;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.runeCardDebugTab:hover {
+  color: var(--crimson-deep);
+  background: rgba(255, 245, 215, 0.4);
+}
+
+.runeCardDebugTab.active {
+  color: var(--parchment-light);
+  background: linear-gradient(135deg, var(--crimson) 0%, var(--crimson-deep) 100%);
+  border-color: var(--gold);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 150, 0.3), inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.runeCardDebugTab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--gold-light);
+}
+
 /* Drive border-color and box-shadow toward crimson as the shield decays. */
 .runeCard {
   --shieldDecay: 0;
@@ -2328,4 +2858,18 @@ a.sealButton {
   font-family: var(--font-flavor);
   font-style: italic;
   color: var(--crimson-deep);
+}
+
+/* Respect users who prefer reduced motion. Disables decorative animations
+   (rune spin, pulses, modal rises, browser-chip pulse, thinking dots, etc.)
+   while preserving essential transitions like cooldown bar widths. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

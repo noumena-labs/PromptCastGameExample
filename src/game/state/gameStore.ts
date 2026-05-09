@@ -111,6 +111,7 @@ export type GameStore = {
   lastSpellBound: SequencedSpellBoundPayload | null;
   hostSnapshotSequence: number;
   lastHostSnapshot: AppliedHostSnapshotInfo | null;
+  lastManaFailAt: number | null;
   log: string[];
   setMode: (mode: MatchMode, roomCode?: string | null) => void;
   setLocalIdentity: (id: string, name: string, color: string) => void;
@@ -220,6 +221,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lastSpellBound: null,
   hostSnapshotSequence: 0,
   lastHostSnapshot: null,
+  lastManaFailAt: null,
   log: ["PromptCast prototype initialized."],
 
   setMode: (mode, roomCode = null) =>
@@ -585,7 +587,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ...state.players,
           [player.id]: { ...player, status: "alive", isShielded: false, spellSlots: slots },
         },
-        log: [`Bound ${spell.name} to runestone ${state.selectedSlot + 1}.`, ...state.log].slice(0, 5),
+        log: [`Bound ${spell.name} to runestone ${["I", "II", "III", "IV"][state.selectedSlot] ?? state.selectedSlot + 1}.`, ...state.log].slice(0, 5),
       };
     }),
 
@@ -619,6 +621,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     if (ownerId === state.localPlayerId && player.mana < spell.manaCost) {
       audioRuntime.play("wizard_cast_fail", { position: player.position, listener });
+      set({ lastManaFailAt: timestamp });
       return false;
     }
 
@@ -957,6 +960,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lastManaMoteCollect: null,
       lastSanctuaryEvent: null,
       lastSpellBound: null,
+      lastManaFailAt: null,
       promptOpen: false,
       selectedSlot: 0,
       sanctuaryEndsAt: null,

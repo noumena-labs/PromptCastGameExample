@@ -191,6 +191,7 @@ export function LocalWizard() {
       if (promptOpen) return;
 
       if (event.code === "KeyE") {
+        event.preventDefault();
         if (!enterSanctuary()) addLog("Collect 3 Aura Crystals before entering Sanctuary.");
         return;
       }
@@ -201,6 +202,7 @@ export function LocalWizard() {
         event.code === "Digit3" ||
         event.code === "Digit4"
       ) {
+        event.preventDefault();
         const current = useGameStore.getState().players[useGameStore.getState().localPlayerId];
         if (current?.statusEffects.some((effect) => effect.effect === "stun" || effect.effect === "crush" || effect.effect === "stagger")) return;
         const slot =

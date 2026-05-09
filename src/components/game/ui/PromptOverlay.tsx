@@ -13,15 +13,20 @@ import { getAlignment } from "@/game/spells/modules/alignments";
 import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
 
 const examplePrompts = [
-  "A cage of obsidian bars that drops onto the target",
-  "Three orbiting violet shards that crackle with shadow",
-  "A pillar of black flame that vents straight up",
-  "A wall of thorns rising in a curved row",
-  "A frost nova that bursts outward and slows the whole arena",
-  "A meteor shower of small bright rocks raining down",
+  "A roaring fireball that arcs toward the enemy",
+  "A jagged lightning bolt that strikes the target instantly",
+  "A spinning ring of three icy shards that orbit me",
+  "A meteor of red-hot rock that crashes down from the sky",
+  "A wave of stone spikes erupting from the ground in a line",
+  "A golden sunbeam that lances forward in a straight line",
+  "A shadowy aura of decay that clings to me and rots nearby foes",
+  "A halo of radiant light that bursts outward in all directions",
 ];
 
-const slotKeys = ["I", "II", "III", "IV"];
+const slotKeys = ["1", "2", "3", "4"];
+// Display labels — Roman numerals look better on runestones; the actual
+// keybindings remain Digit1–Digit4 in `LocalWizard.tsx`.
+const slotRomans = ["I", "II", "III", "IV"];
 const SHATTER_VFX_MS = 800;
 const TIMER_TICK_MS = 250;
 
@@ -38,6 +43,25 @@ const STAGE_LABEL: Record<PipelineStage, string> = {
   balance: "Balance",
   compose: "Compose",
 };
+
+/**
+ * Friendly label lookup that covers every `SpellStage` value (broader than
+ * `PipelineStage`). Used in the error block where the stage may be `load`,
+ * `validate`, or `repair`. Falls back to the raw string if a future stage is
+ * added without an entry here.
+ */
+const STAGE_FRIENDLY_LABEL: Record<SpellStage, string> = {
+  load: "Awakening the Sage",
+  concept: "Concept",
+  balance: "Balance",
+  compose: "Compose",
+  validate: "Validation",
+  repair: "Repair",
+};
+
+function friendlyStageLabel(stage: SpellStage): string {
+  return STAGE_FRIENDLY_LABEL[stage] ?? String(stage);
+}
 
 function makeInitialStages(): StageProgress {
   return {
@@ -383,6 +407,47 @@ export function PromptOverlay() {
     setPhase({ kind: "compose" });
   };
 
+  /**
+   * Cancel the in-flight chat request and return to compose. Aborting the
+   * controller short-circuits both the streaming progress callback and the
+   * await on `generateSpellFromPrompt`, so we explicitly reset phase here
+   * rather than waiting for the rejected promise to resolve.
+   */
+  const handleCancelThinking = () => {
+    if (phase.kind !== "thinking") return;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    clearThinkingTick();
+    setPhase({ kind: "compose" });
+  };
+
+  /**
+   * "Inscribe Another" — return to compose without leaving the Sanctuary, so
+   * the wizard can bind a second spell within the same shield window.
+   */
+  const handleInscribeAnother = () => {
+    if (phase.kind !== "bound") return;
+    setPrompt(examplePrompts[0]);
+    setPhase({ kind: "compose" });
+  };
+
+  /**
+   * Apply an example prompt, but if the textarea already contains user-typed
+   * content that differs from both the current example and the new one, ask
+   * the wizard to confirm the overwrite first.
+   */
+  const applyExamplePrompt = (example: string) => {
+    const current = prompt.trim();
+    const isExample = examplePrompts.includes(current);
+    if (current.length > 0 && !isExample && current !== example) {
+      const ok = window.confirm("Replace your current prompt with this example?");
+      if (!ok) return;
+    }
+    setPrompt(example);
+  };
+
   const handleBind = () => {
     if (phase.kind !== "previewing") return;
     saveGeneratedSpell(phase.spell);
@@ -423,7 +488,7 @@ export function PromptOverlay() {
         <div className="runeCardHeader">
           <span className="runeCardEyebrow">
             {phase.kind === "bound" || phase.kind === "previewing"
-              ? `Sanctuary · Runestone ${slotKeys[selectedSlot]}`
+              ? `Sanctuary · Runestone ${slotRomans[selectedSlot]}`
               : "Sanctuary"}
           </span>
           <h1 className="runeCardTitle">
@@ -439,6 +504,8 @@ export function PromptOverlay() {
           </h1>
           {composing ? (
             <ShieldTimer remainingMs={shieldRemainingMs} decay={shieldDecay} />
+          ) : phase.kind === "thinking" || phase.kind === "previewing" || phase.kind === "bound" || phase.kind === "error" ? (
+            <PausedShieldIndicator remainingMs={shieldRemainingMs} />
           ) : null}
         </div>
 
@@ -461,7 +528,7 @@ export function PromptOverlay() {
                 <button
                   key={example}
                   type="button"
-                  onClick={() => setPrompt(example)}
+                  onClick={() => applyExamplePrompt(example)}
                 >
                   &ldquo;{example}&rdquo;
                 </button>
@@ -485,6 +552,15 @@ export function PromptOverlay() {
               elapsedMs={thinkingElapsedMs}
             />
             <SageStream transcript={phase.transcript} />
+            <div className="runeCardErrorActions">
+              <button
+                type="button"
+                className="runeCardDismiss"
+                onClick={handleCancelThinking}
+              >
+                Forsake
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -503,7 +579,7 @@ export function PromptOverlay() {
               className="runeCardErrorDetailsToggle"
               onClick={() => setShowPreviewDetails((v) => !v)}
             >
-              {showPreviewDetails ? "Hide details" : "Show details"}
+              {showPreviewDetails ? "Furl the codex" : "Unfurl the codex"}
             </button>
             {showPreviewDetails ? (
               <SpellDebugPanel spell={phase.spell} meta={phase.meta} />
@@ -519,12 +595,12 @@ export function PromptOverlay() {
                     className={slot === selectedSlot ? "selected" : ""}
                     onClick={() => setSelectedSlot(slot)}
                   >
-                    {slotKeys[slot]}
+                    {slotRomans[slot]}
                   </button>
                 ))}
               </div>
               <button type="button" className="runeCardInscribe" onClick={handleBind}>
-                Bind to Runestone {slotKeys[selectedSlot]}
+                Bind to Runestone {slotRomans[selectedSlot]}
               </button>
             </div>
           </div>
@@ -534,12 +610,17 @@ export function PromptOverlay() {
           <div className="runeCardBody">
             <SpellPreviewCard spell={phase.spell} />
             <div className="runeCardBoundHint">
-              Bound to runestone {slotKeys[selectedSlot]}. Press {slotKeys[selectedSlot]} on the
+              Bound to runestone {slotRomans[selectedSlot]}. Press {slotKeys[selectedSlot]} on the
               keyboard to cast.
             </div>
-            <button type="button" className="runeCardInscribe" onClick={close}>
-              Leave Sanctuary
-            </button>
+            <div className="runeCardErrorActions">
+              <button type="button" className="runeCardInscribe" onClick={handleInscribeAnother}>
+                Inscribe Another
+              </button>
+              <button type="button" className="runeCardDismiss" onClick={close}>
+                Leave Sanctuary
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -547,14 +628,14 @@ export function PromptOverlay() {
           <div className="runeCardBody">
             <div className="runeCardError">
               <div className="runeCardErrorMessage">{phase.details.message}</div>
-              <div className="runeCardErrorStage">Stage: {phase.details.stage}</div>
+              <div className="runeCardErrorStage">Stage: {friendlyStageLabel(phase.details.stage)}</div>
               {phase.details.technical || phase.details.rawOutput ? (
                 <button
                   type="button"
                   className="runeCardErrorDetailsToggle"
                   onClick={() => setShowDetails((v) => !v)}
                 >
-                  {showDetails ? "Hide details" : "Show details"}
+                  {showDetails ? "Furl the codex" : "Unfurl the codex"}
                 </button>
               ) : null}
               {showDetails ? (
@@ -606,6 +687,26 @@ function ShieldTimer({ remainingMs, decay }: { remainingMs: number; decay: numbe
   return (
     <div className="runeCardTimer" data-state={stateAttr} aria-live="polite">
       <span className="runeCardTimerLabel">Aura Shield</span>
+      <span className="runeCardTimerValue">
+        {mm}:{ss.toString().padStart(2, "0")}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Displayed during thinking/previewing/bound/error phases when the sanctuary
+ * timer is paused. Clarifies to the wizard that the shield is not draining
+ * while the Sage works (or while reviewing a spell). Mirrors `ShieldTimer`'s
+ * shape so the header doesn't reflow when phases change.
+ */
+function PausedShieldIndicator({ remainingMs }: { remainingMs: number }) {
+  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = totalSeconds % 60;
+  return (
+    <div className="runeCardTimer" data-state="paused" aria-live="polite">
+      <span className="runeCardTimerLabel">Shield Paused</span>
       <span className="runeCardTimerValue">
         {mm}:{ss.toString().padStart(2, "0")}
       </span>
@@ -750,64 +851,102 @@ function SpellPreviewCard({ spell }: { spell: GeneratedSpell }) {
   );
 }
 
+type DebugTab = "summary" | "buildSpec" | "scenes" | "stageOutputs" | "fullJson";
+
+const DEBUG_TABS: { id: DebugTab; label: string }[] = [
+  { id: "summary", label: "Summary" },
+  { id: "buildSpec", label: "Build Spec" },
+  { id: "scenes", label: "Scenes" },
+  { id: "stageOutputs", label: "Stage Outputs" },
+  { id: "fullJson", label: "Full JSON" },
+];
+
 function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: PreviewMeta }) {
+  const [tab, setTab] = useState<DebugTab>("summary");
   const castSummary = describeScene(spell.scenes.cast);
   const travelSummary = describeScene(spell.scenes.travel);
   const impactSummary = describeScene(spell.scenes.impact);
+
   return (
     <div className="runeCardErrorDetails">
-      <div className="runeCardErrorTechnical">
-        <strong>Pipeline:</strong>{" "}
-        elapsed {(meta.elapsedMs / 1000).toFixed(1)}s
+      <div className="runeCardDebugTabs" role="tablist" aria-label="Spell debug sections">
+        {DEBUG_TABS.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === entry.id}
+            className={`runeCardDebugTab${tab === entry.id ? " active" : ""}`}
+            onClick={() => setTab(entry.id)}
+          >
+            {entry.label}
+          </button>
+        ))}
       </div>
-      <div className="runeCardErrorTechnical">
-        <strong>Alignment:</strong> {spell.alignment} · <strong>Delivery:</strong> {spell.deliveryVehicle}
-        {" · "}<strong>Impact shape:</strong> {spell.impactShape}
-        {" · "}<strong>Tier:</strong> {spell.powerTier}
-        {" · "}<strong>Count:</strong> {spell.count}
-        {" · "}<strong>Impact dur:</strong> {spell.impactDurationMs}ms
-      </div>
-      {spell.intentLabel && (
-        <div className="runeCardErrorTechnical">
-          <strong>Intent:</strong> {spell.intentLabel}
-          {spell.intentCorrections?.length ? ` · Corrections: ${spell.intentCorrections.length}` : ""}
-        </div>
-      )}
-      {spell.intentCorrections?.length ? (
-        <pre className="runeCardErrorRaw">{JSON.stringify(spell.intentCorrections, null, 2)}</pre>
+
+      {tab === "summary" ? (
+        <>
+          <div className="runeCardErrorTechnical">
+            <strong>Pipeline:</strong> elapsed {(meta.elapsedMs / 1000).toFixed(1)}s
+          </div>
+          <div className="runeCardErrorTechnical">
+            <strong>Alignment:</strong> {spell.alignment} · <strong>Delivery:</strong> {spell.deliveryVehicle}
+            {" · "}<strong>Impact shape:</strong> {spell.impactShape}
+            {" · "}<strong>Tier:</strong> {spell.powerTier}
+            {" · "}<strong>Count:</strong> {spell.count}
+            {" · "}<strong>Impact dur:</strong> {spell.impactDurationMs}ms
+          </div>
+          {spell.intentLabel && (
+            <div className="runeCardErrorTechnical">
+              <strong>Intent:</strong> {spell.intentLabel}
+              {spell.intentCorrections?.length ? ` · Corrections: ${spell.intentCorrections.length}` : ""}
+            </div>
+          )}
+          {spell.intentCorrections?.length ? (
+            <pre className="runeCardErrorRaw">{JSON.stringify(spell.intentCorrections, null, 2)}</pre>
+          ) : null}
+        </>
       ) : null}
-      <div className="runeCardErrorTechnical">
-        <strong>Build spec:</strong>
-      </div>
-      <pre className="runeCardErrorRaw">{JSON.stringify(spell.buildSpec, null, 2)}</pre>
-      <div className="runeCardErrorTechnical">
-        <strong>Cast scene:</strong>
-      </div>
-      <pre className="runeCardErrorRaw">{castSummary}</pre>
-      <div className="runeCardErrorTechnical">
-        <strong>Travel scene:</strong>
-      </div>
-      <pre className="runeCardErrorRaw">{travelSummary}</pre>
-      <div className="runeCardErrorTechnical">
-        <strong>Impact scene:</strong>
-      </div>
-      <pre className="runeCardErrorRaw">{impactSummary}</pre>
 
-      {(["concept", "balance"] as const).map((stage) => {
-        const out = meta.outputs[stage];
-        if (!out) return null;
-        return (
-          <details key={stage} className="runeCardStageOutput">
-            <summary>{STAGE_LABEL[stage]} output</summary>
-            <pre className="runeCardErrorRaw">{out}</pre>
-          </details>
-        );
-      })}
+      {tab === "buildSpec" ? (
+        <pre className="runeCardErrorRaw">{JSON.stringify(spell.buildSpec, null, 2)}</pre>
+      ) : null}
 
-      <details className="runeCardStageOutput">
-        <summary>Full spell JSON</summary>
+      {tab === "scenes" ? (
+        <>
+          <div className="runeCardErrorTechnical"><strong>Cast scene:</strong></div>
+          <pre className="runeCardErrorRaw">{castSummary}</pre>
+          <div className="runeCardErrorTechnical"><strong>Travel scene:</strong></div>
+          <pre className="runeCardErrorRaw">{travelSummary}</pre>
+          <div className="runeCardErrorTechnical"><strong>Impact scene:</strong></div>
+          <pre className="runeCardErrorRaw">{impactSummary}</pre>
+        </>
+      ) : null}
+
+      {tab === "stageOutputs" ? (
+        <>
+          {(["concept", "balance"] as const).map((stage) => {
+            const out = meta.outputs[stage];
+            if (!out) {
+              return (
+                <div key={stage} className="runeCardErrorTechnical">
+                  <strong>{STAGE_LABEL[stage]}:</strong> <em>(no output captured)</em>
+                </div>
+              );
+            }
+            return (
+              <details key={stage} className="runeCardStageOutput" open>
+                <summary>{STAGE_LABEL[stage]} output</summary>
+                <pre className="runeCardErrorRaw">{out}</pre>
+              </details>
+            );
+          })}
+        </>
+      ) : null}
+
+      {tab === "fullJson" ? (
         <pre className="runeCardErrorRaw">{JSON.stringify(spell, null, 2)}</pre>
-      </details>
+      ) : null}
     </div>
   );
 }
