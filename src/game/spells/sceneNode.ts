@@ -41,6 +41,13 @@ export const sceneShapes = [
   "monolith",
   "crystal_cluster",
   "rock_chunks",
+  // Localized ground deformation patch tied to the impact site. Renderer
+  // selects sub-style (crystal field, lava pool, water puddle, rock juts,
+  // scorched glass, tar pool, cosmic crater) based on alignment + colors.
+  // size = patch radius in meters; arrangeCount = element density 1..12;
+  // motionSpeed drives shader animation rate; seed drives deterministic
+  // placement. shaderId/colors define alignment palette.
+  "terrain_morph_field",
   // three.quarks-backed particle emitter; the actual look comes from
   // `quarksPreset` (see QuarksPresetId in components/game/scene/quarks/presets.ts).
   "quarks_emitter",

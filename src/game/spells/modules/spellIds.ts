@@ -36,7 +36,13 @@ export type CoreVisualMeshId = (typeof coreVisualMeshIds)[number];
 export const travelVfxIds = ["particle_trail", "core_glow", "swirling_vortex"] as const;
 export type TravelVfxId = (typeof travelVfxIds)[number];
 
-export const impactVfxIds = ["burst_explosion", "lingering_cloud", "ground_decal", "flash"] as const;
+export const impactVfxIds = [
+  "burst_explosion",
+  "lingering_cloud",
+  "ground_decal",
+  "flash",
+  "terrain_morph",
+] as const;
 export type ImpactVfxId = (typeof impactVfxIds)[number];
 
 export const spellShaderIds = [

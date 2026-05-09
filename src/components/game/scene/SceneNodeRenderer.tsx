@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
+import * as THREE from "three";
 import { Group, type MeshStandardMaterial } from "three";
 import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
 import {
@@ -336,6 +337,8 @@ function ShapePrimitive({
       return <CrystalCluster node={node} />;
     case "rock_chunks":
       return <RockChunks node={node} />;
+    case "terrain_morph_field":
+      return <TerrainMorphField node={node} variant={variant} opacityMultiplier={opacityMultiplier} />;
     case "quarks_emitter": {
       const preset = (node.quarksPreset ?? "smoke_plume_dark") as QuarksPresetId;
       return (
@@ -514,6 +517,298 @@ function RockChunks({ node }: { node: SceneLeaf }) {
       {chunks.map((c, i) => (
         <mesh key={i} geometry={c.geom} material={mat} position={c.pos} rotation={c.rot} scale={c.scale} castShadow />
       ))}
+    </group>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Terrain morph field
+//
+// Localized ground-deformation overlay rendered at the impact site. Sub-style
+// is dispatched on the leaf's `shaderId` (alignment chooses one in
+// terrainMorphProfileFor in compileVfxPayload):
+//
+//   ice_glass        -> upright crystal ring + flat icy patch
+//   molten_crack     -> animated bubbling lava disc (vertex displacement)
+//   water_ripple     -> rippled water puddle (used if alignment ever maps here)
+//   stone_rune       -> jutting stone chunks ring + glowing rune disc
+//   ground_rune      -> glowing rune disc only (light/lightning)
+//   necrotic_decay   -> dark tar puddle (slow shader pulse)
+//   starfield_core   -> shallow crater with glowing dust + small chunks
+//
+// Geometry stays purely visual (no Rapier collider), parented to the impact
+// area so it follows the AreaSpell lifetime and inherits AreaFootprint
+// position/orientation. Patch radius = node.size * effectScale (already baked
+// into node.size by SceneNodeRenderer's effectScale chain).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const liquidPoolVertex = /* glsl */ `
+varying vec2 vUv;
+varying float vDisp;
+uniform float uTime;
+uniform float uIntensity;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  float a = hash(i), b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
+void main() {
+  vUv = uv;
+  vec3 p = position;
+  float r = length(p.xz);
+  float falloff = smoothstep(1.0, 0.2, r);
+  float n = noise(p.xz * 1.6 + vec2(uTime * 0.6, uTime * 0.4));
+  float bubble = sin(uTime * 2.4 + r * 6.0) * 0.5 + 0.5;
+  float disp = (n - 0.5) * 0.18 * uIntensity * falloff + bubble * 0.05 * falloff;
+  p.y += disp;
+  vDisp = disp;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+}
+`;
+
+const liquidPoolFragment = /* glsl */ `
+varying vec2 vUv;
+varying float vDisp;
+uniform vec3 uColorA;
+uniform vec3 uColorB;
+uniform float uOpacity;
+uniform float uEmissive;
+uniform float uTime;
+
+void main() {
+  vec2 c = vUv - 0.5;
+  float r = length(c) * 2.0;
+  float edge = smoothstep(1.0, 0.55, r);
+  float pulse = 0.5 + 0.5 * sin(uTime * 1.6 + r * 5.0);
+  float mixV = clamp(vDisp * 6.0 + pulse * 0.4, 0.0, 1.0);
+  vec3 col = mix(uColorA, uColorB, mixV);
+  col += uColorB * uEmissive * 0.35 * pulse;
+  float alpha = edge * uOpacity;
+  if (alpha < 0.01) discard;
+  gl_FragColor = vec4(col, alpha);
+}
+`;
+
+function makeLiquidPoolMaterial(opts: {
+  colorA: string;
+  colorB: string;
+  opacity: number;
+  emissive: number;
+  intensity: number;
+}): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uColorA: { value: new THREE.Color(opts.colorA) },
+      uColorB: { value: new THREE.Color(opts.colorB) },
+      uOpacity: { value: opts.opacity },
+      uEmissive: { value: opts.emissive },
+      uIntensity: { value: opts.intensity },
+    },
+    vertexShader: liquidPoolVertex,
+    fragmentShader: liquidPoolFragment,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
+    side: THREE.DoubleSide,
+  });
+}
+
+function tickPoolMaterial(material: THREE.ShaderMaterial, dt: number, opacity: number): void {
+  const t = material.uniforms.uTime as { value: number } | undefined;
+  const o = material.uniforms.uOpacity as { value: number } | undefined;
+  if (t) t.value += dt;
+  if (o) o.value = opacity;
+}
+
+type MorphStyle = "crystal_ring" | "lava_pool" | "stone_juts" | "rune_disc" | "tar_pool" | "cosmic_crater";
+
+function classifyMorphStyle(shaderId: string): MorphStyle {
+  switch (shaderId) {
+    case "ice_glass":
+    case "frost_crystal":
+      return "crystal_ring";
+    case "molten_crack":
+    case "ember_shell":
+    case "flame_core":
+      return "lava_pool";
+    case "stone_rune":
+      return "stone_juts";
+    case "ground_rune":
+    case "halo_ring":
+    case "holy_radiance":
+    case "plasma_arc":
+    case "storm_core":
+    case "chain_bolt":
+      return "rune_disc";
+    case "necrotic_decay":
+    case "void_swirl":
+    case "shadow_smoke":
+      return "tar_pool";
+    case "starfield_core":
+    case "gravity_lens":
+    case "meteor_ember":
+      return "cosmic_crater";
+    default:
+      return "rune_disc";
+  }
+}
+
+function TerrainMorphField({
+  node,
+  variant,
+  opacityMultiplier,
+}: {
+  node: SceneLeaf;
+  variant: "cast" | "travel" | "impact";
+  opacityMultiplier: number;
+}) {
+  const style = classifyMorphStyle(node.shaderId);
+  const r = node.size;
+  const seed = node.seed ?? 0;
+  const overlayOpacity = Math.min(node.opacity, 0.34) * opacityMultiplier;
+
+  // Common pool/ripple/glow material — built once per mount, ticked every frame.
+  const [poolMat] = useState<THREE.ShaderMaterial>(() =>
+    makeLiquidPoolMaterial({
+      colorA: node.color,
+      colorB: node.colorB ?? node.color,
+      opacity: overlayOpacity,
+      emissive: node.emissiveIntensity,
+      intensity: node.intensity ?? 1,
+    }),
+  );
+  useEffect(() => {
+    return () => {
+      poolMat.dispose();
+    };
+  }, [poolMat]);
+  useFrame((_, delta) => {
+    tickPoolMaterial(poolMat, delta * (node.motionSpeed || 1), overlayOpacity);
+  });
+
+  // Solid-mesh material for stones/crystals, ticked for crack glow.
+  const rockMat = useRockMaterial(() => {
+    if (style === "crystal_ring") {
+      return crystalMaterial({
+        colorA: node.color,
+        colorB: node.colorB ?? "#ffffff",
+        emissiveIntensity: 0.8 + node.emissiveIntensity * 0.5,
+      });
+    }
+    return meteorMaterial({
+      colorA: node.color,
+      colorB: node.colorB ?? "#ffaa66",
+      emissiveIntensity: 0.4 + node.emissiveIntensity * 0.4,
+    });
+  });
+
+  // Disc geometry shared across pool styles.
+  const discGeom = useMemo(() => {
+    const g = new THREE.CircleGeometry(r, 48);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  }, [r]);
+  useEffect(() => () => discGeom.dispose(), [discGeom]);
+
+  // Pool/disc with vertex displacement needs a tessellated plane, not a flat circle.
+  const poolGeom = useMemo(() => {
+    const g = new THREE.CircleGeometry(r, 64);
+    // Tessellate by inserting a few inner rings for displacement to bite.
+    g.rotateX(-Math.PI / 2);
+    return g;
+  }, [r]);
+  useEffect(() => () => poolGeom.dispose(), [poolGeom]);
+
+  // Element rings — crystals or rocks scattered around the patch.
+  const elementCount = Math.min(12, Math.max(3, node.arrangeCount));
+  const elements = useMemo(() => {
+    const out: { pos: [number, number, number]; rot: [number, number, number]; scale: number; geom: THREE.BufferGeometry }[] = [];
+    for (let i = 0; i < elementCount; i += 1) {
+      const t = (i + 0.5) / elementCount;
+      const angle = t * Math.PI * 2 + ((seed >>> (i & 7)) & 7) * 0.07;
+      const radius = r * (0.45 + (((seed * (i + 1)) >>> 4) & 31) / 100);
+      const sc = 0.5 + (((seed * (i + 3)) >>> 2) & 63) / 200;
+      let geom: THREE.BufferGeometry;
+      if (style === "crystal_ring") {
+        geom = makeCrystalShard({
+          radius: r * 0.12 * sc,
+          height: r * 0.55 * sc,
+          jitter: 0.12,
+          seed: seed + i * 17,
+        });
+      } else {
+        geom = makeMeteorGeometry({
+          radius: r * 0.18 * sc,
+          detail: 1,
+          displacement: 0.42,
+          seed: seed + i * 11,
+        });
+      }
+      out.push({
+        pos: [Math.cos(angle) * radius, 0, Math.sin(angle) * radius],
+        rot: [(((seed * (i + 5)) >>> 6) & 31) / 100, angle, 0],
+        scale: sc,
+        geom,
+      });
+    }
+    return out;
+  }, [elementCount, r, seed, style]);
+
+  const showElements = style === "crystal_ring" || style === "stone_juts" || style === "cosmic_crater";
+  const showPool = style === "lava_pool" || style === "tar_pool" || style === "cosmic_crater" || style === "rune_disc";
+
+  // Grow-in scale for the first ~250ms of the impact lifetime.
+  const groupRef = useRef<Group>(null);
+  const elapsedRef = useRef(0);
+  useFrame((_, delta) => {
+    elapsedRef.current += delta;
+    if (!groupRef.current) return;
+    const grow = Math.min(1, elapsedRef.current / 0.35);
+    const eased = 1 - (1 - grow) * (1 - grow);
+    groupRef.current.scale.setScalar(eased);
+  });
+
+  return (
+    <group ref={groupRef} scale={0.001}>
+      {showPool && (
+        <mesh geometry={poolGeom} material={poolMat} position={[0, 0.045, 0]} />
+      )}
+      {!showPool && (
+        // Always render a low-opacity decal disc behind crystals/stones so
+        // the patch reads as ground-altered even without a liquid surface.
+        <mesh geometry={discGeom}>
+          <meshBasicMaterial
+            color={node.colorB ?? node.color}
+            transparent
+            opacity={Math.min(0.22, node.opacity * opacityMultiplier * 0.32)}
+            depthWrite={false}
+            polygonOffset
+            polygonOffsetFactor={-1}
+            polygonOffsetUnits={-2}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+      {showElements &&
+        elements.map((el, i) => (
+          <mesh
+            key={i}
+            geometry={el.geom}
+            material={rockMat}
+            position={el.pos}
+            rotation={el.rot}
+            scale={el.scale}
+            castShadow={variant === "impact"}
+          />
+        ))}
     </group>
   );
 }

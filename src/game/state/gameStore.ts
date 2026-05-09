@@ -191,7 +191,8 @@ function hasLingeringImpact(spell: GeneratedSpell): boolean {
   return (
     spell.deliveryVehicle === "aura_orbit" ||
     spell.buildSpec.vfx.impact.includes("lingering_cloud") ||
-    spell.buildSpec.vfx.impact.includes("ground_decal")
+    spell.buildSpec.vfx.impact.includes("ground_decal") ||
+    spell.buildSpec.vfx.impact.includes("terrain_morph")
   );
 }
 

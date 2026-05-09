@@ -1,6 +1,7 @@
 import { getAlignment, type AlignmentDefinition } from "@/game/spells/modules/alignments";
 import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
 import type { SpellAlignmentId, SpellBuildSpec, SpellShaderId } from "@/game/spells/modules/spellIds";
+import { shouldTerrainMorph, terrainMorphSeed, terrainMorphWorldRadius } from "@/game/arena/terrainMorph";
 
 /**
  * Deterministic VFX compiler.
@@ -38,6 +39,11 @@ export function compileVfxPayload(spec: SpellBuildSpec): { cast: SpellScene; tra
   // Keep rendered spell objects at fixed authored size so large AoEs don't
   // stretch rocks, particles, billboards, or procedural geometry.
   const visualSpec = fixedVisualScale(spec);
+  const scenes = compileScenesForVehicle(visualSpec);
+  return injectTerrainMorph(visualSpec, scenes);
+}
+
+function compileScenesForVehicle(visualSpec: SpellBuildSpec) {
   switch (visualSpec.deliveryVehicle) {
     case "projectile_linear":
       return compileLinearProjectileScenes(visualSpec);
@@ -51,6 +57,170 @@ export function compileVfxPayload(spec: SpellBuildSpec): { cast: SpellScene; tra
       return compileGroundEruptionScenes(visualSpec);
     case "aura_orbit":
       return compileAuraOrbitScenes(visualSpec);
+  }
+}
+
+/**
+ * Post-processor that injects an alignment-styled `terrain_morph_field` leaf
+ * into the impact scene whenever the spell physically lands on the ground.
+ *
+ * The compiler — not the LLM — decides this:
+ *   - `projectile_arcing`, `skyfall`, `ground_eruption` ALWAYS terraform the
+ *     ground (lobbed bombs crater the dirt, meteors leave craters, eruptions
+ *     fracture the surface).
+ *   - `projectile_linear` and `instant_hitscan` only morph the ground when
+ *     the LLM explicitly opted in with the `terrain_morph` impact module
+ *     (they often resolve in mid-air against a player).
+ *   - `aura_orbit` is skipped — the impact scene follows the caster and a
+ *     terrain patch dragging behind a moving body looks broken.
+ *
+ * The morph leaf is PREPENDED into `children` so the 6-leaf cap doesn't drop
+ * it; if the cap is already at 6, the last child (lowest-priority decal/dust)
+ * gets replaced.
+ */
+function injectTerrainMorph(
+  spec: SpellBuildSpec,
+  scenes: { cast: SpellScene; travel: SpellScene; impact: SpellScene },
+): { cast: SpellScene; travel: SpellScene; impact: SpellScene } {
+  if (!shouldTerrainMorph(spec)) return scenes;
+  const a = getAlignment(spec.alignment);
+  const morph = terrainMorphLeaf(spec, a);
+  const existing = scenes.impact.children;
+  const next = [morph, ...existing].slice(0, 6);
+  return {
+    ...scenes,
+    impact: { ...scenes.impact, children: next },
+  };
+}
+
+/**
+ * Build the alignment-styled ground-deformation leaf. The renderer reads
+ * `shaderId` + `color/colorB` to pick sub-style (crystal field / lava pool /
+ * water puddle / rock juts / scorched glass / tar pool / cosmic crater).
+ * `size` is the patch radius in meters; `arrangeCount` drives element density;
+ * `motionSpeed` drives shader animation rate; `seed` is deterministic per spec.
+ */
+function terrainMorphLeaf(spec: SpellBuildSpec, a: AlignmentDefinition): SceneLeaf {
+  const profile = terrainMorphProfileFor(spec.alignment);
+  const seed = terrainMorphSeed(spec);
+  const radius = terrainMorphWorldRadius(spec.alignment, 2.17);
+  return node({
+    shape: "terrain_morph_field",
+    shaderId: profile.shaderId,
+    shaderPhase: "decal",
+    color: profile.useDarkBase ? a.palette.dark : a.palette.primary,
+    colorB: profile.accent === "accent" ? a.palette.accent : a.palette.secondary,
+    emissiveIntensity: clampEmit(profile.emissive * spec.modifiers.intensity),
+    size: radius,
+    position: [0, 1.02, 0],
+    // Terrain morph visuals are ground-anchored. `motionSpeed` still drives
+    // material animation in TerrainMorphField, but transform motion would make
+    // the decal/crystals float away from the deformed terrain.
+    motion: "static",
+    motionSpeed: profile.motionSpeed,
+    arrange: "single",
+    arrangeCount: profile.density,
+    arrangeRadius: 0,
+    opacity: profile.opacity,
+    seed,
+    intensity: profile.shaderIntensity,
+  });
+}
+
+type TerrainMorphProfile = {
+  /** Visual sub-style key — renderer dispatches on this via shaderId / colors. */
+  shaderId: SpellShaderId;
+  /** "primary" base for solid styles, "dark" base for liquid/scorch styles. */
+  useDarkBase: boolean;
+  accent: "accent" | "secondary";
+  /** Element density 1..12 (crystals, rock chunks, ripples, etc.). */
+  density: number;
+  emissive: number;
+  opacity: number;
+  motionSpeed: number;
+  /** Multiplier (0..2) used by the renderer shader for animation amplitude. */
+  shaderIntensity: number;
+};
+
+function terrainMorphProfileFor(alignment: SpellAlignmentId): TerrainMorphProfile {
+  switch (alignment) {
+    case "fire":
+      return {
+        shaderId: "molten_crack",
+        useDarkBase: true,
+        accent: "accent",
+        density: 6,
+        emissive: 1.6,
+        opacity: 0.92,
+        motionSpeed: 1.4,
+        shaderIntensity: 1.2,
+      };
+    case "water_ice":
+      return {
+        shaderId: "ice_glass",
+        useDarkBase: false,
+        accent: "accent",
+        density: 9,
+        emissive: 0.8,
+        opacity: 0.9,
+        motionSpeed: 0.9,
+        shaderIntensity: 1.1,
+      };
+    case "lightning":
+      return {
+        shaderId: "ground_rune",
+        useDarkBase: true,
+        accent: "accent",
+        density: 8,
+        emissive: 1.4,
+        opacity: 0.88,
+        motionSpeed: 2.6,
+        shaderIntensity: 1.3,
+      };
+    case "earth":
+      return {
+        shaderId: "stone_rune",
+        useDarkBase: false,
+        accent: "secondary",
+        density: 7,
+        emissive: 0.4,
+        opacity: 1.0,
+        motionSpeed: 0.8,
+        shaderIntensity: 0.9,
+      };
+    case "dark":
+      return {
+        shaderId: "necrotic_decay",
+        useDarkBase: true,
+        accent: "secondary",
+        density: 4,
+        emissive: 0.6,
+        opacity: 0.95,
+        motionSpeed: 0.6,
+        shaderIntensity: 1.0,
+      };
+    case "light":
+      return {
+        shaderId: "ground_rune",
+        useDarkBase: false,
+        accent: "accent",
+        density: 6,
+        emissive: 1.5,
+        opacity: 0.82,
+        motionSpeed: 1.0,
+        shaderIntensity: 1.1,
+      };
+    case "meteor_cosmic":
+      return {
+        shaderId: "starfield_core",
+        useDarkBase: true,
+        accent: "accent",
+        density: 8,
+        emissive: 1.0,
+        opacity: 0.95,
+        motionSpeed: 0.5,
+        shaderIntensity: 1.0,
+      };
   }
 }
 
@@ -176,7 +346,7 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
     ].slice(0, 6),
   };
 
-  const impact = compileGenericImpactScene(spec, a, { lingering: spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal") });
+  const impact = compileGenericImpactScene(spec, a, { lingering: spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal") || spec.vfx.impact.includes("terrain_morph") });
   return { cast, travel, impact };
 }
 
@@ -910,7 +1080,7 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
         seed: skyfallSeed(spec) ^ 0x9e3779b1,
         emissiveIntensity: clampEmit((profile.emissive + 0.6) * m.intensity),
         size: Number((profile.centerSize * m.scale * 1.6).toFixed(2)),
-        position: [0, profile.centerPivotY, 0],
+        position: [0, profile.centerPivotY+0.2, 0],
         rotation: profile.centerRotation,
         motion: "erupt",
         motionSpeed: 1.8,
@@ -924,7 +1094,7 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
         color: a.palette.accent,
         emissiveIntensity: clampEmit(1.3 * m.intensity),
         size: Number((0.95 * m.scale).toFixed(2)),
-        position: [0, 0.04, 0],
+        position: [0, 0.10, 0],
         motion: "expand",
         motionSpeed: 2.6,
         opacity: 0.8,

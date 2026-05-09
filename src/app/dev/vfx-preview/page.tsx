@@ -11,6 +11,7 @@ import { OrbitControls } from "@react-three/drei";
 import { Suspense, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
+import { MorphingTerrainMesh } from "@/components/game/scene/Meadow";
 import {
   QuarksProviderRoot,
 } from "@/components/game/scene/quarks/QuarksProviderRoot";
@@ -42,6 +43,12 @@ import {
 } from "@/game/spells/modules/spellIds";
 import { clampScene, type SceneLeaf, type SpellScene } from "@/game/spells/sceneNode";
 import { compileVfxPayload } from "@/game/spells/vfx/compileVfxPayload";
+import {
+  shouldTerrainMorph,
+  terrainMorphSeed,
+  terrainMorphWorldRadius,
+  type TerrainMorphSource,
+} from "@/game/arena/terrainMorph";
 
 // (preview imports above)
 
@@ -85,6 +92,23 @@ function compilePreviewScene(
 ): SpellScene {
   const scenes = compileVfxPayload(generatedSpec(alignment, deliveryVehicle));
   return clampScene(scenes[phase]);
+}
+
+function previewTerrainMorphSource(spec: SpellBuildSpec, phase: ScenePhase): TerrainMorphSource[] {
+  if (phase !== "impact" || !shouldTerrainMorph(spec)) return [];
+  const now = Date.now();
+  return [
+    {
+      position: [0, 0, 0],
+      alignment: spec.alignment,
+      radius: terrainMorphWorldRadius(spec.alignment, 3.6),
+      powerTier: 3,
+      intensity: spec.modifiers.intensity,
+      createdAt: now - 15_000,
+      expiresAt: now + 60_000,
+      seed: terrainMorphSeed(spec),
+    },
+  ];
 }
 
 function allSceneNodes(scene: SpellScene): SceneLeaf[] {
@@ -167,19 +191,30 @@ function GeneratedShowcase({
   deliveryVehicle: DeliveryVehicleId;
   phase: ScenePhase;
 }) {
+  const spec = useMemo(
+    () => generatedSpec(alignment, deliveryVehicle),
+    [alignment, deliveryVehicle],
+  );
   const scene = useMemo(
     () => compilePreviewScene(alignment, deliveryVehicle, phase),
     [alignment, deliveryVehicle, phase],
   );
+  const morphSources = useMemo(
+    () => previewTerrainMorphSource(spec, phase),
+    [phase, spec],
+  );
 
   return (
-    <SceneNodeRenderer
-      key={`${alignment}:${deliveryVehicle}:${phase}`}
-      scene={scene}
-      spellId={`preview:${alignment}:${deliveryVehicle}:${phase}`}
-      lifetimeSeconds={phase === "impact" ? 2.4 : 4}
-      variant={phase === "impact" ? "impact" : phase === "travel" ? "travel" : "cast"}
-    />
+    <>
+      <MorphingTerrainMesh size={40} segments={96} sources={morphSources} />
+      <SceneNodeRenderer
+        key={`${alignment}:${deliveryVehicle}:${phase}`}
+        scene={scene}
+        spellId={`preview:${alignment}:${deliveryVehicle}:${phase}`}
+        lifetimeSeconds={phase === "impact" ? 2.4 : 4}
+        variant={phase === "impact" ? "impact" : phase === "travel" ? "travel" : "cast"}
+      />
+    </>
   );
 }
 
@@ -296,10 +331,12 @@ export default function VfxPreviewPage() {
           <directionalLight position={[8, 12, 6]} intensity={1.2} castShadow />
           <hemisphereLight args={["#ffe0b0", "#101018", 0.4]} />
           {/* Ground */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-            <planeGeometry args={[40, 40]} />
-            <meshStandardMaterial color="#2a2218" roughness={0.95} />
-          </mesh>
+          {mode === "preset" && (
+            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+              <planeGeometry args={[40, 40]} />
+              <meshStandardMaterial color="#2a2218" roughness={0.95} />
+            </mesh>
+          )}
           <QuarksProviderRoot>
             {mode === "preset" && <RockShowcase />}
             {mode === "preset" ? (

@@ -49,7 +49,8 @@ DELIVERY VEHICLES:
 VFX:
 - coreMesh: none | sphere | jagged_crystal | boulder.
 - travel: 0-3 of particle_trail, core_glow, swirling_vortex.
-- impact: 1-4 of burst_explosion, lingering_cloud, ground_decal, flash.
+- impact: 1-5 of burst_explosion, lingering_cloud, ground_decal, flash, terrain_morph.
+- Use terrain_morph when the spell should reshape the ground at the impact site: ice/crystal fields, lava pools, water puddles or geysers, jutting rock chunks, scorched glass cracks, tar pools, craters, glowing rune patches. It is alignment-styled automatically; just include it in the impact array.
 - shaders: prefer hand-authored preset IDs that fit the alignment and phase. Never invent shader IDs.
 
 SHADER PRESETS:
@@ -207,7 +208,7 @@ function repairVfx(
   return {
     coreMesh: pickEnum(input.coreMesh, coreVisualMeshIds, defaultCoreMesh),
     travel: pickEnumArray(input.travel, travelVfxIds, defaultTravel, 3),
-    impact: pickEnumArray(input.impact, impactVfxIds, defaultImpact, 4),
+    impact: pickEnumArray(input.impact, impactVfxIds, defaultImpact, 5),
     shaders: {
       core: pickShader(shadersInput.core, defaultShaders.core),
       trail: pickShader(shadersInput.trail, defaultShaders.trail),

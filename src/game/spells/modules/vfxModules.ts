@@ -37,4 +37,10 @@ export const impactVfxCatalog: Record<ImpactVfxId, ImpactVfxDefinition> = {
   lingering_cloud: { id: "lingering_cloud", label: "Lingering Cloud", description: "billowing zone that stays at the impact point", lingering: true },
   ground_decal: { id: "ground_decal", label: "Ground Decal", description: "scorch, frost, rune, crater, stain, or glowing sigil", lingering: true },
   flash: { id: "flash", label: "Flash", description: "split-second high-intensity point light and burst shell", lingering: false },
+  terrain_morph: {
+    id: "terrain_morph",
+    label: "Terrain Morph",
+    description: "alignment-styled ground deformation: ice crystal field, lava pool, water puddle, jutting rock chunks, scorched glass, etc., grown from the impact point",
+    lingering: true,
+  },
 };

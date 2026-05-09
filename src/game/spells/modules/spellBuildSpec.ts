@@ -26,7 +26,7 @@ export const spellShaderSelectionSchema = z.object({
 export const spellVfxPayloadSchema = z.object({
   coreMesh: z.enum(coreVisualMeshIds),
   travel: z.array(z.enum(travelVfxIds)).max(3),
-  impact: z.array(z.enum(impactVfxIds)).min(1).max(4),
+  impact: z.array(z.enum(impactVfxIds)).min(1).max(5),
   shaders: spellShaderSelectionSchema,
 });
 
@@ -78,7 +78,7 @@ export function normalizeSpellBuildSpec(value: SpellBuildSpec): SpellBuildSpec {
   const vfx: SpellVfxPayload = {
     coreMesh: value.vfx.coreMesh,
     travel: unique(value.vfx.travel).slice(0, 3),
-    impact: unique(value.vfx.impact).slice(0, 4),
+    impact: unique(value.vfx.impact).slice(0, 5),
     shaders,
   };
   return {
