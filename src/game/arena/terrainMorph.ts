@@ -28,6 +28,12 @@ type TerrainMorphProfile = {
   maxUp: number;
 };
 
+export const TERRAIN_MORPH_REPRESENTATIVE_IMPACT_RADIUS = 3.6;
+
+const TERRAIN_MORPH_MIN_WORLD_RADIUS = 7.5;
+const TERRAIN_MORPH_RADIUS_VISUAL_SCALE = 1.2;
+const TERRAIN_MORPH_DETAIL_SCALE = 0.72;
+
 export function shouldTerrainMorph(spec: Pick<SpellBuildSpec, "deliveryVehicle" | "vfx">): boolean {
   switch (spec.deliveryVehicle) {
     case "projectile_arcing":
@@ -54,7 +60,8 @@ export function terrainMorphSeed(spec: SpellBuildSpec): number {
 
 export function terrainMorphWorldRadius(alignment: SpellAlignmentId, impactRadius: number): number {
   const profile = terrainMorphProfileFor(alignment);
-  return Number(Math.max(5.2, impactRadius * profile.radiusMultiplier).toFixed(2));
+  const radius = impactRadius * profile.radiusMultiplier * TERRAIN_MORPH_RADIUS_VISUAL_SCALE;
+  return Number(Math.max(TERRAIN_MORPH_MIN_WORLD_RADIUS, radius).toFixed(2));
 }
 
 export function terrainMorphSourceFromArea(area: AreaSpellState): TerrainMorphSource | null {
@@ -95,7 +102,7 @@ export function terrainMorphSampleAt(x: number, z: number, source: TerrainMorphS
   const center = 1 - smoothstep(0, 0.58, t);
   const rim = ring(t, 0.58, 0.11);
   const outerRing = ring(t, 0.82, 0.08);
-  const noise = valueNoise(x * 0.42, z * 0.42, source.seed) - 0.5;
+  const noise = valueNoise(x * 0.42 * TERRAIN_MORPH_DETAIL_SCALE, z * 0.42 * TERRAIN_MORPH_DETAIL_SCALE, source.seed) - 0.5;
   const ridges = ridgeSpokes(angle, source.seed, ridgeCountFor(source.alignment)) * edge;
   const wave = Math.sin(t * Math.PI * 8 - ageSec * 5.2 + (source.seed & 31) * 0.1) * edge;
 

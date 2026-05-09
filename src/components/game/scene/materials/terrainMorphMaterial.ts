@@ -26,12 +26,18 @@ uniform vec4 uTerrainMorphParams[TERRAIN_MORPH_MAX];
 uniform vec3 uTerrainMorphColorA[TERRAIN_MORPH_MAX];
 uniform vec3 uTerrainMorphColorB[TERRAIN_MORPH_MAX];
 
+const float TERRAIN_MORPH_DETAIL_SCALE = 0.72;
+
 varying vec3 vTerrainMorphWorldPosition;
 varying float vTerrainMorphMask;
 varying float vTerrainMorphSigned;
 varying float vTerrainMorphStyle;
 varying vec3 vTerrainMorphColorA;
 varying vec3 vTerrainMorphColorB;
+
+vec2 terrainMorphDetail(vec2 p, float frequency) {
+  return p * frequency * TERRAIN_MORPH_DETAIL_SCALE;
+}
 
 float terrainMorphHash(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -110,7 +116,7 @@ float terrainMorphShape(float style, float t, float angle, float ageSec, vec2 wo
   float center = 1.0 - smoothstep(0.0, 0.58, t);
   float rim = terrainMorphRing(t, 0.58, 0.11);
   float outerRing = terrainMorphRing(t, 0.82, 0.08);
-  float noise = terrainMorphNoise(worldXZ * 0.42 + vec2(seedPhase, seedPhase * 0.37)) - 0.5;
+  float noise = terrainMorphNoise(terrainMorphDetail(worldXZ, 0.42) + vec2(seedPhase, seedPhase * 0.37)) - 0.5;
   float ridges = (pow(abs(sin(angle * terrainMorphRidgeCount(style) + seedPhase * 6.28318)), 5.5) * 1.35 - 0.18) * edge;
   float wave = sin(t * 25.1327 - ageSec * 5.2 + seedPhase * 6.28318) * edge;
 
@@ -206,8 +212,8 @@ const terrainMorphDiffuse = /* glsl */ `
     float highTip = smoothstep(0.62, 1.0, signedMeters);
     float neutral = morphMask * (1.0 - max(up, down));
     float yBand = clamp(abs(signedMeters), 0.0, 1.0);
-    float n = terrainMorphFbm(morphP * 0.42 + vec2(uTerrainMorphTime * 0.025, -uTerrainMorphTime * 0.018));
-    float fine = terrainMorphFbm(morphP * 1.35 - vec2(uTerrainMorphTime * 0.045, uTerrainMorphTime * 0.03));
+    float n = terrainMorphFbm(terrainMorphDetail(morphP, 0.42) + vec2(uTerrainMorphTime * 0.025, -uTerrainMorphTime * 0.018));
+    float fine = terrainMorphFbm(terrainMorphDetail(morphP, 1.35) - vec2(uTerrainMorphTime * 0.045, uTerrainMorphTime * 0.03));
     float style = floor(vTerrainMorphStyle + 0.5);
     vec3 base = diffuseColor.rgb;
     vec3 neutralScar = mix(base, vTerrainMorphColorA, 0.32 + n * 0.18);
@@ -219,7 +225,7 @@ const terrainMorphDiffuse = /* glsl */ `
     vec3 glow = vec3(0.0);
 
     if (style == 1.0) {
-      float cracks = terrainMorphVeins(morphP * 0.72 + vec2(uTerrainMorphTime * 0.035, 0.0), 0.54, 0.105);
+      float cracks = terrainMorphVeins(terrainMorphDetail(morphP, 0.72) + vec2(uTerrainMorphTime * 0.035, 0.0), 0.54, 0.105);
       cracks *= smoothstep(0.08, 0.78, down * 1.3 + up * 0.65 + neutral * 0.35);
       vec3 crust = mix(vec3(0.045, 0.025, 0.012), vTerrainMorphColorA, n * 0.32);
       vec3 lavaBed = mix(vec3(1.0, 0.78, 0.12), vTerrainMorphColorB, 0.35 + cracks * 0.45);
@@ -242,8 +248,8 @@ const terrainMorphDiffuse = /* glsl */ `
       effect = mix(effect, darkBlueTip, highTip * morphMask);
       glow += vTerrainMorphColorB * glint * (0.12 + midUp * 0.22);
     } else if (style == 3.0) {
-      float arcs = terrainMorphVeins(morphP * 1.15 + vec2(uTerrainMorphTime * 0.42, -uTerrainMorphTime * 0.18), 0.5, 0.075);
-      float shock = terrainMorphRings(morphP * 0.42, 4.6) * morphMask;
+      float arcs = terrainMorphVeins(terrainMorphDetail(morphP, 1.15) + vec2(uTerrainMorphTime * 0.42, -uTerrainMorphTime * 0.18), 0.5, 0.075);
+      float shock = terrainMorphRings(terrainMorphDetail(morphP, 0.42), 4.6) * morphMask;
       arcs *= smoothstep(0.12, 0.82, neutral * 0.4 + up * 1.1 + down * 0.35);
       vec3 singedLow = mix(vec3(0.018, 0.018, 0.04), vec3(0.08, 0.07, 0.18), n * 0.35);
       vec3 chargedMiddle = mix(vec3(0.32, 0.22, 0.9), vTerrainMorphColorB, arcs * 0.65 + 0.2);
@@ -263,7 +269,7 @@ const terrainMorphDiffuse = /* glsl */ `
       effect = mix(effect, darkStoneTip, highTip * morphMask);
     } else if (style == 5.0) {
       float tar = smoothstep(0.18, 0.78, down + n * 0.35);
-      float corruption = terrainMorphVeins(morphP * 0.78 - vec2(uTerrainMorphTime * 0.04, uTerrainMorphTime * 0.03), 0.48, 0.13);
+      float corruption = terrainMorphVeins(terrainMorphDetail(morphP, 0.78) - vec2(uTerrainMorphTime * 0.04, uTerrainMorphTime * 0.03), 0.48, 0.13);
       vec3 tarPit = mix(vec3(0.006, 0.002, 0.012), vec3(0.12, 0.025, 0.15), n * 0.34 + tar * 0.22);
       vec3 corruptedMiddle = mix(vec3(0.28, 0.08, 0.34), vTerrainMorphColorB, corruption * 0.5 + 0.22);
       vec3 deadTip = mix(vec3(0.018, 0.012, 0.02), vec3(0.06, 0.035, 0.07), fine * 0.35);
@@ -273,8 +279,8 @@ const terrainMorphDiffuse = /* glsl */ `
       effect = mix(effect, deadTip, highTip * morphMask);
       glow += vTerrainMorphColorB * corruption * (neutral * 0.12 + midUp * 0.28 + down * 0.2);
     } else if (style == 6.0) {
-      float rays = terrainMorphVeins(morphP * 0.9 + vec2(uTerrainMorphTime * 0.035, 0.0), 0.56, 0.085);
-      float halo = terrainMorphRings(morphP * 0.34, 1.6) * 0.35;
+      float rays = terrainMorphVeins(terrainMorphDetail(morphP, 0.9) + vec2(uTerrainMorphTime * 0.035, 0.0), 0.56, 0.085);
+      float halo = terrainMorphRings(terrainMorphDetail(morphP, 0.34), 1.6) * 0.35;
       vec3 shadowedGold = mix(vec3(0.10, 0.065, 0.012), vec3(0.34, 0.22, 0.06), n * 0.38);
       vec3 radiantMiddle = mix(vec3(0.82, 0.55, 0.10), vTerrainMorphColorB, rays * 0.42 + 0.2);
       vec3 burntGoldTip = mix(vec3(0.08, 0.055, 0.018), vec3(0.20, 0.14, 0.035), fine * 0.4);
@@ -284,8 +290,8 @@ const terrainMorphDiffuse = /* glsl */ `
       glow += vTerrainMorphColorB * (rays * (0.16 + midUp * 0.32) + halo * 0.16) * morphMask;
     } else if (style == 7.0) {
       float scorch = smoothstep(0.1, 0.78, down + morphMask * 0.35 + n * 0.18);
-      float stars = step(0.965, terrainMorphHash(floor(morphP * 3.2))) * smoothstep(0.32, 0.9, morphMask);
-      float ember = terrainMorphVeins(morphP * 0.62 + vec2(uTerrainMorphTime * 0.025, -uTerrainMorphTime * 0.02), 0.52, 0.12);
+      float stars = step(0.965, terrainMorphHash(floor(terrainMorphDetail(morphP, 3.2)))) * smoothstep(0.32, 0.9, morphMask);
+      float ember = terrainMorphVeins(terrainMorphDetail(morphP, 0.62) + vec2(uTerrainMorphTime * 0.025, -uTerrainMorphTime * 0.02), 0.52, 0.12);
       vec3 voidCrater = mix(vec3(0.006, 0.004, 0.016), vec3(0.09, 0.045, 0.13), scorch * 0.45);
       vec3 cosmicMiddle = mix(vec3(0.28, 0.12, 0.38), vTerrainMorphColorB, ember * 0.32 + stars * 0.35 + 0.18);
       vec3 cooledMeteorTip = mix(vec3(0.018, 0.012, 0.024), vec3(0.10, 0.055, 0.08), fine * 0.36);

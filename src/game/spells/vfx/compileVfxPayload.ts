@@ -1,7 +1,12 @@
 import { getAlignment, type AlignmentDefinition } from "@/game/spells/modules/alignments";
 import type { SceneLeaf, SpellScene } from "@/game/spells/sceneNode";
 import type { SpellAlignmentId, SpellBuildSpec, SpellShaderId } from "@/game/spells/modules/spellIds";
-import { shouldTerrainMorph, terrainMorphSeed, terrainMorphWorldRadius } from "@/game/arena/terrainMorph";
+import {
+  shouldTerrainMorph,
+  TERRAIN_MORPH_REPRESENTATIVE_IMPACT_RADIUS,
+  terrainMorphSeed,
+  terrainMorphWorldRadius,
+} from "@/game/arena/terrainMorph";
 
 /**
  * Deterministic VFX compiler.
@@ -103,7 +108,7 @@ function injectTerrainMorph(
 function terrainMorphLeaf(spec: SpellBuildSpec, a: AlignmentDefinition): SceneLeaf {
   const profile = terrainMorphProfileFor(spec.alignment);
   const seed = terrainMorphSeed(spec);
-  const radius = terrainMorphWorldRadius(spec.alignment, 2.17);
+  const radius = terrainMorphWorldRadius(spec.alignment, TERRAIN_MORPH_REPRESENTATIVE_IMPACT_RADIUS);
   return node({
     shape: "terrain_morph_field",
     shaderId: profile.shaderId,

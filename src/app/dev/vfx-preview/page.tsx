@@ -45,6 +45,7 @@ import { clampScene, type SceneLeaf, type SpellScene } from "@/game/spells/scene
 import { compileVfxPayload } from "@/game/spells/vfx/compileVfxPayload";
 import {
   shouldTerrainMorph,
+  TERRAIN_MORPH_REPRESENTATIVE_IMPACT_RADIUS,
   terrainMorphSeed,
   terrainMorphWorldRadius,
   type TerrainMorphSource,
@@ -101,7 +102,7 @@ function previewTerrainMorphSource(spec: SpellBuildSpec, phase: ScenePhase): Ter
     {
       position: [0, 0, 0],
       alignment: spec.alignment,
-      radius: terrainMorphWorldRadius(spec.alignment, 3.6),
+      radius: terrainMorphWorldRadius(spec.alignment, TERRAIN_MORPH_REPRESENTATIVE_IMPACT_RADIUS),
       powerTier: 3,
       intensity: spec.modifiers.intensity,
       createdAt: now - 15_000,
