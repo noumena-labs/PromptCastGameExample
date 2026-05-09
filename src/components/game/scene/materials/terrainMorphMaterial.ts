@@ -1,7 +1,31 @@
 import * as THREE from "three";
+import type { TerrainMorphSource } from "@/game/arena/terrainMorph";
+
+const MAX_TERRAIN_MORPHS = 4;
+
+const PROFILE_MAX_DOWN = [0, 1.65, 0.85, 0.65, 0.95, 1.9, 0.55, 2.25] as const;
+const PROFILE_MAX_UP = [0, 1.45, 1.5, 1.35, 2.0, 1.25, 1.45, 1.65] as const;
+
+const STYLE_COLORS: Record<number, { colorA: [number, number, number]; colorB: [number, number, number] }> = {
+  1: { colorA: [0.11, 0.035, 0.012], colorB: [1.0, 0.34, 0.08] },
+  2: { colorA: [0.52, 0.92, 1.0], colorB: [0.92, 1.0, 1.0] },
+  3: { colorA: [0.14, 0.11, 0.36], colorB: [1.0, 0.95, 0.25] },
+  4: { colorA: [0.38, 0.27, 0.16], colorB: [0.82, 0.63, 0.36] },
+  5: { colorA: [0.06, 0.02, 0.08], colorB: [0.64, 0.34, 0.8] },
+  6: { colorA: [0.58, 0.44, 0.16], colorB: [1.0, 0.92, 0.48] },
+  7: { colorA: [0.06, 0.025, 0.09], colorB: [0.96, 0.52, 0.22] },
+};
 
 const terrainMorphCommon = /* glsl */ `
+#define TERRAIN_MORPH_MAX ${MAX_TERRAIN_MORPHS}
+
 uniform float uTerrainMorphTime;
+uniform int uTerrainMorphCount;
+uniform vec4 uTerrainMorphPositionRadius[TERRAIN_MORPH_MAX];
+uniform vec4 uTerrainMorphParams[TERRAIN_MORPH_MAX];
+uniform vec3 uTerrainMorphColorA[TERRAIN_MORPH_MAX];
+uniform vec3 uTerrainMorphColorB[TERRAIN_MORPH_MAX];
+
 varying vec3 vTerrainMorphWorldPosition;
 varying float vTerrainMorphMask;
 varying float vTerrainMorphSigned;
@@ -47,6 +71,128 @@ float terrainMorphRings(vec2 p, float speed) {
   float wave = sin(d * 7.0 - uTerrainMorphTime * speed);
   return smoothstep(0.62, 0.96, wave);
 }
+
+float terrainMorphRing(float t, float center, float width) {
+  float d = (t - center) / width;
+  return exp(-d * d * 2.4);
+}
+
+float terrainMorphMaxDown(float style) {
+  if (style < 1.5) return 1.65;
+  if (style < 2.5) return 0.85;
+  if (style < 3.5) return 0.65;
+  if (style < 4.5) return 0.95;
+  if (style < 5.5) return 1.9;
+  if (style < 6.5) return 0.55;
+  return 2.25;
+}
+
+float terrainMorphMaxUp(float style) {
+  if (style < 1.5) return 1.45;
+  if (style < 2.5) return 1.5;
+  if (style < 3.5) return 1.35;
+  if (style < 4.5) return 2.0;
+  if (style < 5.5) return 1.25;
+  if (style < 6.5) return 1.45;
+  return 1.65;
+}
+
+float terrainMorphRidgeCount(float style) {
+  if (style > 3.5 && style < 4.5) return 9.0;
+  if (style > 2.5 && style < 3.5) return 13.0;
+  if (style > 5.5 && style < 6.5) return 10.0;
+  if (style > 6.5) return 11.0;
+  return 7.0;
+}
+
+float terrainMorphShape(float style, float t, float angle, float ageSec, vec2 worldXZ, float seedPhase) {
+  float edge = 1.0 - smoothstep(0.78, 1.0, t);
+  float center = 1.0 - smoothstep(0.0, 0.58, t);
+  float rim = terrainMorphRing(t, 0.58, 0.11);
+  float outerRing = terrainMorphRing(t, 0.82, 0.08);
+  float noise = terrainMorphNoise(worldXZ * 0.42 + vec2(seedPhase, seedPhase * 0.37)) - 0.5;
+  float ridges = (pow(abs(sin(angle * terrainMorphRidgeCount(style) + seedPhase * 6.28318)), 5.5) * 1.35 - 0.18) * edge;
+  float wave = sin(t * 25.1327 - ageSec * 5.2 + seedPhase * 6.28318) * edge;
+
+  if (style < 1.5) return -0.95 * center + 0.95 * rim + 0.28 * ridges + 0.2 * wave + 0.26 * noise * edge;
+  if (style < 2.5) return 0.52 * sin(t * 17.2788 - ageSec * 2.1) * edge + 0.7 * terrainMorphRing(t, 0.42, 0.12) + 0.24 * ridges - 0.2 * center;
+  if (style < 3.5) return 0.78 * terrainMorphRing(t, 0.28 + sin(ageSec * 3.5) * 0.035, 0.055) + 0.66 * terrainMorphRing(t, 0.56, 0.07) + 0.36 * ridges - 0.18 * center;
+  if (style < 4.5) return 0.5 * center + 0.95 * ridges + 0.7 * terrainMorphRing(t, 0.38, 0.13) - 0.28 * outerRing + 0.34 * noise * edge;
+  if (style < 5.5) return -1.2 * center + 0.95 * rim - 0.34 * terrainMorphRing(t, 0.28, 0.12) + 0.18 * wave + 0.3 * noise * edge;
+  if (style < 6.5) return 0.34 * center + 0.72 * terrainMorphRing(t, 0.34, 0.08) + 0.58 * terrainMorphRing(t, 0.64, 0.08) + 0.22 * ridges + 0.18 * wave;
+  return -1.35 * center + 1.1 * rim + 0.42 * outerRing + 0.26 * ridges + 0.22 * noise * edge;
+}
+
+struct TerrainMorphResult {
+  float displacement;
+  float mask;
+  float signedStrength;
+  float style;
+  vec3 colorA;
+  vec3 colorB;
+};
+
+TerrainMorphResult terrainMorphSample(vec2 worldXZ) {
+  TerrainMorphResult result;
+  result.displacement = 0.0;
+  result.mask = 0.0;
+  result.signedStrength = 0.0;
+  result.style = 0.0;
+  result.colorA = vec3(0.0);
+  result.colorB = vec3(0.0);
+  float strongest = 0.0;
+
+  for (int i = 0; i < TERRAIN_MORPH_MAX; i++) {
+    if (i >= uTerrainMorphCount) break;
+    vec4 pr = uTerrainMorphPositionRadius[i];
+    vec4 params = uTerrainMorphParams[i];
+    float radius = max(pr.z, 0.001);
+    vec2 delta = worldXZ - pr.xy;
+    float dist = length(delta);
+    if (dist >= radius) continue;
+
+    float style = params.x;
+    float strength = params.y;
+    float lifeAlpha = params.z;
+    float ageSec = params.w;
+    if (lifeAlpha <= 0.0 || strength <= 0.0) continue;
+
+    float t = dist / radius;
+    float angle = atan(delta.y, delta.x);
+    float shape = terrainMorphShape(style, t, angle, ageSec, worldXZ, pr.w);
+    float raw = shape * strength * lifeAlpha;
+    float clamped = clamp(raw, -terrainMorphMaxDown(style), terrainMorphMaxUp(style));
+    result.displacement += clamped;
+
+    float absDisp = abs(clamped);
+    if (absDisp > strongest) {
+      strongest = absDisp;
+      float edge = 1.0 - smoothstep(0.78, 1.0, t);
+      float signedStrength = clamp(clamped, -1.0, 1.0);
+      result.mask = clamp(abs(signedStrength) * 0.9 + edge * lifeAlpha * 0.22, 0.0, 1.0);
+      result.signedStrength = signedStrength;
+      result.style = style;
+      result.colorA = uTerrainMorphColorA[i];
+      result.colorB = uTerrainMorphColorB[i];
+    }
+  }
+  return result;
+}
+`;
+
+const terrainMorphVertex = /* glsl */ `
+vec4 terrainMorphWorld = modelMatrix * vec4(transformed, 1.0);
+TerrainMorphResult terrainMorph = terrainMorphSample(terrainMorphWorld.xz);
+transformed.y += clamp(terrainMorph.displacement, -3.2, 3.2);
+vTerrainMorphMask = terrainMorph.mask;
+vTerrainMorphSigned = terrainMorph.signedStrength;
+vTerrainMorphStyle = terrainMorph.style;
+vTerrainMorphColorA = terrainMorph.colorA;
+vTerrainMorphColorB = terrainMorph.colorB;
+`;
+
+const terrainMorphWorldPosition = /* glsl */ `
+vTerrainMorphWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 `;
 
 const terrainMorphDiffuse = /* glsl */ `
@@ -164,33 +310,37 @@ export function makeTerrainMorphMaterial(): THREE.MeshStandardMaterial {
     metalness: 0,
     emissive: new THREE.Color("#000000"),
   });
+  const positionRadius = Array.from({ length: MAX_TERRAIN_MORPHS }, () => new THREE.Vector4());
+  const params = Array.from({ length: MAX_TERRAIN_MORPHS }, () => new THREE.Vector4());
+  const colorA = Array.from({ length: MAX_TERRAIN_MORPHS }, () => new THREE.Color());
+  const colorB = Array.from({ length: MAX_TERRAIN_MORPHS }, () => new THREE.Color());
   material.userData.uTerrainMorphTime = { value: 0 };
+  material.userData.uTerrainMorphCount = { value: 0 };
+  material.userData.uTerrainMorphPositionRadius = { value: positionRadius };
+  material.userData.uTerrainMorphParams = { value: params };
+  material.userData.uTerrainMorphColorA = { value: colorA };
+  material.userData.uTerrainMorphColorB = { value: colorB };
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTerrainMorphTime = material.userData.uTerrainMorphTime;
+    shader.uniforms.uTerrainMorphCount = material.userData.uTerrainMorphCount;
+    shader.uniforms.uTerrainMorphPositionRadius = material.userData.uTerrainMorphPositionRadius;
+    shader.uniforms.uTerrainMorphParams = material.userData.uTerrainMorphParams;
+    shader.uniforms.uTerrainMorphColorA = material.userData.uTerrainMorphColorA;
+    shader.uniforms.uTerrainMorphColorB = material.userData.uTerrainMorphColorB;
     shader.vertexShader = shader.vertexShader.replace(
       "#include <common>",
       `#include <common>
-attribute float morphMask;
-attribute float morphSigned;
-attribute float morphStyle;
-attribute vec3 morphColorA;
-attribute vec3 morphColorB;
-varying vec3 vTerrainMorphWorldPosition;
-varying float vTerrainMorphMask;
-varying float vTerrainMorphSigned;
-varying float vTerrainMorphStyle;
-varying vec3 vTerrainMorphColorA;
-varying vec3 vTerrainMorphColorB;`,
+${terrainMorphCommon}`,
+    );
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+${terrainMorphVertex}`,
     );
     shader.vertexShader = shader.vertexShader.replace(
       "#include <worldpos_vertex>",
       `#include <worldpos_vertex>
-vTerrainMorphWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
-vTerrainMorphMask = morphMask;
-vTerrainMorphSigned = morphSigned;
-vTerrainMorphStyle = morphStyle;
-vTerrainMorphColorA = morphColorA;
-vTerrainMorphColorB = morphColorB;`,
+${terrainMorphWorldPosition}`,
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       "#include <common>",
@@ -203,11 +353,88 @@ ${terrainMorphCommon}`,
 ${terrainMorphDiffuse}`,
     );
   };
-  material.customProgramCacheKey = () => "terrainMorphMaterial-v1";
+  material.customProgramCacheKey = () => "terrainMorphMaterial-v2-gpu";
   return material;
 }
 
 export function tickTerrainMorphMaterial(material: THREE.MeshStandardMaterial, time: number): void {
   const uniform = material.userData.uTerrainMorphTime as { value: number } | undefined;
   if (uniform) uniform.value = time;
+}
+
+export function setTerrainMorphSources(
+  material: THREE.MeshStandardMaterial,
+  sources: TerrainMorphSource[],
+  nowMs: number,
+): void {
+  const countUniform = material.userData.uTerrainMorphCount as { value: number } | undefined;
+  const positionUniform = material.userData.uTerrainMorphPositionRadius as { value: THREE.Vector4[] } | undefined;
+  const paramsUniform = material.userData.uTerrainMorphParams as { value: THREE.Vector4[] } | undefined;
+  const colorAUniform = material.userData.uTerrainMorphColorA as { value: THREE.Color[] } | undefined;
+  const colorBUniform = material.userData.uTerrainMorphColorB as { value: THREE.Color[] } | undefined;
+  if (!countUniform || !positionUniform || !paramsUniform || !colorAUniform || !colorBUniform) return;
+
+  let count = 0;
+  for (const source of sources) {
+    if (count >= MAX_TERRAIN_MORPHS) break;
+    if (source.expiresAt <= nowMs) continue;
+    const duration = Math.max(1, source.expiresAt - source.createdAt);
+    const life = clamp01((nowMs - source.createdAt) / duration);
+    const lifeAlpha = smoothstep(0, 0.16, life) * (1 - smoothstep(0.78, 1, life));
+    if (lifeAlpha <= 0) continue;
+    const style = terrainMorphStyleId(source.alignment);
+    const strength = terrainMorphStrength(source, style);
+    const seedPhase = (source.seed & 0xffff) / 0xffff;
+    const ageSeconds = Math.max(0, (nowMs - source.createdAt) / 1000);
+    positionUniform.value[count].set(source.position[0], source.position[2], source.radius, seedPhase);
+    paramsUniform.value[count].set(style, strength, lifeAlpha, ageSeconds);
+    const colors = STYLE_COLORS[style] ?? STYLE_COLORS[1];
+    colorAUniform.value[count].setRGB(colors.colorA[0], colors.colorA[1], colors.colorA[2]);
+    colorBUniform.value[count].setRGB(colors.colorB[0], colors.colorB[1], colors.colorB[2]);
+    count += 1;
+  }
+
+  for (let i = count; i < MAX_TERRAIN_MORPHS; i += 1) {
+    positionUniform.value[i].set(0, 0, 0.001, 0);
+    paramsUniform.value[i].set(0, 0, 0, 0);
+    colorAUniform.value[i].setRGB(0, 0, 0);
+    colorBUniform.value[i].setRGB(0, 0, 0);
+  }
+  countUniform.value = count;
+}
+
+function terrainMorphStyleId(alignment: TerrainMorphSource["alignment"]): number {
+  switch (alignment) {
+    case "fire":
+      return 1;
+    case "water_ice":
+      return 2;
+    case "lightning":
+      return 3;
+    case "earth":
+      return 4;
+    case "dark":
+      return 5;
+    case "light":
+      return 6;
+    case "meteor_cosmic":
+      return 7;
+  }
+}
+
+function terrainMorphStrength(source: TerrainMorphSource, style: number): number {
+  const powerScale = 0.86 + source.powerTier * 0.08;
+  const intensityScale = 0.85 + Math.max(0, source.intensity - 1) * 0.45;
+  const maxUp = PROFILE_MAX_UP[style] ?? 1;
+  const maxDown = PROFILE_MAX_DOWN[style] ?? 1;
+  return Math.max(maxUp, maxDown) * powerScale * intensityScale;
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = clamp01((x - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
