@@ -7,11 +7,22 @@ import {
   type ModelLoadProgress,
 } from "@/game/ai/cogentSpellGenerator";
 import { useGameStore } from "@/game/state/gameStore";
+import { markRuntimeIncompatible } from "@/game/compat/deviceCompat";
+import { ShatteredCrystalScene } from "@/components/game/ui/ShatteredCrystalScene";
 
 type LoadState =
   | { phase: "loading"; progress: ModelLoadProgress | null; phaseStartedAt: number }
   | { phase: "ready" }
+  | { phase: "demoting"; message: string }
   | { phase: "error"; message: string };
+
+/**
+ * How long to linger on the shattered-crystal interstitial after a runtime
+ * cogentlm failure before falling through to the Limited-Mode game shell.
+ * Long enough for the burst animation to read; short enough that the player
+ * isn't stuck staring at a frozen splash.
+ */
+const DEMOTE_INTERSTITIAL_MS = 1200;
 
 const PHASE_VERB: Record<ModelLoadProgress["phase"], string> = {
   metadata: "Reading the runes…",
@@ -54,12 +65,29 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
         await ensureModelLoaded(listener);
         if (!cancelled) setState({ phase: "ready" });
       } catch (err) {
-        if (!cancelled) {
-          setState({
-            phase: "error",
-            message: err instanceof Error ? err.message : "Unknown error loading the Sage.",
-          });
+        if (cancelled) return;
+        // Runtime cogentlm init failure — pre-flight detection said this
+        // device looked compatible, but the engine couldn't actually start.
+        // Demote to Limited Mode: persist a runtime-failure verdict so the
+        // page reload (and future visits) skip the model pipeline entirely,
+        // and update the live store so the rest of the UI (HUD capsule,
+        // PromptOverlay shattered-crystal panel) reflects it without a
+        // refresh. We linger briefly on a shattered-crystal interstitial so
+        // the transition reads as in-world rather than a flicker.
+        const message = err instanceof Error ? err.message : "Unknown error loading the Sage.";
+        try {
+          const result = markRuntimeIncompatible(err);
+          useGameStore.getState().setCompat(result);
+        } catch {
+          // If even the demotion bookkeeping throws (e.g. localStorage
+          // sealed off), fall back to the legacy error splash below.
+          setState({ phase: "error", message });
+          return;
         }
+        setState({ phase: "demoting", message });
+        window.setTimeout(() => {
+          if (!cancelled) setState({ phase: "ready" });
+        }, DEMOTE_INTERSTITIAL_MS);
       }
     })();
 
@@ -73,6 +101,24 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
     const id = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(id);
   }, []);
+
+  // Demotion interstitial: rendered for ~1.2s after a runtime cogentlm
+  // init failure. We deliberately check this *before* the `limited` bypass
+  // because `markRuntimeIncompatible` flips `compat` in the store, which
+  // would otherwise immediately short-circuit to `<>{children}</>` and skip
+  // the shattered-crystal beat entirely.
+  if (state.phase === "demoting") {
+    return (
+      <div className="modelLoader" role="status" aria-live="polite">
+        <ShatteredCrystalScene />
+        <h1 className="modelLoaderTitle">PromptCast</h1>
+        <p className="modelLoaderMessage modelLoaderError">The Sage faltered.</p>
+        <p className="modelLoaderDetail">
+          The Inscription Crystal could not hold. Entering Limited Mode…
+        </p>
+      </div>
+    );
+  }
 
   // Limited Mode bypasses the splash entirely and renders the game shell.
   if (limited) return <>{children}</>;

@@ -12,12 +12,23 @@
  * comes back incompatible, we detect up-front and route incompatible devices
  * into a "Limited Mode" that ships only the static Magic Missile spell.
  *
- * Detection is heuristic-only (no async WebGPU adapter probing). The key
- * signal is mobile-vs-desktop + Chrome-vs-anything-else + WebGPU presence.
- * False positives (we mark someone "limited" when they could actually run
- * the model) are acceptable; false negatives (we let an incapable device
- * through and then the model load hangs) are not.
+ * Detection has two layers:
+ *   1. Heuristic up-front (UA + WebGPU presence). False positives are
+ *      acceptable; false negatives are not.
+ *   2. Runtime promotion: if heuristic detection passes but cogentlm's
+ *      engine creation or model load fails, we demote the device via
+ *      `markRuntimeIncompatible()` and persist the verdict so subsequent
+ *      visits skip the failing init path entirely.
+ *
+ * Both verdicts are cached in `localStorage` (see `compatCache.ts`) keyed by
+ * `navigator.userAgent`. A UA change invalidates the entry automatically.
  */
+
+import {
+  clearCachedCompat,
+  loadCachedCompat,
+  saveCachedCompat,
+} from "./compatCache";
 
 type UserAgentBrand = { brand: string; version: string };
 type NavigatorWithUserAgentData = Navigator & {
@@ -25,7 +36,7 @@ type NavigatorWithUserAgentData = Navigator & {
   gpu?: unknown;
 };
 
-export type CompatReason = "mobile" | "no-webgpu" | "not-chrome";
+export type CompatReason = "mobile" | "no-webgpu" | "not-chrome" | "runtime-failure";
 
 export type CompatResult = {
   /** Overall verdict: true means full local-inference experience is allowed. */
@@ -113,11 +124,75 @@ export function detectCompatibility(): CompatResult {
 /**
  * Memoized variant — the result never changes within a page load (the user
  * cannot swap browsers without reloading), so we compute once and reuse.
+ *
+ * Lookup order:
+ *   1. In-memory `cached` (set on first call this page-load, or by
+ *      `markRuntimeIncompatible()` after a runtime failure).
+ *   2. `localStorage` cache, if the entry's `userAgent` still matches the
+ *      current navigator. This persists both heuristic verdicts and prior
+ *      runtime-failure demotions across page loads.
+ *   3. Fresh heuristic detection. The result is then persisted so future
+ *      visits hit the cache.
  */
 export function getCompatibility(): CompatResult {
   if (cached) return cached;
-  cached = detectCompatibility();
+
+  const fromCache = loadCachedCompat();
+  if (fromCache) {
+    cached = fromCache;
+    return cached;
+  }
+
+  const detected = detectCompatibility();
+  cached = detected;
+  // Skip persisting the SSR placeholder — it's an assumption, not a verdict.
+  // We detect that case by the absence of a real `navigator`.
+  if (typeof navigator !== "undefined") {
+    saveCachedCompat(detected, "heuristic");
+  }
   return cached;
+}
+
+/**
+ * Promote a device to Limited Mode after a runtime failure. Called by the
+ * model loader when `getCogentEngine()` or `ensureModelLoaded()` rejects:
+ * the heuristic said we were fine, but the runtime disagreed.
+ *
+ * The returned verdict preserves the current heuristic flags (so the copy
+ * can still report e.g. that the user IS on Chrome with WebGPU) but flips
+ * `compatible` to false and tags the failure as `"runtime-failure"`. The
+ * verdict is persisted so the next page load short-circuits cogentlm boot
+ * and goes straight to Limited Mode.
+ *
+ * The `error` argument is currently unused in the verdict itself but is
+ * forwarded by the caller into spell-load diagnostics; we accept it here
+ * to make future enrichment (capturing message / name in the cache) a
+ * single-file change.
+ */
+export function markRuntimeIncompatible(_error: unknown): CompatResult {
+  // Re-read raw signals so the verdict reflects the device as it actually
+  // is, not whatever the heuristic happened to memoize earlier.
+  let isMobile = false;
+  let isChrome = true;
+  let hasWebGpu = true;
+  if (typeof navigator !== "undefined") {
+    const nav = navigator as NavigatorWithUserAgentData;
+    isMobile = detectMobile(nav);
+    isChrome = detectChrome(nav);
+    hasWebGpu = detectWebGpu(nav);
+  }
+
+  const result: CompatResult = {
+    compatible: false,
+    reasons: ["runtime-failure"],
+    isMobile,
+    isChrome,
+    hasWebGpu,
+  };
+
+  cached = result;
+  saveCachedCompat(result, "runtime");
+  return result;
 }
 
 /**
@@ -125,6 +200,7 @@ export function getCompatibility(): CompatResult {
  */
 export function __resetCompatibilityCacheForTests(): void {
   cached = null;
+  clearCachedCompat();
 }
 
 /**
@@ -144,10 +220,17 @@ export type CompatCopy = {
 
 export function describeCompat(compat: CompatResult): CompatCopy {
   const { isMobile, isChrome, hasWebGpu, reasons } = compat;
+  const isRuntimeFailure = reasons.includes("runtime-failure");
 
   let title = "Device Not Supported";
   let eyebrow = "~ Compatibility Notice ~";
-  if (isMobile) {
+  if (isRuntimeFailure) {
+    // Runtime-failure copy takes precedence — the heuristic flags may all
+    // look fine (Chrome desktop with WebGPU), so the hardware-flavored
+    // titles below would be misleading.
+    title = "The Sage Faltered";
+    eyebrow = "~ A Late Calamity ~";
+  } else if (isMobile) {
     title = "Desktop Required";
     eyebrow = "~ A Desk Awaits ~";
   } else if (!isChrome) {
@@ -159,21 +242,31 @@ export function describeCompat(compat: CompatResult): CompatCopy {
   }
 
   const bullets: string[] = [];
-  if (isMobile) {
+  if (isRuntimeFailure) {
     bullets.push(
-      "PromptCast runs a small language model directly in your browser to forge spells. Mobile devices lack the GPU and memory headroom required.",
+      "The rite began, but the Inscription Crystal cracked beneath the weight of it. The local Sage could not be summoned on this device, even though the omens looked fair.",
     );
-  }
-  if (!isChrome && !isMobile) {
     bullets.push(
-      "Spell inscription depends on WebGPU features that are stable today only in Chrome on desktop. Most recent Mac, Windows, and Linux machines work.",
+      "This often means the WebGPU runtime, the worker, or device memory could not bear the LFM2 model. The verdict has been remembered, so future visits will go straight to Limited Mode.",
     );
+  } else {
+    if (isMobile) {
+      bullets.push(
+        "PromptCast runs a small language model directly in your browser to forge spells. Mobile devices lack the GPU and memory headroom required.",
+      );
+    }
+    if (!isChrome && !isMobile) {
+      bullets.push(
+        "Spell inscription depends on WebGPU features that are stable today only in Chrome on desktop. Most recent Mac, Windows, and Linux machines work.",
+      );
+    }
+    if (!hasWebGpu && !isMobile) {
+      bullets.push(
+        "Your browser does not expose WebGPU. The local Sage cannot speak without it.",
+      );
+    }
   }
-  if (!hasWebGpu && !isMobile) {
-    bullets.push(
-      "Your browser does not expose WebGPU. The local Sage cannot speak without it.",
-    );
-  }
+
   bullets.push(
     "You may still enter the meadow in Limited Mode \u2014 you will wield the basic Magic Missile, but the Inscription Crystal will lie shattered, and no new spells may be bound.",
   );
@@ -182,6 +275,9 @@ export function describeCompat(compat: CompatResult): CompatCopy {
     eyebrow,
     title,
     bullets,
-    showInstallChrome: !isChrome && !isMobile && reasons.length > 0,
+    // A runtime failure on Chrome desktop is not solved by installing
+    // Chrome, so suppress the CTA in that case even when `!isChrome` would
+    // otherwise be falsy.
+    showInstallChrome: !isRuntimeFailure && !isChrome && !isMobile && reasons.length > 0,
   };
 }
