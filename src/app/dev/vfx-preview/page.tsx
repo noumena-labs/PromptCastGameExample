@@ -12,6 +12,7 @@ import { Suspense, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
 import { MorphingTerrainMesh } from "@/components/game/scene/Meadow";
+import { PostFX } from "@/components/game/scene/PostFX";
 import {
   QuarksProviderRoot,
 } from "@/components/game/scene/quarks/QuarksProviderRoot";
@@ -326,7 +327,16 @@ export default function VfxPreviewPage() {
           Drag to orbit. Preset mode includes standalone rock shader props; generated mode shows only the compiled spell scene.
         </div>
       </div>
-      <Canvas shadows camera={{ position: [0, 6, 14], fov: 55 }}>
+      <Canvas
+        shadows
+        camera={{ position: [0, 6, 14], fov: 55 }}
+        gl={{
+          antialias: false,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.0,
+          powerPreference: "high-performance",
+        }}
+      >
         <Suspense fallback={null}>
           <ambientLight intensity={0.35} />
           <directionalLight position={[8, 12, 6]} intensity={1.2} castShadow />
@@ -351,6 +361,7 @@ export default function VfxPreviewPage() {
             )}
           </QuarksProviderRoot>
           <OrbitControls target={[0, 1, 0]} />
+          <PostFX />
         </Suspense>
       </Canvas>
     </div>

@@ -4,7 +4,9 @@ import { KeyboardControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { Suspense } from "react";
+import * as THREE from "three";
 import { ArenaScene } from "@/components/game/scene/ArenaScene";
+import { PostFX } from "@/components/game/scene/PostFX";
 import { QuarksProviderRoot } from "@/components/game/scene/quarks/QuarksProviderRoot";
 import { GameHud } from "@/components/game/ui/GameHud";
 import { ModelLoader } from "@/components/game/ui/ModelLoader";
@@ -44,7 +46,17 @@ export function PromptCastCanvas() {
         ) : (
           <>
             <KeyboardControls map={controls}>
-              <Canvas shadows camera={{ position: [0, 9, 28], fov: 60 }} dpr={[1, 1.6]}>
+              <Canvas
+                shadows
+                camera={{ position: [0, 9, 28], fov: 60 }}
+                dpr={[1, 1.6]}
+                gl={{
+                  antialias: false,
+                  toneMapping: THREE.ACESFilmicToneMapping,
+                  toneMappingExposure: 1.0,
+                  powerPreference: "high-performance",
+                }}
+              >
                 <Suspense fallback={null}>
                   {/* QuarksProviderRoot owns the single BatchedRenderer for the
                       whole scene; every <QuarksEmitterNode> registers with it. */}
@@ -53,6 +65,7 @@ export function PromptCastCanvas() {
                       <ArenaScene />
                     </Physics>
                   </QuarksProviderRoot>
+                  <PostFX />
                 </Suspense>
               </Canvas>
             </KeyboardControls>
