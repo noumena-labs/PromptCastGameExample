@@ -52,7 +52,10 @@ export const MAGIC_MISSILE: GeneratedSpell = {
   ...composeSpell({ prompt: "A reliable bright bolt for steady pressure.", concept: magicMissileSpec, balance: { powerTier: 1 } }),
   id: "magic_missile",
   name: "Magic Missile",
-  damage: 15,
+  // Magic Missile is the default starter spell; balanced as a baseline so
+  // crafted spells feel meaningfully stronger. Damage was 15 (massively
+  // outclassed crafted tier-1 spells); now 8 — two missiles ≈ one crafted bolt.
+  damage: 8,
   speed: 30,
   radius: 0.55,
   durationMs: 2400,

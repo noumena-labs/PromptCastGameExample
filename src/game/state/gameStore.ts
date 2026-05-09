@@ -627,6 +627,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const cooldowns = ownerId === state.localPlayerId ? { ...player.cooldowns, [spell.id]: timestamp + spell.cooldownMs } : player.cooldowns;
     const nextPlayer = ownerId === state.localPlayerId ? { ...player, mana: Math.max(0, player.mana - spell.manaCost), cooldowns } : player;
+    // Only allocate a new players map when the casting player actually
+    // changed (i.e. local cast deducted mana / set cooldown). For remote
+    // replays the existing reference is reused — every component subscribed
+    // to `players` skips its re-render in that case.
+    const playersUpdate = nextPlayer === player ? state.players : { ...state.players, [ownerId]: nextPlayer };
 
     const isLocal = ownerId === state.localPlayerId;
     const sequence = isLocal ? state.networkSequence + 1 : state.networkSequence;
@@ -664,7 +669,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       audioRuntime.play(spellAudioCue(spell.alignment, "linger_loop"), { position: resolvedPoint, listener, volume: 0.72 });
       set({
         ...networkUpdate,
-        players: { ...state.players, [ownerId]: nextPlayer },
+        players: playersUpdate,
         castVfx: [...state.castVfx, castVfx],
         areas: [
           ...state.areas,
@@ -720,7 +725,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       set({
         ...networkUpdate,
-        players: { ...state.players, [ownerId]: nextPlayer },
+        players: playersUpdate,
         castVfx: [...state.castVfx, castVfx],
         projectileIds: [...state.projectileIds, ...newMotions],
       });
@@ -774,7 +779,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     set({
       ...networkUpdate,
-      players: { ...state.players, [ownerId]: nextPlayer },
+      players: playersUpdate,
       castVfx: [...state.castVfx, castVfx],
       projectileIds: [...state.projectileIds, ...newMotions],
     });
@@ -788,7 +793,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return get().castSpell(spell, origin, direction, targetPoint);
   },
 
-  tickCooldowns: () => set((state) => ({ players: { ...state.players } })),
+  // Cooldowns are stored as absolute-time stamps on each player; they do not
+  // need active eviction. Cooldown reads compare `cooldowns[spellId] > now()`
+  // at cast time, so an explicit tick is unnecessary. Kept as a no-op for
+  // backwards compatibility with the gameplay tick loop.
+  tickCooldowns: () => undefined,
 
   tickCastVfx: () =>
     set((state) => {

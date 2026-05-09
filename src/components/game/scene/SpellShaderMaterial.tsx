@@ -19,6 +19,12 @@ export function SpellShaderMaterial({
   const ref = useRef<ShaderMaterial>(null);
   const preset = getShaderPreset(shaderId);
   const program = getSpellShaderProgram(shaderId);
+
+  // Build uniforms once per shader/preset identity. `uOpacity` is then
+  // updated every frame via useFrame; including opacityMultiplier in the
+  // deps would otherwise cause this object (and its two Color allocations)
+  // to be rebuilt every time the parent recomputes opacity, which can run
+  // per-store-change for impact nodes.
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
@@ -29,14 +35,19 @@ export function SpellShaderMaterial({
       uSpeed: { value: preset.speed },
       uOpacity: { value: preset.opacity * opacityMultiplier },
     }),
-    [preset.colorA, preset.colorB, preset.distortion, preset.intensity, preset.opacity, preset.speed, opacityMultiplier],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shaderId],
   );
 
   useFrame((_, delta) => {
-    if (!animated) return;
-    if (!ref.current) return;
-    ref.current.uniforms.uTime.value += delta;
-    ref.current.uniforms.uOpacity.value = preset.opacity * opacityMultiplier;
+    const mat = ref.current;
+    if (!mat) return;
+    if (animated) {
+      mat.uniforms.uTime.value += delta;
+    }
+    // uOpacity is the only frame-mutable visual we drive externally; safe to
+    // write each frame regardless of `animated`.
+    mat.uniforms.uOpacity.value = preset.opacity * opacityMultiplier;
   });
 
   return (

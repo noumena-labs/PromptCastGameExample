@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile } from "@/game/playerProfile";
+import { prewarmAlignmentsIdle, prewarmMagicMissile } from "@/game/spells/vfx/prewarm";
 import { useGameStore } from "@/game/state/gameStore";
 
 const PromptCastCanvas = dynamic(() => import("@/components/game/PromptCastCanvas").then((module) => module.PromptCastCanvas), {
@@ -27,6 +28,15 @@ function GameClientInner() {
   const setMode = useGameStore((state) => state.setMode);
   const setLocalIdentity = useGameStore((state) => state.setLocalIdentity);
   const addLog = useGameStore((state) => state.addLog);
+
+  // Prewarm Magic Missile assets (textures + audio) immediately on mount so
+  // the first cast doesn't pay the network/decode/GPU-upload cost mid-frame.
+  // After that's done, schedule the remaining alignments during idle time.
+  useEffect(() => {
+    void prewarmMagicMissile().then(() => {
+      prewarmAlignmentsIdle();
+    });
+  }, []);
 
   useEffect(() => {
     const mode = params.get("mode");

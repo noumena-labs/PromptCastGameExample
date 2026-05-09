@@ -36,6 +36,30 @@ class AudioRuntime {
     this.unlocked = true;
   }
 
+  /**
+   * Pre-fetch and decode audio cues so the first `play()` doesn't pay the
+   * network + decodeAudioData cost on the audio thread (a common source of
+   * frame jitter on the very first cast of any spell flavor).
+   *
+   * Safe to call before user gesture (no playback occurs); decoding requires
+   * an AudioContext but the Promise can sit pending until ensureContext runs.
+   * Returns a Promise that resolves when all cues finish loading.
+   */
+  prewarm(ids: AudioCueId[]): Promise<void> {
+    // Touch the context lazily; on environments where construction must wait
+    // for a user gesture, we defer to first play() instead.
+    try {
+      this.ensureContext();
+    } catch {
+      return Promise.resolve();
+    }
+    const promises = ids
+      .map((id) => audioCueById[id])
+      .filter((cue): cue is AudioCue => Boolean(cue))
+      .map((cue) => this.load(cue).then(() => undefined).catch(() => undefined));
+    return Promise.all(promises).then(() => undefined);
+  }
+
   play(id: AudioCueId, options: PlayOptions = {}) {
     const cue = audioCueById[id];
     if (!cue) return;

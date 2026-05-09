@@ -21,22 +21,49 @@ import type { SpellImpactShape } from "@/game/spells/modules/spellIds";
  */
 
 export function SpellEntities() {
-  const castVfxIds = useGameStore(useShallow((state) => state.castVfx.map((item) => item.id)));
-  const projectileIds = useGameStore(useShallow((state) => state.projectileIds));
-  const areaIds = useGameStore(useShallow((state) => state.areas.map((a) => a.id)));
-
+  // Split into three sibling subtrees so a mutation to one slice (e.g. a
+  // new projectile) does not re-render the parents of the other two slices.
+  // Combined into a single component, every cast invalidates all three
+  // selectors and forces a re-render of the entire spell entity list.
   return (
     <group>
+      <CastVfxList />
+      <ProjectileList />
+      <AreaList />
+    </group>
+  );
+}
+
+function CastVfxList() {
+  const castVfxIds = useGameStore(useShallow((state) => state.castVfx.map((item) => item.id)));
+  return (
+    <>
       {castVfxIds.map((id) => (
         <CastVfx key={id} id={id} />
       ))}
+    </>
+  );
+}
+
+function ProjectileList() {
+  const projectileIds = useGameStore(useShallow((state) => state.projectileIds));
+  return (
+    <>
       {projectileIds.map((id) => (
         <Projectile key={id} id={id} />
       ))}
+    </>
+  );
+}
+
+function AreaList() {
+  const areaIds = useGameStore(useShallow((state) => state.areas.map((a) => a.id)));
+  return (
+    <>
       {areaIds.map((id) => (
         <AreaSpell key={id} areaId={id} />
       ))}
-    </group>
+    </>
   );
 }
 

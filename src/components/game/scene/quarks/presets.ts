@@ -65,6 +65,27 @@ const _textureCache = new Map<string, THREE.Texture>();
 const _loader = new THREE.TextureLoader();
 
 /**
+ * Schedule a callback during browser idle time, falling back to a short
+ * setTimeout where requestIdleCallback is unavailable (Safari, SSR-safe).
+ * Used to push the texture source-swap (which forces a GPU re-upload) off
+ * the active render frame so it never lands inside a useFrame tick.
+ */
+function scheduleIdle(cb: () => void): void {
+  if (typeof window === "undefined") {
+    cb();
+    return;
+  }
+  const ric = (window as unknown as {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  }).requestIdleCallback;
+  if (typeof ric === "function") {
+    ric(cb, { timeout: 200 });
+  } else {
+    window.setTimeout(cb, 0);
+  }
+}
+
+/**
  * Load a VFX PNG from /public/textures/vfx/.
  *
  * IMPORTANT: We return a Texture that is ALWAYS uploadable from frame 0.
@@ -77,6 +98,11 @@ const _loader = new THREE.TextureLoader();
  * synchronously, then asynchronously load the PNG and swap `.image` +
  * mark `needsUpdate` once it's ready. If the load fails the white pixel
  * remains, which is visually a benign no-op.
+ *
+ * The dispose+source swap (which forces a fresh GPU upload) is scheduled
+ * via requestIdleCallback so it never executes inside a render frame —
+ * eliminating the first-cast hitch when a never-before-seen alignment is
+ * used. For full prewarm see prewarmVfxTextures().
  */
 export function loadVfxTexture(
   filename: string,
@@ -107,18 +133,22 @@ export function loadVfxTexture(
   _loader.load(
     `${VFX_TEX_BASE}${filename}`,
     (loaded) => {
-      // Drop the old GPU-side state for the placeholder texture.
-      tex.dispose();
-      tex.source = loaded.source;
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.wrapS = THREE.ClampToEdgeWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.generateMipmaps = true;
-      tex.colorSpace = colorSpace;
-      tex.premultiplyAlpha = false;
-      tex.anisotropy = 1;
-      tex.needsUpdate = true;
+      // Defer the GPU side-effect to idle time so we never trigger a
+      // texture re-upload during an active render frame.
+      scheduleIdle(() => {
+        // Drop the old GPU-side state for the placeholder texture.
+        tex.dispose();
+        tex.source = loaded.source;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.generateMipmaps = true;
+        tex.colorSpace = colorSpace;
+        tex.premultiplyAlpha = false;
+        tex.anisotropy = 1;
+        tex.needsUpdate = true;
+      });
       // The temp `loaded` Texture wrapper isn't bound; only its source matters.
       // Don't call loaded.dispose() — it would invalidate the source we adopted.
     },
@@ -129,6 +159,46 @@ export function loadVfxTexture(
   );
 
   return tex;
+}
+
+/**
+ * Pre-fetch a list of VFX texture filenames so they're hot in the cache
+ * before any spell tries to render them. Returns a Promise that resolves
+ * once all textures have either loaded or failed.
+ *
+ * This is a fire-and-forget helper for the boot-time prewarm pipeline.
+ */
+export function prewarmVfxTextures(filenames: string[]): Promise<void> {
+  const promises = filenames.map(
+    (filename) =>
+      new Promise<void>((resolve) => {
+        if (_textureCache.has(filename)) {
+          resolve();
+          return;
+        }
+        // Trigger the cached load path; the .load() callback will populate
+        // _textureCache synchronously, but the PNG fetch is async — wait
+        // for it via a tiny polling fallback or attach to load directly.
+        loadVfxTexture(filename);
+        // The cache entry is created synchronously above. Wait for the
+        // texture's source to be swapped (idle callback) before resolving.
+        // We poll because we don't expose the load Promise externally.
+        const start = performance.now();
+        const tick = () => {
+          const tex = _textureCache.get(filename);
+          // Heuristic: real PNGs have an HTMLImageElement source; the
+          // fallback canvas is an HTMLCanvasElement.
+          const data = tex?.source?.data as { tagName?: string } | undefined;
+          if (data?.tagName === "IMG" || performance.now() - start > 5000) {
+            resolve();
+          } else {
+            setTimeout(tick, 50);
+          }
+        };
+        tick();
+      }),
+  );
+  return Promise.all(promises).then(() => undefined);
 }
 
 function gradient(stops: Array<[number, QVector4]>): Gradient {

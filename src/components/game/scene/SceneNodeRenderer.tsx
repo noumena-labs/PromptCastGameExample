@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Group, type MeshStandardMaterial } from "three";
@@ -84,15 +84,11 @@ export function SceneNodeRenderer({
   );
   const quarksEmissionScale = impactParticleMultiplier(variant, spawnedAt, lifetimeSeconds);
 
-  useFrame(() => {
-    if (!groupRef.current || variant !== "impact" || spawnedAt === undefined) return;
-    const age = (Date.now() - spawnedAt) / 1000;
-    const pop = 1 + Math.min(1, age / 0.22) * 0.22;
-    groupRef.current.scale.setScalar(pop);
-  });
-
   return (
     <group ref={groupRef}>
+      {variant === "impact" && spawnedAt !== undefined && (
+        <ImpactPop groupRef={groupRef} spawnedAt={spawnedAt} />
+      )}
       <NodeInstance
         node={scene}
         seed={seed}
@@ -130,6 +126,31 @@ function impactParticleMultiplier(
   const fadeStart = lifetimeSeconds * 0.58;
   if (age <= fadeStart) return 1;
   return Math.max(0, 1 - (age - fadeStart) / Math.max(0.15, lifetimeSeconds - fadeStart));
+}
+
+/**
+ * Drives the per-frame "pop" scale on impact nodes only. Extracted into its
+ * own component so non-impact SceneNodeRenderer instances pay zero useFrame
+ * overhead — important because cast/travel scenes outnumber impacts and run
+ * concurrently across every active projectile/area.
+ */
+function ImpactPop({
+  groupRef,
+  spawnedAt,
+}: {
+  groupRef: RefObject<Group | null>;
+  spawnedAt: number;
+}) {
+  useFrame(() => {
+    if (!groupRef.current) return;
+    // spawnedAt is sourced from the game store's `now() = Date.now()`, so we
+    // must compare against Date.now() (NOT performance.now()) to keep the
+    // age math on the same monotonic basis.
+    const age = (Date.now() - spawnedAt) / 1000;
+    const pop = 1 + Math.min(1, age / 0.22) * 0.22;
+    groupRef.current.scale.setScalar(pop);
+  });
+  return null;
 }
 
 function impactOpacityMultiplier(
