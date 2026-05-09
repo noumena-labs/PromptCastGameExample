@@ -4,14 +4,15 @@ import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { CapsuleCollider, RigidBody } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
-import { Group, MathUtils, Vector3 } from "three";
+import { Group, MathUtils, Quaternion, Vector3 } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { LOCAL_PLAYER_ID } from "@/game/config/gameConfig";
 import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { WIZARD_GROUPS } from "@/game/physics/collisionGroups";
-import { WizardModel } from "@/components/game/scene/WizardModel";
+import { WizardModel, type WizardModelHandle } from "@/components/game/scene/WizardModel";
 import { WizardNameplate } from "@/components/game/scene/WizardNameplate";
+import { useCastPose, type CastPoseTrigger } from "@/components/game/scene/useCastPose";
 
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.45;
@@ -45,6 +46,52 @@ function RemoteWizard({ id }: { id: string }) {
   const targetPosition = useRef(new Vector3());
   const initialized = useRef(false);
   const alive = player?.status !== "dead";
+
+  // Cast pose plumbing — same shape as LocalWizard. We derive triggers from
+  // the CastVfx entries this player has produced; those entries are appended
+  // by gameStore.castSpell, which is called both for local casts and for
+  // remote casts replicated through NetworkBridge's player_cast_spell handler.
+  const wizardModelRef = useRef<WizardModelHandle | null>(null);
+  const castTriggerRef = useRef<CastPoseTrigger | null>(null);
+  const castTriggerIdRef = useRef(0);
+  const lastSeenVfxIdRef = useRef<string | null>(null);
+  const tmpInverseQuat = useRef(new Quaternion());
+  useCastPose(wizardModelRef, castTriggerRef);
+
+  // Newest cast VFX id for this player. We pull only the id (a stable
+  // string) so this selector doesn't cause re-renders every frame; the
+  // forward vector is fetched in the effect via getState().
+  const latestVfxId = useGameStore((state) => {
+    let latestId: string | null = null;
+    let latestCreatedAt = -1;
+    for (const vfx of state.castVfx) {
+      if (vfx.ownerId !== id) continue;
+      if (vfx.createdAt > latestCreatedAt) {
+        latestCreatedAt = vfx.createdAt;
+        latestId = vfx.id;
+      }
+    }
+    return latestId;
+  });
+
+  useEffect(() => {
+    if (!latestVfxId) return;
+    if (latestVfxId === lastSeenVfxIdRef.current) return;
+    lastSeenVfxIdRef.current = latestVfxId;
+    const group = visualRef.current;
+    if (!group) return;
+    const vfx = useGameStore.getState().castVfx.find((entry) => entry.id === latestVfxId);
+    if (!vfx) return;
+    const inv = tmpInverseQuat.current.copy(group.quaternion).invert();
+    const local = new Vector3(vfx.forward[0], vfx.forward[1], vfx.forward[2]).applyQuaternion(inv);
+    if (local.lengthSq() < 1e-6) local.set(0, 0, -1);
+    castTriggerIdRef.current += 1;
+    castTriggerRef.current = {
+      id: castTriggerIdRef.current,
+      startedAt: performance.now(),
+      aimDirLocal: local.normalize(),
+    };
+  }, [latestVfxId]);
 
   useEffect(() => {
     if (!alive) return;
@@ -101,7 +148,7 @@ function RemoteWizard({ id }: { id: string }) {
         <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} collisionGroups={WIZARD_GROUPS} />
       </RigidBody>
       <group ref={visualRef} position={player.position} rotation-y={player.rotationY}>
-        <WizardModel color={player.color} shielded={player.isShielded} />
+        <WizardModel ref={wizardModelRef} color={player.color} shielded={player.isShielded} />
         <WizardNameplate name={player.name} health={player.health} color={player.color} />
       </group>
     </>

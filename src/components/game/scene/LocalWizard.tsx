@@ -5,7 +5,7 @@ import { useKeyboardControls } from "@react-three/drei";
 import { CapsuleCollider, RigidBody, useRapier } from "@react-three/rapier";
 import type { RapierRigidBody } from "@react-three/rapier";
 import { useCallback, useEffect, useRef } from "react";
-import { Group, MathUtils, Vector3 } from "three";
+import { Group, MathUtils, Quaternion, Vector3 } from "three";
 import { Ray, type KinematicCharacterController, type World } from "@dimforge/rapier3d-compat";
 import { MAGIC_MISSILE, PLAYABLE_RADIUS } from "@/game/config/gameConfig";
 import { getGroundHeight } from "@/game/arena/terrain";
@@ -14,8 +14,9 @@ import type { Vec3 } from "@/game/types";
 import { useGameStore } from "@/game/state/gameStore";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
 import { AIM_RAY_GROUPS, WIZARD_GROUPS } from "@/game/physics/collisionGroups";
-import { WizardModel } from "@/components/game/scene/WizardModel";
+import { WizardModel, type WizardModelHandle } from "@/components/game/scene/WizardModel";
 import { WizardNameplate } from "@/components/game/scene/WizardNameplate";
+import { useCastPose, type CastPoseTrigger } from "@/components/game/scene/useCastPose";
 import { audioRuntime } from "@/game/audio/audioRuntime";
 
 type ControlName = "forward" | "backward" | "left" | "right" | "jump";
@@ -93,6 +94,31 @@ export function LocalWizard() {
   const tmpCastDir = useRef(new Vector3());
   const tmpCastOrigin = useRef(new Vector3());
   const initializedPlayerId = useRef<string | null>(null);
+
+  // Cast pose plumbing: WizardModel exposes its staff pivot + crystal
+  // material via this handle; useCastPose drives them on every successful
+  // cast. The trigger ref is a single-slot mailbox (latest cast wins).
+  const wizardModelRef = useRef<WizardModelHandle | null>(null);
+  const castTriggerRef = useRef<CastPoseTrigger | null>(null);
+  const castTriggerIdRef = useRef(0);
+  const tmpInverseQuat = useRef(new Quaternion());
+  useCastPose(wizardModelRef, castTriggerRef);
+
+  const stampCastPose = useCallback((directionWorld: Vec3) => {
+    const group = visualGroup.current;
+    if (!group) return;
+    // Express the world aim direction in the wizard's local frame so the
+    // staff alignment math is independent of yaw.
+    const inv = tmpInverseQuat.current.copy(group.quaternion).invert();
+    const local = new Vector3(directionWorld[0], directionWorld[1], directionWorld[2]).applyQuaternion(inv);
+    if (local.lengthSq() < 1e-6) local.set(0, 0, -1);
+    castTriggerIdRef.current += 1;
+    castTriggerRef.current = {
+      id: castTriggerIdRef.current,
+      startedAt: performance.now(),
+      aimDirLocal: local.normalize(),
+    };
+  }, []);
 
   useEffect(() => {
     if (!player || player.status === "dead" || initializedPlayerId.current === player.id) return;
@@ -209,12 +235,13 @@ export function LocalWizard() {
           event.code === "Digit1" ? 0 : event.code === "Digit2" ? 1 : event.code === "Digit3" ? 2 : 3;
         const cast = buildCastGeometry();
         const blinded = current?.statusEffects.some((effect) => effect.effect === "blind") ?? false;
-        castSlot(slot, cast.origin, cast.direction, blinded ? jitterTarget(cast.targetPoint) : cast.targetPoint);
+        const ok = castSlot(slot, cast.origin, cast.direction, blinded ? jitterTarget(cast.targetPoint) : cast.targetPoint);
+        if (ok) stampCastPose(cast.direction);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [addLog, buildCastGeometry, castSlot, enterSanctuary, promptOpen]);
+  }, [addLog, buildCastGeometry, castSlot, enterSanctuary, promptOpen, stampCastPose]);
 
   // Create the character controller once Rapier is ready.
   useEffect(() => {
@@ -455,7 +482,10 @@ export function LocalWizard() {
       const t = Date.now();
       if (t - lastMagicMissileAt.current > MAGIC_MISSILE.cooldownMs) {
         const cast = buildCastGeometry();
-        if (castSpell(MAGIC_MISSILE, cast.origin, cast.direction, blind ? jitterTarget(cast.targetPoint) : cast.targetPoint)) lastMagicMissileAt.current = t;
+        if (castSpell(MAGIC_MISSILE, cast.origin, cast.direction, blind ? jitterTarget(cast.targetPoint) : cast.targetPoint)) {
+          lastMagicMissileAt.current = t;
+          stampCastPose(cast.direction);
+        }
       }
     }
   });
@@ -474,7 +504,7 @@ export function LocalWizard() {
         <CapsuleCollider args={[CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS]} collisionGroups={WIZARD_GROUPS} />
       </RigidBody>
       <group ref={visualGroup}>
-        <WizardModel color={player?.color ?? "#74f7d0"} shielded={player?.isShielded} />
+        <WizardModel ref={wizardModelRef} color={player?.color ?? "#74f7d0"} shielded={player?.isShielded} />
         <WizardNameplate name={player.name} health={player.health} color={player.color} />
       </group>
     </>

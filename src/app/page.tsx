@@ -16,7 +16,7 @@ type NavigatorWithUserAgentData = Navigator & { userAgentData?: { brands?: UserA
 
 const COGENTLM_URL = "https://www.cogentlm.com";
 // TODO: replace with the real source code repository URL once published.
-const SOURCE_CODE_URL = "#";
+const SOURCE_CODE_URL = "https://github.com/noumena-labs/PromptCastGameExample";
 
 const MANTLE_COLORS: MantleColor[] = [
   { value: "#7a1f1f", label: "Crimson" },

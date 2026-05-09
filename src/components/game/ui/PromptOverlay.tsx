@@ -13,7 +13,7 @@ import { getAlignment } from "@/game/spells/modules/alignments";
 import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
 
 const examplePrompts = [
-  "A roaring fireball that arcs toward the enemy",
+  "A roaring fireball that arcs toward the enemy as if thrown",
   "A jagged lightning bolt that strikes the target instantly",
   "A spinning ring of three icy shards that orbit me",
   "A meteor of red-hot rock that crashes down from the sky",
