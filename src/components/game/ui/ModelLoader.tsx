@@ -6,6 +6,7 @@ import {
   unsubscribeModelProgress,
   type ModelLoadProgress,
 } from "@/game/ai/cogentSpellGenerator";
+import { useGameStore } from "@/game/state/gameStore";
 
 type LoadState =
   | { phase: "loading"; progress: ModelLoadProgress | null; phaseStartedAt: number }
@@ -25,10 +26,17 @@ const PHASE_VERB: Record<ModelLoadProgress["phase"], string> = {
  * and the splash flashes briefly before unmounting.
  */
 export function ModelLoader({ children }: { children: React.ReactNode }) {
+  const compat = useGameStore((state) => state.compat);
+  // Limited Mode: cogentlm cannot run on this device. Skip the entire model
+  // download/load pipeline — the player is restricted to Magic Missile and
+  // never reaches an inscription flow that would need the Sage.
+  const limited = compat != null && !compat.compatible;
+
   const [state, setState] = useState<LoadState>({ phase: "loading", progress: null, phaseStartedAt: 0 });
   const [now, setNow] = useState(0);
 
   useEffect(() => {
+    if (limited) return;
     let cancelled = false;
     let currentPhase: ModelLoadProgress["phase"] | null = null;
     let currentPhaseStartedAt = Date.now();
@@ -59,12 +67,15 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unsubscribeModelProgress(listener);
     };
-  }, []);
+  }, [limited]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(id);
   }, []);
+
+  // Limited Mode bypasses the splash entirely and renders the game shell.
+  if (limited) return <>{children}</>;
 
   if (state.phase === "ready") return <>{children}</>;
 

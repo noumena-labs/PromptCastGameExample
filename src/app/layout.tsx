@@ -14,7 +14,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${cinzel.variable} ${garamond.variable} ${fell.variable}`}>
-      <body>{children}</body>
+      {/*
+        `suppressHydrationWarning` silences the React hydration mismatch
+        triggered by browser extensions (Grammarly, LastPass, etc.) that
+        inject attributes like `data-new-gr-c-s-check-loaded` onto <body>
+        before React mounts. The mismatch is cosmetic and outside our control.
+      */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

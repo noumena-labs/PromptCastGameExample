@@ -6,13 +6,12 @@ import { peerSession } from "@/game/networking/peerSession";
 import { usePeerSession } from "@/game/networking/usePeerSession";
 import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile, type WizardProfile } from "@/game/playerProfile";
 import { useGameStore } from "@/game/state/gameStore";
+import { describeCompat, getCompatibility, type CompatResult } from "@/game/compat/deviceCompat";
 import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
 import { useAudioUnlock, useLoopingAudio, useUiClickAudio } from "@/game/audio/useGameAudio";
 import { CornerFlourish } from "@/components/game/ui/CornerFlourish";
 
 type MantleColor = { value: string; label: string };
-type UserAgentBrand = { brand: string; version: string };
-type NavigatorWithUserAgentData = Navigator & { userAgentData?: { brands?: UserAgentBrand[] } };
 
 const COGENTLM_URL = "https://www.cogentlm.com";
 // TODO: replace with the real source code repository URL once published.
@@ -109,19 +108,6 @@ function useHydratedWizardProfile() {
   return useSyncExternalStore(subscribeToClientReady, getClientWizardProfile, () => DEFAULT_WIZARD_PROFILE);
 }
 
-function isChromeBrowser() {
-  if (typeof navigator === "undefined") return true;
-
-  const brands = (navigator as NavigatorWithUserAgentData).userAgentData?.brands;
-  if (brands?.some(({ brand }) => brand.toLowerCase() === "google chrome")) return true;
-
-  const userAgent = navigator.userAgent;
-  const isGoogleChrome = /Chrome\//.test(userAgent) && navigator.vendor === "Google Inc.";
-  const isAlternateChromiumBrowser = /Edg|OPR|Opera|SamsungBrowser|CriOS|FxiOS|Chromium/.test(userAgent);
-
-  return isGoogleChrome && !isAlternateChromiumBrowser;
-}
-
 function HowToPlayModal({ onClose }: { onClose: () => void }) {
   useModalDismiss(onClose);
 
@@ -176,11 +162,12 @@ function HowToPlayModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ChromeRequirementModal({ onClose }: { onClose: () => void }) {
+function CompatibilityModal({ compat, onClose }: { compat: CompatResult; onClose: () => void }) {
   useModalDismiss(onClose);
+  const copy = describeCompat(compat);
 
   return (
-    <div className="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="chromeRequirementTitle" onClick={onClose}>
+    <div className="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="compatibilityTitle" onClick={onClose}>
       <div className="modalPanel browserRequirementPanel" onClick={(event) => event.stopPropagation()}>
         <CornerFlourish position="tl" />
         <CornerFlourish position="tr" />
@@ -192,24 +179,24 @@ function ChromeRequirementModal({ onClose }: { onClose: () => void }) {
         </button>
 
         <header className="modalHeader">
-          <div className="heroEyebrow">~ Browser Requirement ~</div>
-          <h2 id="chromeRequirementTitle" className="modalTitle">Chrome Required</h2>
+          <div className="heroEyebrow">{copy.eyebrow}</div>
+          <h2 id="compatibilityTitle" className="modalTitle">{copy.title}</h2>
         </header>
 
         <div className="browserRequirementBody">
-          <p>
-            The cogentlm library that runs local inference uses WebGPU features that this game expects from the Chrome
-            Browser. Spell generation may not work correctly in your current browser.
-          </p>
-          <p>Install Chrome before entering the meadow for the full local inference experience.</p>
+          {copy.bullets.map((line, index) => (
+            <p key={index}>{line}</p>
+          ))}
         </div>
 
         <div className="modalActions browserRequirementActions">
-          <a className="sealButton" href="https://www.google.com/chrome/" target="_blank" rel="noreferrer">
-            Install Chrome
-          </a>
+          {copy.showInstallChrome ? (
+            <a className="sealButton" href="https://www.google.com/chrome/" target="_blank" rel="noreferrer">
+              Install Chrome
+            </a>
+          ) : null}
           <button type="button" className="sealButton ghost" onClick={onClose}>
-            Continue Anyway
+            Continue in Limited Mode
           </button>
         </div>
       </div>
@@ -230,6 +217,7 @@ export default function Home() {
   const setLocalIdentity = useGameStore((state) => state.setLocalIdentity);
   const setLocalPlayerProfile = useGameStore((state) => state.setLocalPlayerProfile);
   const setMode = useGameStore((state) => state.setMode);
+  const setCompat = useGameStore((state) => state.setCompat);
   const localPlayerId = useGameStore((state) => state.localPlayerId);
   const localIdentityApplied = useRef<string | null>(null);
   useAudioUnlock();
@@ -241,11 +229,21 @@ export default function Home() {
   const color = profile.color;
   const profileId = profile.profileId;
   const clientReady = useClientReady();
-  const isChrome = clientReady ? isChromeBrowser() : true;
-  const chromeWarningOpen = clientReady && !chromeWarningDismissed && !isChrome;
+  // Compatibility verdict: detected once on the client. The result is also
+  // pushed into the game store so the in-game HUD / PromptOverlay / ModelLoader
+  // can read the same verdict without re-running detection.
+  const compat = clientReady ? getCompatibility() : null;
+  const isCompatible = compat?.compatible ?? true;
+  const compatWarningOpen = clientReady && !chromeWarningDismissed && !isCompatible && compat !== null;
   const updateProfile = (updater: (current: WizardProfile) => WizardProfile) => {
     setProfileOverride((current) => updater(current ?? hydratedProfile));
   };
+
+  // Persist the verdict into the game store as soon as it's available so any
+  // navigation into `/game` (including direct URL hits) sees the same result.
+  useEffect(() => {
+    if (compat) setCompat(compat);
+  }, [compat, setCompat]);
 
   // Derived tab: an explicit user click (override) wins, otherwise we follow
   // the session role (host/client) so the UI tracks what's actually happening.
@@ -337,16 +335,16 @@ export default function Home() {
 
   return (
     <main className="landing">
-      {clientReady && !isChrome && chromeWarningDismissed ? (
+      {clientReady && !isCompatible && chromeWarningDismissed ? (
         <button
           type="button"
           className="browserChip"
           onClick={() => setChromeWarningDismissed(false)}
-          aria-label="Browser limited — open requirements"
+          aria-label="Limited Mode — open compatibility details"
           title="Click for details"
         >
           <span className="browserChipDot" aria-hidden />
-          Limited Browser
+          Limited Mode
         </button>
       ) : null}
 
@@ -546,7 +544,7 @@ export default function Home() {
         <span><kbd>E</kbd> Sanctuary</span>
         <span><kbd>I</kbd>–<kbd>IV</kbd> bound spells</span>
       </footer>
-      {chromeWarningOpen ? <ChromeRequirementModal onClose={() => setChromeWarningDismissed(true)} /> : null}
+      {compatWarningOpen && compat ? <CompatibilityModal compat={compat} onClose={() => setChromeWarningDismissed(true)} /> : null}
       {howToPlayOpen ? <HowToPlayModal onClose={() => setHowToPlayOpen(false)} /> : null}
     </main>
   );

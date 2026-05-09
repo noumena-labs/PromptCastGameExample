@@ -39,6 +39,7 @@ import type {
 } from "@/game/types";
 import { projectileMotion } from "@/game/state/projectileMotion";
 import { colliderRegistry } from "@/game/state/colliderRegistry";
+import type { CompatResult } from "@/game/compat/deviceCompat";
 import { rotateAroundY } from "@/game/math/vector";
 import { getGroundHeight } from "@/game/arena/terrain";
 import { getDeliveryVehicle } from "@/game/spells/modules/deliveryVehicles";
@@ -113,6 +114,15 @@ export type GameStore = {
   lastHostSnapshot: AppliedHostSnapshotInfo | null;
   lastManaFailAt: number | null;
   log: string[];
+  /**
+   * Device/browser compatibility verdict for the cogentlm local inference
+   * runtime. `null` until the client has had a chance to detect (set on
+   * landing-page mount and again as a fallback on `GameClient` mount). When
+   * `compat.compatible === false`, the game runs in Limited Mode: cogentlm
+   * is never initialized and spell inscription is replaced with a lore
+   * panel explaining the shattered Inscription Crystal.
+   */
+  compat: CompatResult | null;
   setMode: (mode: MatchMode, roomCode?: string | null) => void;
   setLocalIdentity: (id: string, name: string, color: string) => void;
   setLocalPlayerProfile: (name: string, color: string) => void;
@@ -153,6 +163,7 @@ export type GameStore = {
   tickRespawns: () => void;
   tickAreas: () => void;
   resetMatch: () => void;
+  setCompat: (compat: CompatResult) => void;
 };
 
 const moteRespawnDelay = () =>
@@ -223,6 +234,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lastHostSnapshot: null,
   lastManaFailAt: null,
   log: ["PromptCast prototype initialized."],
+  compat: null,
 
   setMode: (mode, roomCode = null) =>
     set((state) => {
@@ -939,6 +951,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const timestamp = now();
       return { areas: state.areas.filter((area) => area.expiresAt > timestamp) };
     }),
+
+  setCompat: (compat) => set({ compat }),
 
   resetMatch: () => {
     projectileMotion.clear();

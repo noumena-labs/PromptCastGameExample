@@ -137,6 +137,8 @@ export function PromptOverlay() {
   const pauseSanctuaryTimer = useGameStore((state) => state.pauseSanctuaryTimer);
   const resumeSanctuaryTimer = useGameStore((state) => state.resumeSanctuaryTimer);
   const exitSanctuary = useGameStore((state) => state.exitSanctuary);
+  const compat = useGameStore((state) => state.compat);
+  const limited = compat != null && !compat.compatible;
 
   const [prompt, setPrompt] = useState(examplePrompts[0]);
   const [phase, setPhase] = useState<Phase>({ kind: "compose" });
@@ -250,6 +252,55 @@ export function PromptOverlay() {
   useEffect(() => () => clearAllTimers(), [clearAllTimers]);
 
   if (!promptOpen) return null;
+
+  // Limited Mode: cogentlm cannot run on this device. The Sanctuary still
+  // opens (so the player can read the lore and feel the world's response),
+  // but the Inscription Crystal is depicted as shattered — no compose form,
+  // no Sage, no spell binding. The only way out is "Leave Sanctuary".
+  if (limited) {
+    return (
+      <div className="runeOverlay">
+        <div
+          className="runeCard"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Shattered Inscription Crystal"
+        >
+          <button type="button" className="runeCardClose" onClick={exitSanctuary} aria-label="Close Sanctuary">
+            ×
+          </button>
+
+          <div className="runeCardHeader">
+            <span className="runeCardEyebrow">Sanctuary</span>
+            <h1 className="runeCardTitle">A Shattered Crystal</h1>
+          </div>
+
+          <div className="runeCardCrackOverlay" aria-hidden />
+
+          <div className="runeCardBody shatteredCrystalBody">
+            <ShatteredCrystalScene />
+            <p className="shatteredCrystalProse">
+              The Inscription Crystal lies sundered upon its plinth. Threads of
+              gold-leaf script smoulder where the Sage&rsquo;s voice once
+              gathered, and the runes refuse to take an edge.
+            </p>
+            <p className="shatteredCrystalProse">
+              No new spells may be bound here. Wander the meadow with what you
+              already wield &mdash; your Magic Missile remains true.
+            </p>
+            <p className="shatteredCrystalAside">
+              The local Sage cannot be summoned on this device.
+            </p>
+            <div className="shatteredCrystalActions">
+              <button type="button" className="runeCardDismiss" onClick={exitSanctuary}>
+                Leave Sanctuary
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const runChat = async (chatPrompt: string) => {
     const controller = new AbortController();
@@ -980,4 +1031,80 @@ function describeNode(node: SceneLeaf, depth: number): string {
     parts.push(`alpha=${node.opacity.toFixed(2)}`);
   }
   return pad + parts.join("  ");
+}
+
+/**
+ * Pure-CSS "shattered crystal" tableau shown in Limited Mode. The crystal
+ * silhouette flashes, eight angular shards burst outward along pre-computed
+ * vectors, and a few embers drift skyward. After the initial burst (~0.9s)
+ * the shards transition into a slow ambient drift via the second keyframe
+ * track defined in `globals.css`. All values are deterministic so SSR and
+ * client renders match — no `Math.random()` here.
+ */
+function ShatteredCrystalScene() {
+  // Eight shards spread roughly evenly around the circle, with slight
+  // variance in distance and rotation so they feel hand-broken rather than
+  // metronomically placed. Pre-computed from a sketch:
+  //   angle (deg) → (dx, dy) at radii 58–82 px.
+  // Negative dy = upward (screen Y is down).
+  const shards: Array<{
+    dx: number;
+    dy: number;
+    rot: number;
+    tiny?: boolean;
+  }> = [
+    { dx: 0, dy: -78, rot: -12 },        //  N
+    { dx: 56, dy: -56, rot: 38 },        //  NE
+    { dx: 78, dy: -8, rot: 86 },         //  E
+    { dx: 60, dy: 44, rot: 132 },        //  SE
+    { dx: 4, dy: 70, rot: 178 },         //  S
+    { dx: -58, dy: 48, rot: -132 },      //  SW
+    { dx: -82, dy: -4, rot: -88 },       //  W
+    { dx: -54, dy: -52, rot: -42 },      //  NW
+    // A few smaller chips closer in for visual density.
+    { dx: 30, dy: -34, rot: 22, tiny: true },
+    { dx: -28, dy: 24, rot: -118, tiny: true },
+    { dx: 42, dy: 12, rot: 70, tiny: true },
+    { dx: -34, dy: -18, rot: -64, tiny: true },
+  ];
+
+  // Three rising embers with distinct end points & timing (delay set inline).
+  const embers: Array<{ ex: number; ey: number; delay: number }> = [
+    { ex: -8, ey: -64, delay: 0.4 },
+    { ex: 14, ey: -78, delay: 1.6 },
+    { ex: -2, ey: -56, delay: 2.8 },
+  ];
+
+  return (
+    <div className="shatteredCrystalScene" aria-hidden>
+      <span className="shatteredCrystalFlash" />
+      <span className="shatteredCrystalGhost" />
+      {shards.map((shard, i) => (
+        <span
+          key={`shard-${i}`}
+          className={`shatteredCrystalShard${shard.tiny ? " tiny" : ""}`}
+          style={
+            {
+              "--dx": `${shard.dx}px`,
+              "--dy": `${shard.dy}px`,
+              "--rot": `${shard.rot}deg`,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+      {embers.map((ember, i) => (
+        <span
+          key={`ember-${i}`}
+          className="shatteredCrystalEmber"
+          style={
+            {
+              "--ex": `${ember.ex}px`,
+              "--ey": `${ember.ey}px`,
+              animationDelay: `${ember.delay}s`,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
 }

@@ -6,6 +6,7 @@ import { Suspense, useEffect, useRef } from "react";
 import { peerSession } from "@/game/networking/peerSession";
 import { DEFAULT_WIZARD_PROFILE, loadWizardProfile, saveWizardProfile } from "@/game/playerProfile";
 import { prewarmAlignmentsIdle, prewarmMagicMissile } from "@/game/spells/vfx/prewarm";
+import { getCompatibility } from "@/game/compat/deviceCompat";
 import { useGameStore } from "@/game/state/gameStore";
 
 const PromptCastCanvas = dynamic(() => import("@/components/game/PromptCastCanvas").then((module) => module.PromptCastCanvas), {
@@ -28,6 +29,15 @@ function GameClientInner() {
   const setMode = useGameStore((state) => state.setMode);
   const setLocalIdentity = useGameStore((state) => state.setLocalIdentity);
   const addLog = useGameStore((state) => state.addLog);
+  const setCompat = useGameStore((state) => state.setCompat);
+
+  // Fallback compat detection for direct `/game` navigation that bypasses the
+  // landing page (e.g., bookmarked URL). The landing page already calls
+  // `setCompat()` on mount; calling again here with the memoized result is
+  // idempotent. ModelLoader, GameHud, and PromptOverlay all read this slice.
+  useEffect(() => {
+    setCompat(getCompatibility());
+  }, [setCompat]);
 
   // Prewarm Magic Missile assets (textures + audio) immediately on mount so
   // the first cast doesn't pay the network/decode/GPU-upload cost mid-frame.

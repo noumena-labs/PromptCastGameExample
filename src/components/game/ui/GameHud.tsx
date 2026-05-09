@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { AURA_THRESHOLD, MAGIC_MISSILE, PLAYER_MAX_HEALTH, PLAYER_MAX_MANA, SANCTUARY_DURATION_MS } from "@/game/config/gameConfig";
+import { describeCompat, type CompatResult } from "@/game/compat/deviceCompat";
 import { useGameStore } from "@/game/state/gameStore";
 import { CornerFlourish } from "./CornerFlourish";
 
@@ -38,6 +39,7 @@ function renderTally(count: number): string {
 
 export function GameHud() {
   const [currentTime, setCurrentTime] = useState(0);
+  const [limitedInfoOpen, setLimitedInfoOpen] = useState(false);
   const player = useGameStore((state) => state.players[state.localPlayerId]);
   const playerIds = useGameStore(useShallow((state) => Object.keys(state.players)));
   const log = useGameStore(useShallow((state) => state.log));
@@ -47,6 +49,8 @@ export function GameHud() {
   const sanctuaryPausedRemainingMs = useGameStore((state) => state.sanctuaryPausedRemainingMs);
   const lastManaFailAt = useGameStore((state) => state.lastManaFailAt);
   const resetMatch = useGameStore((state) => state.resetMatch);
+  const compat = useGameStore((state) => state.compat);
+  const limited = compat != null && !compat.compatible;
   const health = player ? Math.max(0, player.health / PLAYER_MAX_HEALTH) : 0;
   const mana = player ? Math.max(0, player.mana / PLAYER_MAX_MANA) : 0;
   const sanctuaryRemaining = sanctuaryEndsAt
@@ -70,6 +74,21 @@ export function GameHud() {
 
   return (
     <div className="hud">
+      {limited && compat ? (
+        <button
+          type="button"
+          className="limitedModeChip"
+          onClick={() => setLimitedInfoOpen(true)}
+          aria-label="Limited Mode — click for details"
+          title="Limited Mode active"
+        >
+          <span className="limitedModeChipDot" aria-hidden />
+          Limited Mode
+        </button>
+      ) : null}
+      {limitedInfoOpen && compat ? (
+        <LimitedModeInfoModal compat={compat} onClose={() => setLimitedInfoOpen(false)} />
+      ) : null}
       <div className="topBar">
         <div className="brandMark">
           <span>PromptCast</span>
@@ -237,5 +256,77 @@ function RollEntry({ id }: { id: string }) {
       <span className="rollName">{name}</span>
       <span className="rollTally" title={`${score ?? 0} kill${score === 1 ? "" : "s"}`}>{tally}</span>
     </li>
+  );
+}
+
+/**
+ * Compact in-game variant of the landing-page CompatibilityModal. Shares the
+ * `describeCompat()` copy so phrasing matches across both surfaces. ESC
+ * closes the panel but does NOT pause the match — Limited Mode players are
+ * still in active gameplay.
+ */
+function LimitedModeInfoModal({
+  compat,
+  onClose,
+}: {
+  compat: CompatResult;
+  onClose: () => void;
+}) {
+  const copy = describeCompat(compat);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        // Stop propagation so the canvas pointer-lock release handler doesn't
+        // also fire on the same Escape press.
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
+  return (
+    <div
+      className="modalBackdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="limitedModeInfoTitle"
+      onClick={onClose}
+    >
+      <div className="modalPanel browserRequirementPanel" onClick={(event) => event.stopPropagation()}>
+        <CornerFlourish position="tl" />
+        <CornerFlourish position="tr" />
+        <CornerFlourish position="bl" />
+        <CornerFlourish position="br" />
+
+        <button type="button" className="modalClose" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+
+        <header className="modalHeader">
+          <div className="heroEyebrow">{copy.eyebrow}</div>
+          <h2 id="limitedModeInfoTitle" className="modalTitle">{copy.title}</h2>
+        </header>
+
+        <div className="browserRequirementBody">
+          {copy.bullets.map((line, index) => (
+            <p key={index}>{line}</p>
+          ))}
+        </div>
+
+        <div className="modalActions browserRequirementActions">
+          {copy.showInstallChrome ? (
+            <a className="sealButton" href="https://www.google.com/chrome/" target="_blank" rel="noreferrer">
+              Install Chrome
+            </a>
+          ) : null}
+          <button type="button" className="sealButton ghost" onClick={onClose}>
+            Return to the Meadow
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

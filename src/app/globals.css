@@ -2873,3 +2873,295 @@ a.sealButton {
     scroll-behavior: auto !important;
   }
 }
+
+/* ─── Limited Mode (compatibility) ─────────────────────────────────────────
+ * In-game capsule that mirrors `.browserChip` but lives over the HUD. Shown
+ * only when `compat.compatible === false`. Click opens a compact info modal
+ * re-using `.modalBackdrop` / `.modalPanel` styling.
+ */
+.limitedModeChip {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 38;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--parchment-light);
+  background: linear-gradient(135deg, rgba(77, 16, 16, 0.92), rgba(40, 8, 8, 0.92));
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  pointer-events: auto;
+}
+
+.limitedModeChip:hover {
+  transform: translateX(-50%) translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+.limitedModeChip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--gold-light), 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+.limitedModeChipDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f3a847;
+  box-shadow: 0 0 8px rgba(243, 168, 71, 0.85);
+  animation: browserChipPulse 1.8s ease-in-out infinite;
+}
+
+/* ─── Shattered Inscription Crystal (Limited Mode lore panel) ──────────────
+ * Replaces the compose form inside `.runeCard` when the local Sage cannot
+ * be summoned. Pure flavor + a small CSS-only "shatter" tableau: an intact
+ * crystal silhouette that bursts into fragments and drifting embers when the
+ * panel mounts, then settles into a slow-drift idle. No JS animations — the
+ * keyframes run once on mount and the loop-tier handles ambient motion.
+ */
+.shatteredCrystalBody {
+  display: grid;
+  gap: 14px;
+  padding: 4px 6px 0;
+  text-align: center;
+}
+
+/* Stage that holds the entire shatter tableau. Larger than the old rune so
+ * fragments have room to fly. `overflow: visible` so the shards can extend
+ * past the nominal box.
+ */
+.shatteredCrystalScene {
+  position: relative;
+  width: 200px;
+  height: 160px;
+  margin: 6px auto 2px;
+  overflow: visible;
+  pointer-events: none;
+  /* Hold a soft warm halo as if the crystal's last light still lingers. */
+  filter: drop-shadow(0 0 18px rgba(243, 168, 71, 0.22));
+}
+
+/* Central flash — a brief white-hot bloom at the moment of fracture, fading
+ * over ~1.2s. Behind everything else.
+ */
+.shatteredCrystalFlash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 110px;
+  height: 110px;
+  margin-left: -55px;
+  margin-top: -55px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 230, 170, 0.9) 0%,
+    rgba(243, 168, 71, 0.45) 30%,
+    rgba(243, 168, 71, 0) 70%
+  );
+  animation: shatteredCrystalFlash 1.2s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes shatteredCrystalFlash {
+  0%   { opacity: 0; transform: scale(0.4); }
+  18%  { opacity: 1; transform: scale(1.05); }
+  60%  { opacity: 0.4; transform: scale(1.2); }
+  100% { opacity: 0; transform: scale(1.4); }
+}
+
+/* The crystal's ghost — a faded diamond silhouette where the crystal once
+ * stood. Lingers at low opacity to ground the scene.
+ */
+.shatteredCrystalGhost {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 78px;
+  margin-left: -28px;
+  margin-top: -39px;
+  background: linear-gradient(
+    165deg,
+    rgba(243, 168, 71, 0.18) 0%,
+    rgba(243, 168, 71, 0.06) 50%,
+    rgba(243, 168, 71, 0.02) 100%
+  );
+  border: 1px solid rgba(243, 168, 71, 0.22);
+  /* Diamond / kite shape — narrow at top and bottom, wider in the upper third. */
+  clip-path: polygon(50% 0%, 100% 30%, 75% 100%, 25% 100%, 0% 30%);
+  animation: shatteredCrystalGhostFade 1.6s ease-out forwards;
+}
+
+@keyframes shatteredCrystalGhostFade {
+  0%   { opacity: 1; }
+  20%  { opacity: 0.9; }
+  100% { opacity: 0.18; }
+}
+
+/* Fragment shards — small triangles that fly outward from the center along
+ * unique vectors. Each shard reads its trajectory from CSS custom properties
+ * (`--dx`, `--dy`, `--rot`, `--delay`) set inline on the element. The
+ * `shatteredCrystalShardFly` keyframes burst out in the first ~900ms;
+ * `shatteredCrystalShardDrift` then takes over for slow ambient sway.
+ */
+.shatteredCrystalShard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 18px;
+  margin-left: -7px;
+  margin-top: -9px;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 220, 160, 0.95) 0%,
+    rgba(243, 168, 71, 0.7) 55%,
+    rgba(120, 60, 20, 0.6) 100%
+  );
+  border: 1px solid rgba(255, 220, 160, 0.5);
+  clip-path: polygon(50% 0%, 100% 70%, 50% 100%, 0% 70%);
+  box-shadow: 0 0 6px rgba(243, 168, 71, 0.55);
+  opacity: 0;
+  transform-origin: center;
+  animation:
+    shatteredCrystalShardFly 0.9s cubic-bezier(0.18, 0.7, 0.3, 1) forwards,
+    shatteredCrystalShardDrift 5.5s ease-in-out 0.9s infinite alternate;
+}
+
+/* Variant: smaller chips for visual density. */
+.shatteredCrystalShard.tiny {
+  width: 8px;
+  height: 10px;
+  margin-left: -4px;
+  margin-top: -5px;
+  opacity: 0;
+  animation:
+    shatteredCrystalShardFly 0.85s cubic-bezier(0.2, 0.7, 0.3, 1) forwards,
+    shatteredCrystalShardDrift 4.5s ease-in-out 0.85s infinite alternate;
+}
+
+@keyframes shatteredCrystalShardFly {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(0deg) scale(0.6);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.85;
+    transform:
+      translate(calc(var(--dx, 0px)), calc(var(--dy, 0px)))
+      rotate(calc(var(--rot, 0deg)))
+      scale(1);
+  }
+}
+
+@keyframes shatteredCrystalShardDrift {
+  from {
+    transform:
+      translate(calc(var(--dx, 0px)), calc(var(--dy, 0px)))
+      rotate(calc(var(--rot, 0deg)))
+      scale(1);
+    opacity: 0.85;
+  }
+  to {
+    transform:
+      translate(calc(var(--dx, 0px) + 4px), calc(var(--dy, 0px) + 3px))
+      rotate(calc(var(--rot, 0deg) + 12deg))
+      scale(1);
+    opacity: 0.55;
+  }
+}
+
+/* Tiny embers / dust motes that float upward after the burst. Three of
+ * them, staggered, with their own rise animation.
+ */
+.shatteredCrystalEmber {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 230, 180, 0.95),
+    rgba(243, 168, 71, 0) 70%
+  );
+  opacity: 0;
+  animation: shatteredCrystalEmberRise 4s ease-out infinite;
+}
+
+@keyframes shatteredCrystalEmberRise {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  15%  { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform:
+      translate(calc(var(--ex, 0px)), calc(var(--ey, -60px)))
+      scale(1.1);
+  }
+}
+
+.shatteredCrystalProse {
+  margin: 0;
+  font-family: var(--font-flavor);
+  font-size: 1.04rem;
+  line-height: 1.7;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.shatteredCrystalProse + .shatteredCrystalProse {
+  margin-top: -2px;
+}
+
+.shatteredCrystalAside {
+  margin: 4px auto 0;
+  max-width: 460px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.85;
+}
+
+.shatteredCrystalActions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shatteredCrystalFlash,
+  .shatteredCrystalGhost,
+  .shatteredCrystalShard,
+  .shatteredCrystalShard.tiny,
+  .shatteredCrystalEmber {
+    animation: none;
+    opacity: 0.7;
+  }
+  .shatteredCrystalShard,
+  .shatteredCrystalShard.tiny {
+    transform:
+      translate(calc(var(--dx, 0px)), calc(var(--dy, 0px)))
+      rotate(calc(var(--rot, 0deg)));
+  }
+}
+
