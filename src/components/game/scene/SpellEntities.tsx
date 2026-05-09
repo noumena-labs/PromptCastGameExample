@@ -9,6 +9,7 @@ import { useGameStore } from "@/game/state/gameStore";
 import { projectileMotion, type ProjectileMotion } from "@/game/state/projectileMotion";
 import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
 import { SpellShaderMaterial } from "@/components/game/scene/SpellShaderMaterial";
+import { CastFlash } from "@/components/game/scene/CastFlash";
 import type { AreaSpellState, Vec3 } from "@/game/types";
 import type { SpellImpactShape } from "@/game/spells/modules/spellIds";
 
@@ -70,19 +71,15 @@ function AreaList() {
 function CastVfx({ id }: { id: string }) {
   const cast = useGameStore((state) => state.castVfx.find((item) => item.id === id));
   if (!cast) return null;
-  const yaw = Math.atan2(cast.forward[0], cast.forward[2]);
-  const pitch = -Math.asin(Math.max(-1, Math.min(1, cast.forward[1])));
+  // Cast VFX is intentionally uniform across spells: a brief alignment-tinted
+  // flash. Per-spell expression lives in the travel and impact phases.
   return (
-    <group position={cast.position} rotation={[pitch, yaw, 0]}>
-      <SceneNodeRenderer
-        scene={cast.spell.scenes.cast}
-        spellId={cast.id}
-        spawnedAt={cast.createdAt}
-        lifetimeSeconds={Math.max(0.2, (cast.expiresAt - cast.createdAt) / 1000)}
-        variant="cast"
-        effectScale={effectScaleForSpell(cast.spell)}
-      />
-    </group>
+    <CastFlash
+      position={cast.position}
+      alignmentId={cast.spell.alignment}
+      createdAt={cast.createdAt}
+      duration={Math.max(60, cast.expiresAt - cast.createdAt)}
+    />
   );
 }
 

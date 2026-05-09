@@ -193,10 +193,11 @@ function areaDuration(spell: GeneratedSpell): number {
   return spell.impactDurationMs > 0 ? spell.impactDurationMs : spell.durationMs;
 }
 
-function castVfxDuration(spell: GeneratedSpell): number {
-  if (spell.deliveryVehicle === "skyfall") return 420;
-  if (spell.deliveryVehicle === "ground_eruption" || spell.deliveryVehicle === "aura_orbit") return 520;
-  return 260;
+function castVfxDuration(_spell: GeneratedSpell): number {
+  // Uniform short flash for every spell. Per-spell expression lives in the
+  // travel and impact phases; the cast phase is intentionally minimal so it
+  // never delays travel and never costs particles.
+  return 140;
 }
 
 function hasLingeringImpact(spell: GeneratedSpell): boolean {

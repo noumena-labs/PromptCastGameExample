@@ -36,7 +36,7 @@ export function composeSpell(input: ComposeInput): GeneratedSpell {
   const impactDurationMs = impactDurationFor(spec, derived.durationMs);
   const compiledScenes = compileVfxPayload(spec);
   const scenes = {
-    cast: clampScene(compiledScenes.cast),
+    cast: compiledScenes.cast ? clampScene(compiledScenes.cast) : null,
     travel: clampScene(compiledScenes.travel),
     impact: clampScene(compiledScenes.impact),
   };

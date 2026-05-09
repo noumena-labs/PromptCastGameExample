@@ -116,6 +116,10 @@ export function ModelLoader({ children }: { children: React.ReactNode }) {
         <p className="modelLoaderDetail">
           The Inscription Crystal could not hold. Entering Limited Mode…
         </p>
+
+        <p className="text-[11pt]">
+          <i>Refresh this page when ready</i>
+        </p>
       </div>
     );
   }

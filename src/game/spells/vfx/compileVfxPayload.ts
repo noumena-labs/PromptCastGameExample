@@ -39,13 +39,16 @@ const node = (
   ...input,
 });
 
-export function compileVfxPayload(spec: SpellBuildSpec): { cast: SpellScene; travel: SpellScene; impact: SpellScene } {
+export function compileVfxPayload(spec: SpellBuildSpec): { cast: SpellScene | null; travel: SpellScene; impact: SpellScene } {
   // Gameplay `modifiers.scale` is consumed by deriveStats() as AoE radius.
   // Keep rendered spell objects at fixed authored size so large AoEs don't
   // stretch rocks, particles, billboards, or procedural geometry.
   const visualSpec = fixedVisualScale(spec);
-  const scenes = compileScenesForVehicle(visualSpec);
-  return injectTerrainMorph(visualSpec, scenes);
+  const { travel, impact } = compileScenesForVehicle(visualSpec);
+  // Cast scene is intentionally not authored or rendered: every spell uses
+  // a uniform alignment-tinted flash (see CastFlash). Travel and impact
+  // carry all per-spell expression.
+  return injectTerrainMorph(visualSpec, { cast: null, travel, impact });
 }
 
 function compileScenesForVehicle(visualSpec: SpellBuildSpec) {
@@ -85,8 +88,8 @@ function compileScenesForVehicle(visualSpec: SpellBuildSpec) {
  */
 function injectTerrainMorph(
   spec: SpellBuildSpec,
-  scenes: { cast: SpellScene; travel: SpellScene; impact: SpellScene },
-): { cast: SpellScene; travel: SpellScene; impact: SpellScene } {
+  scenes: { cast: SpellScene | null; travel: SpellScene; impact: SpellScene },
+): { cast: SpellScene | null; travel: SpellScene; impact: SpellScene } {
   if (!shouldTerrainMorph(spec)) return scenes;
   const a = getAlignment(spec.alignment);
   const morph = terrainMorphLeaf(spec, a);
@@ -248,60 +251,34 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
   const a = getAlignment(spec.alignment);
   const m = spec.modifiers;
 
-  const cast: SpellScene = {
-    ...node({
-      shape: "sphere",
-      shaderId: spec.vfx.shaders.core,
-      shaderPhase: "core",
-      color: a.palette.primary,
-      emissiveIntensity: clampEmit(2.6 * m.intensity),
-      size: Number((0.34 * m.scale).toFixed(2)),
-      motion: "pulse",
-      motionSpeed: 2.6,
-      opacity: 0.78,
-    }),
-    children: [
-      // muzzle flash — projects forward along local +Z
-      node({
-        shape: "cone",
-        shaderId: spec.vfx.shaders.impact,
-        shaderPhase: "impact",
-        color: a.palette.accent,
-        emissiveIntensity: clampEmit(2.2 * m.intensity),
-        size: Number((0.42 * m.scale).toFixed(2)),
-        position: [0, 0, 0.45 * m.scale],
-        rotation: [-Math.PI / 2, 0, 0],
-        motion: "expand",
-        motionSpeed: 3.4,
-        opacity: 0.55,
-      }),
-      node({
-        shape: "ring",
-        shaderId: spec.vfx.shaders.decal,
-        shaderPhase: "decal",
-        color: a.palette.accent,
-        emissiveIntensity: clampEmit(1.0 * m.intensity),
-        size: Number((0.42 * m.scale).toFixed(2)),
-        motion: "spin",
-        motionSpeed: 3.0,
-        opacity: 0.5,
-      }),
-      node({
-        shape: "quarks_emitter",
-        quarksPreset: castBurstPresetFor(spec),
-        shaderId: spec.vfx.shaders.trail,
-        shaderPhase: "trail",
-        color: a.palette.secondary,
-        colorB: a.palette.accent,
-        emissiveIntensity: clampEmit(0.9 * m.intensity),
-        size: 0.45 * m.scale,
-        motion: "drift",
-        motionSpeed: 1.4,
-        intensity: 0.85 * m.intensity,
-        opacity: 0.6,
-      }),
-    ],
-  };
+  // Light and lightning linear projectiles intentionally skip the particle
+  // trail. The `sparks_burst` preset they would otherwise use is a one-shot
+  // worldSpace burst, which produces a visible spray of streaks at the cast
+  // origin (where the projectile mounts) instead of trailing the bolt.
+  // Magic Missile and other bright/electric bolts are simpler and cleaner
+  // with only the core mesh, halo, and CastFlash. See PLAN: option 2b.
+  const skipParticleTrail = spec.alignment === "light" || spec.alignment === "lightning";
+
+  const trailChild = skipParticleTrail
+    ? []
+    : [
+        // trail behind body
+        node({
+          shape: "quarks_emitter",
+          quarksPreset: travelTrailPresetFor(spec),
+          shaderId: spec.vfx.shaders.trail,
+          shaderPhase: "trail",
+          color: a.palette.secondary,
+          colorB: a.palette.dark,
+          emissiveIntensity: clampEmit(1.0 * m.intensity),
+          size: Number((0.55 * m.scale).toFixed(2)),
+          position: [0, 0, -0.55 * m.scale],
+          motion: "drift",
+          motionSpeed: 1.6,
+          intensity: 1.05 * m.intensity,
+          opacity: 0.72,
+        }),
+      ];
 
   const travel: SpellScene = {
     ...node({
@@ -319,22 +296,7 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
       opacity: spec.vfx.coreMesh === "none" ? 0.32 : 0.95,
     }),
     children: [
-      // trail behind body
-      node({
-        shape: "quarks_emitter",
-        quarksPreset: travelTrailPresetFor(spec),
-        shaderId: spec.vfx.shaders.trail,
-        shaderPhase: "trail",
-        color: a.palette.secondary,
-        colorB: a.palette.dark,
-        emissiveIntensity: clampEmit(1.0 * m.intensity),
-        size: Number((0.55 * m.scale).toFixed(2)),
-        position: [0, 0, -0.55 * m.scale],
-        motion: "drift",
-        motionSpeed: 1.6,
-        intensity: 1.05 * m.intensity,
-        opacity: 0.72,
-      }),
+      ...trailChild,
       // outer halo
       node({
         shape: "sphere",
@@ -352,7 +314,7 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
   };
 
   const impact = compileGenericImpactScene(spec, a, { lingering: spec.vfx.impact.includes("lingering_cloud") || spec.vfx.impact.includes("ground_decal") || spec.vfx.impact.includes("terrain_morph") });
-  return { cast, travel, impact };
+  return { travel, impact };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -362,50 +324,6 @@ function compileLinearProjectileScenes(spec: SpellBuildSpec) {
 function compileArcingProjectileScenes(spec: SpellBuildSpec) {
   const a = getAlignment(spec.alignment);
   const m = spec.modifiers;
-
-  const cast: SpellScene = {
-    ...node({
-      shape: "sphere",
-      shaderId: spec.vfx.shaders.core,
-      shaderPhase: "core",
-      color: a.palette.primary,
-      emissiveIntensity: clampEmit(2.2 * m.intensity),
-      size: Number((0.42 * m.scale).toFixed(2)),
-      motion: "pulse",
-      motionSpeed: 1.6,
-      opacity: 0.78,
-    }),
-    children: [
-      // wind-up — heavy rotating ring beneath
-      node({
-        shape: "torus",
-        shaderId: spec.vfx.shaders.decal,
-        shaderPhase: "decal",
-        color: a.palette.secondary,
-        emissiveIntensity: clampEmit(1.2 * m.intensity),
-        size: Number((0.55 * m.scale).toFixed(2)),
-        position: [0, -0.18, 0],
-        rotation: [Math.PI / 2, 0, 0],
-        motion: "spin",
-        motionSpeed: 2.2,
-        opacity: 0.55,
-      }),
-      node({
-        shape: "quarks_emitter",
-        quarksPreset: castBurstPresetFor(spec),
-        shaderId: spec.vfx.shaders.trail,
-        shaderPhase: "trail",
-        color: a.palette.accent,
-        colorB: a.palette.secondary,
-        emissiveIntensity: clampEmit(0.8 * m.intensity),
-        size: 0.5 * m.scale,
-        motion: "rise",
-        motionSpeed: 0.6,
-        intensity: 0.75 * m.intensity,
-        opacity: 0.55,
-      }),
-    ],
-  };
 
   const travel: SpellScene = {
     ...node({
@@ -526,7 +444,7 @@ function compileArcingProjectileScenes(spec: SpellBuildSpec) {
     ].slice(0, 6),
   };
 
-  return { cast, travel, impact };
+  return { travel, impact };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -542,48 +460,8 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
   // for a given (alignment, scale) pair.
   const seed = skyfallSeed(spec);
 
-  // Cast telegraph stays on existing shader-driven shapes — it is rendered as
-  // a brief precursor on the caster, not the falling body.
-  const cast: SpellScene = {
-    ...node({
-      shape: "ring",
-      shaderId: spec.vfx.shaders.decal,
-      shaderPhase: "decal",
-      color: a.palette.primary,
-      emissiveIntensity: clampEmit(1.6 * m.intensity),
-      size: Number((0.55 * m.scale).toFixed(2)),
-      motion: "spin",
-      motionSpeed: 3.0,
-      opacity: 0.7,
-    }),
-    children: [
-      node({
-        shape: "quarks_emitter",
-        quarksPreset: castBurstPresetFor(spec),
-        shaderId: spec.vfx.shaders.trail,
-        shaderPhase: "trail",
-        color: a.palette.accent,
-        colorB: a.palette.secondary,
-        emissiveIntensity: clampEmit(1.0 * m.intensity),
-        size: 0.55 * m.scale,
-        motion: "rise",
-        motionSpeed: 1.2,
-        intensity: 0.9 * m.intensity,
-        opacity: 0.7,
-      }),
-      node({
-        shape: "sphere",
-        shaderId: spec.vfx.shaders.core,
-        shaderPhase: "core",
-        color: a.palette.primary,
-        emissiveIntensity: clampEmit(2.4 * m.intensity),
-        size: 0.36 * m.scale,
-        motion: "pulse",
-        motionSpeed: 2.6,
-        opacity: 0.7,
-      }),
-    ],
-  };
+  // Cast scene is no longer authored; CastFlash renders a uniform flash
+  // for every spell. Travel/impact carry all per-spell expression.
 
   // Travel body: alignment-specific procedural geometry replaces the old
   // primitive (tetra/octa). Quarks emitters provide the trail (smoke + heat
@@ -714,7 +592,7 @@ function compileSkyfallScenes(spec: SpellBuildSpec) {
     ].slice(0, 6),
   };
 
-  return { cast, travel, impact };
+  return { travel, impact };
 }
 
 /**
@@ -903,47 +781,6 @@ function compileHitscanScenes(spec: SpellBuildSpec) {
   const a = getAlignment(spec.alignment);
   const m = spec.modifiers;
 
-  const cast: SpellScene = {
-    ...node({
-      shape: "sphere",
-      shaderId: spec.vfx.shaders.core,
-      shaderPhase: "core",
-      color: a.palette.accent,
-      emissiveIntensity: clampEmit(3.0 * m.intensity),
-      size: 0.32 * m.scale,
-      motion: "pulse",
-      motionSpeed: 5.0,
-      opacity: 0.85,
-    }),
-    children: [
-      node({
-        shape: "ring",
-        shaderId: spec.vfx.shaders.decal,
-        shaderPhase: "decal",
-        color: a.palette.primary,
-        emissiveIntensity: clampEmit(1.6 * m.intensity),
-        size: 0.52 * m.scale,
-        motion: "spin",
-        motionSpeed: 4.0,
-        opacity: 0.62,
-      }),
-      node({
-        shape: "quarks_emitter",
-        quarksPreset: castBurstPresetFor(spec),
-        shaderId: spec.vfx.shaders.trail,
-        shaderPhase: "trail",
-        color: a.palette.accent,
-        colorB: a.palette.secondary,
-        emissiveIntensity: clampEmit(1.0 * m.intensity),
-        size: 0.45 * m.scale,
-        motion: "drift",
-        motionSpeed: 3.0,
-        intensity: 0.8 * m.intensity,
-        opacity: 0.7,
-      }),
-    ],
-  };
-
   // Travel scene authored in beam-local space:
   //   - bar oriented along local +Z, length 1 (renderer scales Z to beam length)
   //   - thin core line + outer glow + sparks
@@ -991,7 +828,7 @@ function compileHitscanScenes(spec: SpellBuildSpec) {
   };
 
   const impact = compileGenericImpactScene(spec, a, { lingering: false });
-  return { cast, travel, impact };
+  return { travel, impact };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1004,36 +841,6 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
   const m = spec.modifiers;
 
   const profile = eruptionProfileFor(spec.alignment);
-
-  const cast: SpellScene = {
-    ...node({
-      shape: "ring",
-      shaderId: spec.vfx.shaders.decal,
-      shaderPhase: "decal",
-      color: a.palette.primary,
-      emissiveIntensity: clampEmit(1.4 * m.intensity),
-      size: Number((0.45 * m.scale).toFixed(2)),
-      motion: "spin",
-      motionSpeed: 3.2,
-      opacity: 0.7,
-    }),
-    children: [
-      node({
-        shape: "quarks_emitter",
-        quarksPreset: castBurstPresetFor(spec),
-        shaderId: spec.vfx.shaders.trail,
-        shaderPhase: "trail",
-        color: a.palette.secondary,
-        colorB: a.palette.dark,
-        emissiveIntensity: clampEmit(0.9 * m.intensity),
-        size: 0.5 * m.scale,
-        motion: "rise",
-        motionSpeed: 0.8,
-        intensity: 0.8 * m.intensity,
-        opacity: 0.6,
-      }),
-    ],
-  };
 
   // Travel is a brief ground rumble telegraph (eruption resolves at target on cast).
   const travel: SpellScene = {
@@ -1122,7 +929,7 @@ function compileGroundEruptionScenes(spec: SpellBuildSpec) {
     ].slice(0, 6),
   };
 
-  return { cast, travel, impact };
+  return { travel, impact };
 }
 
 type EruptionProfile = {
@@ -1359,46 +1166,6 @@ function compileAuraOrbitScenes(spec: SpellBuildSpec) {
   const a = getAlignment(spec.alignment);
   const m = spec.modifiers;
 
-  const cast: SpellScene = {
-    ...node({
-      shape: "torus",
-      shaderId: spec.vfx.shaders.aura,
-      shaderPhase: "aura",
-      color: a.palette.primary,
-      emissiveIntensity: clampEmit(1.6 * m.intensity),
-      size: Number((0.7 * m.scale).toFixed(2)),
-      rotation: [Math.PI / 2, 0, 0],
-      motion: "spin",
-      motionSpeed: 1.4,
-      opacity: 0.7,
-    }),
-    children: [
-      node({
-        shape: "sphere",
-        shaderId: spec.vfx.shaders.aura,
-        shaderPhase: "aura",
-        color: a.palette.accent,
-        emissiveIntensity: clampEmit(1.2 * m.intensity),
-        size: 0.42 * m.scale,
-        motion: "pulse",
-        motionSpeed: 2.4,
-        opacity: 0.5,
-      }),
-      node({
-        shape: "ring",
-        shaderId: spec.vfx.shaders.decal,
-        shaderPhase: "decal",
-        color: a.palette.secondary,
-        emissiveIntensity: clampEmit(0.8 * m.intensity),
-        size: 0.85 * m.scale,
-        position: [0, 0.04, 0],
-        motion: "spin",
-        motionSpeed: 2.2,
-        opacity: 0.55,
-      }),
-    ],
-  };
-
   // Impact = the aura itself, attached to the caster for the area duration.
   // Layered: outer torus shell, inner glow, orbiting motes, ground ring.
   const impact: SpellScene = {
@@ -1489,7 +1256,7 @@ function compileAuraOrbitScenes(spec: SpellBuildSpec) {
     children: [],
   };
 
-  return { cast, travel, impact };
+  return { travel, impact };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1726,24 +1493,6 @@ function impactGeometryAccentFor(
     ];
   }
   return [];
-}
-
-function castBurstPresetFor(
-  spec: SpellBuildSpec,
-): NonNullable<SceneLeaf["quarksPreset"]> {
-  switch (spec.alignment) {
-    case "fire":
-    case "meteor_cosmic":
-      return "embers_rising";
-    case "lightning":
-    case "light":
-      return "sparks_burst";
-    case "earth":
-    case "water_ice":
-      return "smoke_plume_dust";
-    case "dark":
-      return "smoke_plume_dark";
-  }
 }
 
 function travelTrailPresetFor(

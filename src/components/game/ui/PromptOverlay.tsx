@@ -287,7 +287,7 @@ export function PromptOverlay() {
             </p>
             <p className="shatteredCrystalProse">
               No new spells may be bound here. Wander the meadow with what you
-              already wield &mdash; your Magic Missile remains true.
+              already wield as your Magic Missile will remain true.
             </p>
             <p className="shatteredCrystalAside">
               The local Sage cannot be summoned on this device.
@@ -915,7 +915,7 @@ const DEBUG_TABS: { id: DebugTab; label: string }[] = [
 
 function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: PreviewMeta }) {
   const [tab, setTab] = useState<DebugTab>("summary");
-  const castSummary = describeScene(spell.scenes.cast);
+  const castSummary = spell.scenes.cast ? describeScene(spell.scenes.cast) : null;
   const travelSummary = describeScene(spell.scenes.travel);
   const impactSummary = describeScene(spell.scenes.impact);
 
@@ -966,8 +966,14 @@ function SpellDebugPanel({ spell, meta }: { spell: GeneratedSpell; meta: Preview
 
       {tab === "scenes" ? (
         <>
-          <div className="runeCardErrorTechnical"><strong>Cast scene:</strong></div>
-          <pre className="runeCardErrorRaw">{castSummary}</pre>
+          {castSummary ? (
+            <>
+              <div className="runeCardErrorTechnical"><strong>Cast scene:</strong></div>
+              <pre className="runeCardErrorRaw">{castSummary}</pre>
+            </>
+          ) : (
+            <div className="runeCardErrorTechnical"><strong>Cast scene:</strong> <em>(uniform CastFlash; no scene data)</em></div>
+          )}
           <div className="runeCardErrorTechnical"><strong>Travel scene:</strong></div>
           <pre className="runeCardErrorRaw">{travelSummary}</pre>
           <div className="runeCardErrorTechnical"><strong>Impact scene:</strong></div>

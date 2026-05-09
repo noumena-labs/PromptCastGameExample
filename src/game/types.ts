@@ -43,7 +43,7 @@ export type GeneratedSpell = {
   color: string;
   impactShape: SpellImpactShape;
   scenes: {
-    cast: SpellScene;
+    cast: SpellScene | null;
     travel: SpellScene;
     impact: SpellScene;
   };

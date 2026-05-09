@@ -55,9 +55,9 @@ import {
 // (preview imports above)
 
 type PreviewMode = "preset" | "generated";
-type ScenePhase = "cast" | "travel" | "impact";
+type ScenePhase = "travel" | "impact";
 
-const PHASES: ScenePhase[] = ["cast", "travel", "impact"];
+const PHASES: ScenePhase[] = ["travel", "impact"];
 
 function generatedSpec(
   alignment: SpellAlignmentId,
@@ -214,7 +214,7 @@ function GeneratedShowcase({
         scene={scene}
         spellId={`preview:${alignment}:${deliveryVehicle}:${phase}`}
         lifetimeSeconds={phase === "impact" ? 2.4 : 4}
-        variant={phase === "impact" ? "impact" : phase === "travel" ? "travel" : "cast"}
+        variant={phase}
       />
     </>
   );
