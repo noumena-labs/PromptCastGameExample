@@ -11,6 +11,18 @@ export const metadata: Metadata = {
   description: "A browser arena spellcaster powered by prompt-generated magic.",
 };
 
+// Lock the viewport against pinch-zoom and fit content under iPhone safe-area
+// insets. `viewport-fit=cover` is what allows the `env(safe-area-inset-*)`
+// CSS used by the touch overlay to actually report non-zero values.
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover" as const,
+  themeColor: "#1a0f06",
+};
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${cinzel.variable} ${garamond.variable} ${fell.variable}`}>

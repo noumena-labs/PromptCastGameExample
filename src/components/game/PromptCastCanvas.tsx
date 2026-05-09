@@ -12,9 +12,11 @@ import { GameHud } from "@/components/game/ui/GameHud";
 import { ModelLoader } from "@/components/game/ui/ModelLoader";
 import { PromptOverlay } from "@/components/game/ui/PromptOverlay";
 import { ReticleHUD } from "@/components/game/ui/ReticleHUD";
+import { TouchControls } from "@/components/game/ui/TouchControls";
 import { NetworkBridge } from "@/components/game/networking/NetworkBridge";
 import { MultiplayerDebugPanel } from "@/components/game/networking/MultiplayerDebugPanel";
 import { useGameStore } from "@/game/state/gameStore";
+import { useIsTouchDevice } from "@/game/compat/useIsTouchDevice";
 import { useAudioUnlock, useLoopingAudio, useUiClickAudio } from "@/game/audio/useGameAudio";
 
 const controls = [
@@ -30,6 +32,7 @@ export function PromptCastCanvas() {
   const connected = useGameStore((state) => state.lastHostSnapshot !== null);
   const promptOpen = useGameStore((state) => state.promptOpen);
   const waitingForHost = mode === "client" && !connected;
+  const isTouch = useIsTouchDevice();
   useAudioUnlock();
   useUiClickAudio();
   useLoopingAudio(waitingForHost ? null : "music_arena_loop", "music:arena", promptOpen ? 0.16 : 1);
@@ -49,7 +52,13 @@ export function PromptCastCanvas() {
               <Canvas
                 shadows
                 camera={{ position: [0, 9, 28], fov: 60 }}
-                dpr={[1, 1.6]}
+                /*
+                  Mid-tier phones can't sustain native dpr (often 2-3x) at
+                  60fps with the postprocessing stack on. Clamp the upper
+                  bound aggressively on touch devices; desktop keeps the
+                  original 1.6 ceiling for crisper text / VFX.
+                */
+                dpr={isTouch ? [1, 1.25] : [1, 1.6]}
                 gl={{
                   antialias: false,
                   toneMapping: THREE.ACESFilmicToneMapping,
@@ -72,6 +81,7 @@ export function PromptCastCanvas() {
             <ReticleHUD />
             <GameHud />
             <PromptOverlay />
+            {isTouch ? <TouchControls /> : null}
           </>
         )}
         <MultiplayerDebugPanel />

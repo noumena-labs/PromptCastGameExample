@@ -19,6 +19,7 @@
     "cogentlm": "latest",
     "nanoid": "latest",
     "next": "latest",
+    "nipplejs": "^1.0.1",
     "peerjs": "latest",
     "postprocessing": "^6.39.1",
     "react": "latest",

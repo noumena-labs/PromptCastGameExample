@@ -18,6 +18,7 @@ import { WizardModel, type WizardModelHandle } from "@/components/game/scene/Wiz
 import { WizardNameplate } from "@/components/game/scene/WizardNameplate";
 import { useCastPose, type CastPoseTrigger } from "@/components/game/scene/useCastPose";
 import { audioRuntime } from "@/game/audio/audioRuntime";
+import { drainTouchLook, drainPendingSanctuary, drainPendingSlotCast, getTouchInput } from "@/game/input/touchInputBus";
 
 type ControlName = "forward" | "backward" | "left" | "right" | "jump";
 
@@ -32,6 +33,10 @@ const ACCEL = 14;
 const JUMP_VELOCITY = 8.4;
 const GRAVITY = -22;
 const MOUSE_SENSITIVITY = 0.0024;
+// Touch deltas come from raw pixel movement on the look pad; they're larger
+// per-pixel than mouse `movementX/Y` (no pointer-lock acceleration), so we
+// scale them down a bit to keep parity of feel between desktop and mobile.
+const TOUCH_LOOK_SENSITIVITY = 0.005;
 
 const CAM_DISTANCE = 8.5;
 const CAM_HEIGHT = 4.6;
@@ -70,6 +75,10 @@ export function LocalWizard() {
   const footstepIndex = useRef(0);
   const diagLogged = useRef(false);
   const appliedStatusImpulses = useRef(new Set<string>());
+  // Previous-frame touch jump state for edge detection (we only want to
+  // trigger a jump on the rising edge of the touch jump button, not every
+  // frame the player is holding it down).
+  const prevTouchJump = useRef(false);
 
   const getControls = useKeyboardControls<ControlName>()[1];
   const { camera, gl } = useThree();
@@ -165,6 +174,11 @@ export function LocalWizard() {
 
     const onCanvasClick = () => {
       if (promptOpen) return;
+      // On touch devices, the dedicated `<TouchControls>` overlay handles
+      // look + cast input directly, and pointer-lock is meaningless (and
+      // largely unsupported on iOS/Android). Skip the lock attempt entirely
+      // so a tap on the canvas doesn't fight the touch handlers.
+      if (getTouchInput().active) return;
       if (document.pointerLockElement !== canvas) {
         canvas.requestPointerLock();
       }
@@ -302,6 +316,44 @@ export function LocalWizard() {
     const controls = getControls();
     const dt = Math.min(delta, 1 / 30);
 
+    // ── Touch look ────────────────────────────────────────────────────
+    // Drain accumulated look-pad deltas every frame and feed them into the
+    // same yaw/pitch math the mouse handler uses. This is gated on the
+    // touch bus being active (so desktop builds pay nothing); it does NOT
+    // require pointer-lock (which is unavailable on touch).
+    const touch = getTouchInput();
+    if (touch.active && !promptOpen) {
+      const drained = drainTouchLook();
+      if (drained.dx !== 0 || drained.dy !== 0) {
+        yaw.current -= drained.dx * TOUCH_LOOK_SENSITIVITY;
+        pitch.current -= drained.dy * TOUCH_LOOK_SENSITIVITY;
+        pitch.current = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch.current));
+      }
+    }
+
+    // ── Touch HUD-tap actions ────────────────────────────────────────
+    // The Spell Tome runestones and the Sanctuary tap button enqueue
+    // requests via the touch bus; we drain and execute them here so they
+    // share the same aim-resolution / state-guard pipeline as the
+    // keyboard `Digit1`–`Digit4` and `KeyE` handlers.
+    if (touch.active && !promptOpen) {
+      if (drainPendingSanctuary()) {
+        if (!enterSanctuary()) addLog("Collect 3 Aura Crystals before entering Sanctuary.");
+      }
+      const slotIndex = drainPendingSlotCast();
+      if (slotIndex >= 0 && !stunned) {
+        const cast = buildCastGeometry();
+        const blinded = player.statusEffects.some((effect) => effect.effect === "blind");
+        const ok = castSlot(
+          slotIndex,
+          cast.origin,
+          cast.direction,
+          blinded ? jitterTarget(cast.targetPoint) : cast.targetPoint,
+        );
+        if (ok) stampCastPose(cast.direction);
+      }
+    }
+
     if (!diagLogged.current) {
       diagLogged.current = true;
       console.log("[LocalWizard] Rapier ready", {
@@ -320,12 +372,28 @@ export function LocalWizard() {
       if (controls.backward) move.sub(forward);
       if (controls.right) move.add(right);
       if (controls.left) move.sub(right);
-      if (move.lengthSq() > 0) move.normalize();
+      // Joystick (mobile) — analog axes blended into the same forward/right
+      // basis the keyboard uses. nipplejs's vector.y is +1 when stick is up,
+      // which we map to forward; vector.x +1 is right. The keyboard branch
+      // hard-normalizes to a unit vector; for the joystick we instead clamp
+      // magnitude to 1 so partial-stick deflection produces partial speed.
+      if (touch.active && (touch.moveX !== 0 || touch.moveY !== 0)) {
+        move.x += forward.x * touch.moveY + right.x * touch.moveX;
+        move.z += forward.z * touch.moveY + right.z * touch.moveX;
+        const len = move.length();
+        if (len > 1) move.multiplyScalar(1 / len);
+      } else if (move.lengthSq() > 0) {
+        move.normalize();
+      }
 
       velocity.current.x = MathUtils.damp(velocity.current.x, move.x * MOVE_SPEED * speedMultiplier, ACCEL, dt);
       velocity.current.z = MathUtils.damp(velocity.current.z, move.z * MOVE_SPEED * speedMultiplier, ACCEL, dt);
 
-      if (controls.jump && grounded.current) {
+      // Jump can come from either the keyboard `Space` binding or the
+      // on-screen jump button; touch-jump uses an edge detector so holding
+      // the button doesn't bunny-hop the wizard the moment it lands.
+      const touchJumpEdge = touch.active && touch.jump && !prevTouchJump.current;
+      if ((controls.jump || touchJumpEdge) && grounded.current) {
         velocity.current.y = JUMP_VELOCITY;
         grounded.current = false;
         audioRuntime.play("wizard_jump", { position: player.position, listener: player.position });
@@ -334,6 +402,7 @@ export function LocalWizard() {
       velocity.current.x = MathUtils.damp(velocity.current.x, 0, 12, dt);
       velocity.current.z = MathUtils.damp(velocity.current.z, 0, 12, dt);
     }
+    prevTouchJump.current = touch.jump;
 
     for (const effect of player.statusEffects) {
       if (effect.effect !== "stagger" && effect.effect !== "crush") continue;
@@ -478,7 +547,15 @@ export function LocalWizard() {
     // Click-to-cast Magic Missile. Origin = shoulder; direction = camera
     // forward (which by camera lookAt tuning points at the fixed centered
     // reticle's world target).
-    if (mouseDown.current && !promptOpen && !sanctuary && !stunned && pointerLocked.current) {
+    //
+    // Trigger sources:
+    //   - Desktop: held LMB while pointer-lock is engaged.
+    //   - Touch:   the on-screen ✦ button reports `touch.lmb === true`.
+    // Either qualifies as "fire intent"; the cooldown + cast-state guards
+    // are identical regardless of input source.
+    const fireIntent =
+      (mouseDown.current && pointerLocked.current) || (touch.active && touch.lmb);
+    if (fireIntent && !promptOpen && !sanctuary && !stunned) {
       const t = Date.now();
       if (t - lastMagicMissileAt.current > MAGIC_MISSILE.cooldownMs) {
         const cast = buildCastGeometry();

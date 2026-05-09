@@ -1134,6 +1134,7 @@ a.sealButton {
 }
 
 .meter {
+  position: relative;
   height: 12px;
   overflow: hidden;
   border: 1px solid var(--gold);
@@ -1155,6 +1156,14 @@ a.sealButton {
 
 .meter.mana div {
   background: linear-gradient(90deg, #2c4a7c 0%, #5a8fc4 100%);
+}
+
+/* Inline numeric readout overlaid on the meter bar. Hidden by default on
+   desktop (the .meterLabel "X / Y" already shows it); the mobile HUD
+   reveals it for compact, single-line vitals. */
+.meterInlineValue,
+.meterInlineLabel {
+  display: none;
 }
 
 .auraRow strong {
@@ -1525,6 +1534,86 @@ a.sealButton {
   font-family: var(--font-display);
 }
 
+/*
+  Mobile-only collapsed menu that replaces the inline Reforge / To the
+  Threshold pair. The toggle button is a 36px ☰ disc; tapping it opens a
+  small popover anchored top-right with the same two actions stacked.
+*/
+.touchMenu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.touchMenuToggle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  background: linear-gradient(135deg, rgba(40, 24, 14, 0.92), rgba(20, 12, 6, 0.96));
+  color: var(--parchment-light);
+  font-size: 1.1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+
+.touchMenuToggle:active {
+  filter: brightness(1.2);
+}
+
+.touchMenuPopover {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(20, 12, 6, 0.92);
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+  min-width: 168px;
+}
+
+.touchMenuPopover .sealButton.small {
+  width: 100%;
+  text-align: center;
+}
+
+/* Brand mark relocated into the menu popover on mobile (it's hidden in
+   the top-bar via `body[data-mobile="1"] .brandMark`). */
+.touchMenuBrand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 8px 8px;
+  border-bottom: 1px dashed rgba(184, 138, 44, 0.45);
+  margin-bottom: 4px;
+}
+
+.touchMenuBrand span {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 0.95rem;
+  letter-spacing: 0.14em;
+  color: var(--gold-light);
+}
+
+.touchMenuBrand small {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.72rem;
+  color: rgba(243, 230, 196, 0.75);
+  letter-spacing: 0.1em;
+}
+
 /* ============================================================
    RESPONSIVE
    ============================================================ */
@@ -1554,12 +1643,713 @@ a.sealButton {
   }
 }
 
-@media (max-width: 640px) {
-  .leftPanel,
-  .rightPanel,
-  .eventLog {
-    display: none;
-  }
+/* ============================================================
+   MOBILE HUD REDESIGN
+   ============================================================
+   Triggered by `body[data-mobile="1"]` (set by `useApplyMobileHudClass()`
+   only when the device is a phone-class viewport AND a coarse-pointer
+   primary input). This intentionally does NOT fire on touch laptops with
+   large screens — they keep the desktop HUD.
+
+   Layout summary (portrait):
+     - Top bar: brand mark hidden; ☰ menu pinned top-right; Limited
+       Mode pill (if any) top-center; vitals strip directly below.
+     - Roll of Wizards anchored BELOW the vitals strip, full-width.
+     - Spell Tome → 2x2 rune grid in the bottom-right with a Sanctuary
+       pill underneath (single self-contained panel).
+     - Touch action cluster (Jump + Cast pair) sits to the LEFT of the
+       Spell Tome, flush bottom-right thumb zone.
+
+   Layout summary (landscape):
+     - Vitals fold into the top-bar row to save vertical space.
+     - Roll of Wizards docks under the ☰ menu (top-right), narrow.
+     - Spell Tome stays bottom-right with the action cluster to its
+       left, same panel structure as portrait.
+*/
+
+/* ─── Hide non-essential desktop chrome on mobile ─────────────────────── */
+body[data-mobile="1"] .eventLog,
+body[data-mobile="1"] .hudFooter,
+body[data-mobile="1"] .brandMark,
+body[data-mobile="1"] .leftPanel .panelHeader,
+body[data-mobile="1"] .leftPanel .meterLabel,
+body[data-mobile="1"] .rightPanel.rightPanelTouch .panelHeader,
+body[data-mobile="1"] .rollEyebrow,
+body[data-mobile="1"] .rollOfWizards .tomeCorner,
+body[data-mobile="1"] .leftPanel .auraRow > span:first-child,
+body[data-mobile="1"] .leftPanel .statusChips {
+  display: none;
+}
+
+/* ─── TOP VITALS STRIP ────────────────────────────────────────────────────
+   Wraps to its content (NOT full-width). Sits in the top-left, leaves the
+   ☰ button alone in the top-right, and lets the Limited Mode pill sit
+   below it. Layout left→right per meter row:
+     [HP label][HP bar w/ inline value][MP label][MP bar w/ inline value][3 aura diamonds]
+   Translucent dark + 1px gold border for legibility over any scene. */
+body[data-mobile="1"] .leftPanel {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 8px;
+  right: auto;
+  bottom: auto;
+  width: auto;
+  max-width: calc(100vw - 72px); /* leave room for ☰ */
+  height: auto;
+  padding: 5px 9px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  /* 26px gap leaves room for the absolutely-positioned "MP" label that
+     hangs off the left side of the MP meter (≈ 14px label + 4px gap on
+     each side). The "HP" label before the first meter is handled by
+     a margin-left on .meter:first-of-type. */
+  gap: 8px;
+  background: rgba(20, 12, 6, 0.6);
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  border-radius: 8px;
+  color: var(--parchment-light);
+  box-shadow: none;
+  font-size: 0.65rem;
+  /* Allow the label spans (which sit OUTSIDE their meter via absolute
+     positioning) to render past the strip's content box if they ever
+     happen to extend; the gap above usually handles this. */
+  overflow: visible;
+}
+
+/* Each meter is sized to its content + a fixed bar width — no flex-grow so
+   the panel wraps tightly. Bars are taller than v1 (14px vs 10px) since we
+   now have horizontal room. `overflow: visible` is REQUIRED so the
+   "HP" / "MP" labels (positioned absolutely outside the meter to its
+   left) don't get clipped by the meter's own overflow. The fill div has
+   its own overflow handling so this is safe. */
+body[data-mobile="1"] .leftPanel .meter {
+  position: relative;
+  flex: 0 0 auto;
+  width: 120px;
+  height: 15px;
+  overflow: visible;
+  border-color: rgba(212, 175, 55, 0.65);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+/* The fill div needs its own clipping since the parent now allows
+   overflow (so labels can sit outside). Round the inner corners. */
+body[data-mobile="1"] .leftPanel .meter > div {
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+/* "HP" / "MP" tag glued to the LEFT exterior of each bar — block-level
+   inline-flex item so it sits in the row before the meter. The actual
+   span lives INSIDE the meter (so the JSX stays simple); we visually pull
+   it left of the bar with a negative offset and absolute positioning. */
+body[data-mobile="1"] .leftPanel .meterInlineLabel {
+  display: block;
+  position: absolute;
+  top: 50%;
+  right: calc(100% - 22px); /* sit just to the LEFT of the bar */
+  transform: translateY(-50%);
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--gold-light);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Inline numerics: absolutely positioned over the bar with a heavy text
+   shadow so they remain legible over both filled and empty regions. */
+body[data-mobile="1"] .leftPanel .meterInlineValue {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.85),
+    0 1px 1px rgba(0, 0, 0, 0.95);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Pad the row so the leftmost "HP" label has room (it sits outside the
+   first meter). 18px ≈ "HP" width @ 0.62rem + 4px gap. */
+body[data-mobile="1"] .leftPanel .meter:first-of-type {
+  margin-left: 18px;
+}
+
+/* The MP meter's "MP" label naturally sits in the gap between the HP and
+   MP bars, so no extra margin needed there. */
+
+/* Aura row → 3 diamond pips, inline at the right of the strip. */
+body[data-mobile="1"] .leftPanel .auraRow {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+  font-size: 0;
+  flex: 0 0 auto;
+}
+
+body[data-mobile="1"] .leftPanel .auraPips {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 5px;
+  /* Pips use transform: rotate(45deg) which extends each one's visual
+     bounding box ~3px past its layout box on each side. Padding here
+     stops the leftmost (first) pip's rotated tip from being clipped by
+     any ancestor's overflow boundary. */
+  padding: 3px 4px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+body[data-mobile="1"] .leftPanel .auraPip {
+  width: 9px;
+  height: 9px;
+  border-width: 1px;
+  border-color: rgba(212, 175, 55, 0.7);
+  background: rgba(212, 175, 55, 0.15);
+  box-shadow: none;
+  flex: 0 0 auto;
+  /* Force visibility — defend against any parent rule that might apply
+     display:none to first-child / nth-child selectors. */
+  display: block;
+}
+
+body[data-mobile="1"] .leftPanel .auraPip.filled {
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  box-shadow: 0 0 4px rgba(224, 189, 94, 0.7);
+}
+
+/* Limited Mode pill: lift it BELOW the vitals strip on mobile so it
+   doesn't cover the bars. Centered under the strip, smaller. */
+body[data-mobile="1"] .limitedModeChip {
+  top: calc(env(safe-area-inset-top, 0px) + 44px);
+  font-size: 0.55rem;
+  padding: 4px 10px;
+  letter-spacing: 0.14em;
+}
+
+/* ─── ROLL OF WIZARDS CHIP ──────────────────────────────────────────────
+   30px chip below the vitals strip + Limited Mode pill. Always visible. */
+body[data-mobile="1"] .rollOfWizards {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 70px);
+  left: 8px;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  width: auto;
+  max-width: 180px;
+  min-width: 0;
+  height: 26px;
+  padding: 3px 8px;
+  background: rgba(20, 12, 6, 0.55);
+  border: 1px solid rgba(212, 175, 55, 0.5);
+  border-radius: 8px;
+  box-shadow: none;
+  color: var(--parchment-light);
+  font-size: 0.6rem;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+body[data-mobile="1"] .rollList {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+  overflow: hidden;
+}
+
+body[data-mobile="1"] .rollEntry {
+  padding: 0;
+  margin: 0;
+  gap: 4px;
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  min-width: 0;
+}
+
+body[data-mobile="1"] .rollSigil {
+  width: 8px;
+  height: 8px;
+}
+
+body[data-mobile="1"] .rollName {
+  font-size: 0.6rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+  color: var(--parchment-light);
+}
+
+body[data-mobile="1"] .rollTally {
+  font-size: 0.55rem;
+  color: var(--gold-light);
+}
+
+/* ─── SPELL TOME (rune panel) ───────────────────────────────────────────
+   Pinned to the right edge with the action cluster stacked DIRECTLY
+   BELOW it (Jump + Cast as a horizontal pair flush against the right
+   edge), forming a single right-side column. Sanctuary pill sits as a
+   flat row under the 2x2 grid — no wrapper, 1px gold border. */
+body[data-mobile="1"] .rightPanel.rightPanelTouch {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + 8px);
+  /* Sit directly above the touch action cluster (Jump+Cast row, ~64px
+     tall + 12px bottom inset + 8px gap = ~84px). */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  top: auto;
+  left: auto;
+  width: 148px;
+  padding: 6px;
+  font-size: 0.6rem;
+  background: rgba(20, 12, 6, 0.55);
+  border: 1px solid rgba(212, 175, 55, 0.5);
+  border-radius: 8px;
+  box-shadow: none;
+  color: var(--parchment-light);
+}
+
+body[data-mobile="1"] .runestonesCompact {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 4px;
+  margin: 0;
+}
+
+body[data-mobile="1"] .runestoneCompact {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: stretch;
+  justify-items: stretch;
+  min-height: 56px;
+  padding: 3px 5px;
+  font-size: 0.58rem;
+  line-height: 1.05;
+  text-align: left;
+  overflow: hidden;
+  border-width: 1px;
+}
+
+body[data-mobile="1"] .runestoneCompact .key {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+}
+
+body[data-mobile="1"] .runestoneCompact .name {
+  font-size: 0.6rem;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin: 1px 0;
+}
+
+body[data-mobile="1"] .runestoneCompact .meta {
+  font-size: 0.52rem;
+  letter-spacing: 0.04em;
+  text-align: right;
+  color: rgba(243, 230, 196, 0.75);
+  margin-top: 0;
+}
+
+body[data-mobile="1"] .runestoneCompact .cooldown {
+  font-size: 0.7rem;
+}
+
+/* Sanctuary pill — flat row directly under the 2x2 grid, no wrapper, no
+   enlargement, 1px gold border (NOT 2px). Compact ~22px tall. */
+body[data-mobile="1"] .rightPanel.rightPanelTouch .sanctuaryTapButton {
+  margin-top: 4px;
+  padding: 3px 6px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 6px;
+  width: 100%;
+  height: 22px;
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  border: 1px solid rgba(212, 175, 55, 0.6);
+  border-radius: 4px;
+  background: linear-gradient(135deg, rgba(122, 31, 31, 0.7), rgba(77, 16, 16, 0.85));
+  box-shadow: none;
+}
+
+body[data-mobile="1"] .rightPanel.rightPanelTouch .sanctuaryTapButton.ready {
+  border-color: rgba(232, 200, 110, 0.9);
+  background: linear-gradient(135deg, rgba(184, 138, 44, 0.78), rgba(122, 80, 30, 0.9));
+}
+
+body[data-mobile="1"] .rightPanel.rightPanelTouch .sanctuaryTapButton .key {
+  font-size: 0.62rem;
+  color: var(--gold-light);
+}
+
+body[data-mobile="1"] .rightPanel.rightPanelTouch .sanctuaryTapButton .name {
+  font-size: 0.6rem;
+  font-style: normal;
+  letter-spacing: 0.06em;
+}
+
+body[data-mobile="1"] .rightPanel.rightPanelTouch .sanctuaryTapButton .meta {
+  font-size: 0.52rem;
+  color: rgba(243, 230, 196, 0.78);
+}
+
+/* ─── Top bar collapses to a thin row (only ☰ + Limited Mode pill) ─── */
+body[data-mobile="1"] .topBar {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 6px;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  padding-right: 48px;
+  min-height: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+body[data-mobile="1"] .bottomActions {
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  right: calc(env(safe-area-inset-right, 0px) + 8px);
+}
+
+/* ─── LANDSCAPE refinements ────────────────────────────────────────────
+   Same compact treatment — no enlargement, just verify positioning still
+   works when the viewport is wider than tall. The vitals strip and roll
+   chip already use absolute positioning that holds in landscape; the
+   rune panel stays snug bottom-right. */
+body[data-mobile="1"][data-orientation="landscape"] .rollOfWizards {
+  /* In landscape the vitals strip is shorter vertically; tuck the roll
+     chip just below it. Same rules otherwise. */
+  top: calc(env(safe-area-inset-top, 0px) + 42px);
+  max-width: 200px;
+}
+
+body[data-mobile="1"][data-orientation="landscape"] .rightPanel.rightPanelTouch {
+  /* Same column stack as portrait — rune panel sits above the action
+     cluster. In landscape, vertical headroom is tighter, so we don't
+     change positioning here; the panel still floats above the cluster. */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  right: calc(env(safe-area-inset-right, 0px) + 8px);
+}
+
+
+/* ============================================================
+   TOUCH CONTROLS OVERLAY
+   ============================================================
+   Mounted by `<TouchControls>` only when `useIsTouchDevice()` returns true.
+   The overlay sits above the canvas (z-index 8 vs the HUD's 5) and below
+   the prompt overlay so a spell-forge prompt always wins focus.
+
+   Layout:
+     - `.touchLookZone` covers the entire right half of the viewport, sits
+       BEHIND the action buttons and the right-panel HUD so taps on real UI
+       win over look-drag.
+     - `.touchJoystickZone` is a fixed 160x160 area in the bottom-left
+       reserved exclusively for the nipplejs static joystick.
+     - `.touchJumpButton` floats just above the joystick.
+     - `.touchCastButton` mirrors it on the right above the look pad's
+       lower edge — a held-tap LMB equivalent.
+
+   `touch-action: none` is essential everywhere here: without it, native
+   browser gestures (scroll, double-tap zoom, pull-to-refresh) hijack the
+   pointer events and the joystick becomes unusable.
+*/
+
+.touchControls {
+  position: fixed;
+  inset: 0;
+  /* No z-index here so this container does NOT create a stacking context.
+     Children set their own z-index relative to the rest of the page —
+     this is critical so the look-zone can sit BELOW the HUD's right
+     panel (rune buttons, Sanctuary pill) while the joystick + action
+     cluster sit ABOVE the HUD. If we set z-index here, every child
+     would be trapped at the same stacking level and HUD buttons would
+     either be unreachable (look-zone on top) or unusable in another
+     way. */
+  z-index: auto;
+  pointer-events: none;
+  /* Honor the iPhone notch / home-indicator inset so the control surfaces
+     never end up under system chrome. */
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
+           env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+}
+
+/* Look-zone sits BELOW the HUD (.hud z-index: 5) so HUD buttons on the
+   right side of the screen — runestones, Sanctuary pill, Jump/Cast
+   cluster — receive their own pointerdown events directly without the
+   invisible look-zone div intercepting them first. The look-zone still
+   sits ABOVE the canvas (which has no z-index / z-index: auto) so
+   any pointer that lands on bare scene gets converted into a yaw/pitch
+   delta as intended. */
+.touchLookZone {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 50%;
+  height: 100%;
+  z-index: 4;
+  background: transparent;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Joystick + action cluster sit ABOVE the HUD so they can never be
+   occluded by HUD chrome (e.g. a wide top-bar that drifts into the
+   bottom-left corner on tiny viewports). */
+.touchJoystickZone {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  width: 160px;
+  height: 160px;
+  z-index: 9;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.touchJumpButton,
+.touchCastButton {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  background: radial-gradient(ellipse at 30% 25%, rgba(255, 235, 180, 0.55), rgba(122, 80, 30, 0.85));
+  color: var(--parchment-light);
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55), inset 0 0 8px rgba(0, 0, 0, 0.35);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.touchJumpButton:active,
+.touchCastButton:active {
+  transform: scale(0.92);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6), inset 0 0 12px rgba(0, 0, 0, 0.55);
+}
+
+.touchJumpButton {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.touchCastButton {
+  font-size: 1.7rem;
+  background: radial-gradient(ellipse at 30% 25%, rgba(255, 220, 150, 0.7), rgba(160, 30, 30, 0.92));
+  border-color: var(--crimson);
+}
+
+/*
+  Bottom-right thumb cluster. Stacks Sanctuary above the Jump+Cast pair so
+  Jump and Cast are adjacent (modern controller convention — A/B-style
+  pairing of jump and primary fire) and Sanctuary is reachable as a
+  tertiary action without crowding the primary pair.
+*/
+/*
+  Bottom-right thumb cluster. Holds Jump + Cast as a paired primary
+  action row (modern controller convention — A/B-style pairing of jump
+  and primary fire). Sanctuary lives in the Spell Tome panel above so
+  this cluster stays purely physical input.
+
+  In the desktop / non-mobile-HUD case the cluster anchors to the
+  bottom-right corner. When the Mobile HUD is active the rune panel
+  occupies that same bottom-right slot, so we slide the cluster left of
+  the panel (see body[data-mobile="1"] override below).
+*/
+.touchActionCluster {
+  position: fixed;
+  right: 16px;
+  bottom: 14px;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  pointer-events: none; /* container is passthrough; children opt in */
+}
+
+.touchPrimaryRow {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* When the Mobile HUD layout is active, the rune panel stacks ABOVE the
+   action cluster as a single right-side column. Cluster sits flush to
+   the right edge directly under the rune panel. */
+body[data-mobile="1"] .touchActionCluster {
+  right: calc(env(safe-area-inset-right, 0px) + 8px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  /* Force horizontal pair (Jump | Cast) so they fit under the 148px
+     rune panel without overflowing. */
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+body[data-mobile="1"] .touchPrimaryRow {
+  gap: 8px;
+}
+
+/* Conic-gradient cooldown ring for the cast button. Sits behind the
+   glyph and is masked to a ring shape with a radial gradient inset. */
+.touchCooldownRing {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  /* Ring effect: punch a transparent disc out of the conic via a radial
+     mask so only the outer ~6px shows the cooldown sweep. */
+  -webkit-mask: radial-gradient(circle, transparent 56%, #000 58%);
+          mask: radial-gradient(circle, transparent 56%, #000 58%);
+  pointer-events: none;
+}
+
+.touchCastGlyph {
+  position: relative;
+  z-index: 1;
+  line-height: 1;
+}
+
+/*
+  Touch-friendly variants of HUD elements. We don't change the desktop
+  visuals; these classes are only added in JSX on touch devices.
+*/
+.runestoneTouch {
+  /* Buttons inherit some user-agent styling we need to flatten so they
+     render identically to the original `<div>` runestones. */
+  appearance: none;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.runestoneTouch:active {
+  filter: brightness(1.2);
+}
+
+.baseSpellTouch {
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.baseSpellTouch:active {
+  filter: brightness(1.15);
+}
+
+.sanctuaryTapButton {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px 10px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  appearance: none;
+  font: inherit;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--parchment-light);
+  background: linear-gradient(135deg, rgba(122, 31, 31, 0.85), rgba(77, 16, 16, 0.92));
+  border: 2px solid var(--gold);
+  border-radius: 4px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+
+.sanctuaryTapButton .key {
+  font-size: 0.92rem;
+  color: var(--gold-light);
+}
+
+.sanctuaryTapButton .name {
+  font-family: var(--font-flavor);
+  font-style: italic;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sanctuaryTapButton .meta {
+  font-size: 0.66rem;
+  color: rgba(243, 230, 196, 0.78);
+}
+
+.sanctuaryTapButton.ready {
+  border-color: var(--gold-light);
+  background: linear-gradient(135deg, rgba(184, 138, 44, 0.85), rgba(122, 80, 30, 0.95));
+  animation: auraPipGlow 1.6s ease-in-out infinite;
+}
+
+.sanctuaryTapButton:active {
+  filter: brightness(1.15);
+}
+
+/*
+  When the touch overlay is mounted we don't want the canvas to also try
+  to interpret a pinch as a zoom or a swipe as a scroll — those gestures
+  must fall through to our handlers (or be canceled outright). The
+  gameShell already covers the viewport; this rule pairs with it.
+*/
+.gameShell canvas {
+  touch-action: none;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

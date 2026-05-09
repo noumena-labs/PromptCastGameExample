@@ -204,6 +204,48 @@ export function __resetCompatibilityCacheForTests(): void {
 }
 
 /**
+ * Returns true when the current device should receive the touch UI overlay.
+ *
+ * This is intentionally orthogonal to `getCompatibility().isMobile` — that
+ * verdict drives Limited Mode (no AI spell forge), while this helper drives
+ * input/HUD branching for any pointer-coarse surface (phones, tablets,
+ * 2-in-1s in tablet mode). Desktops with mice are unaffected.
+ *
+ * Detection order:
+ *   1. CSS `(pointer: coarse)` media query — modern, accurate.
+ *   2. `'ontouchstart' in window` fallback for older WebViews.
+ *   3. `navigator.maxTouchPoints > 0` belt-and-suspenders catch.
+ *
+ * Safe to call during render; falls back to `false` under SSR.
+ */
+let cachedIsTouch: boolean | null = null;
+export function isTouchDevice(): boolean {
+  if (cachedIsTouch !== null) return cachedIsTouch;
+  if (typeof window === "undefined") return false;
+  let coarse = false;
+  try {
+    coarse = window.matchMedia?.("(pointer: coarse)")?.matches === true;
+  } catch {
+    coarse = false;
+  }
+  const hasTouchEvents =
+    typeof window !== "undefined" && "ontouchstart" in window;
+  const hasTouchPoints =
+    typeof navigator !== "undefined" &&
+    typeof navigator.maxTouchPoints === "number" &&
+    navigator.maxTouchPoints > 0;
+  cachedIsTouch = coarse || hasTouchEvents || hasTouchPoints;
+  return cachedIsTouch;
+}
+
+/**
+ * Reset the memoized touch-device verdict. Intended for tests only.
+ */
+export function __resetTouchDeviceCacheForTests(): void {
+  cachedIsTouch = null;
+}
+
+/**
  * Human-facing copy for the compatibility modal / HUD info panel. The title
  * and body change based on which detection signals failed: a user on an
  * iPhone gets a different message than one on Firefox desktop. Centralized

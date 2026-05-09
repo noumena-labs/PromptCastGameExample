@@ -2469,6 +2469,11 @@ next@latest:
     "@next/swc-win32-x64-msvc" "16.2.6"
     sharp "^0.34.5"
 
+nipplejs@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.npmjs.org/nipplejs/-/nipplejs-1.0.1.tgz"
+  integrity sha512-+GhZWy62hfGIo6qE7vkAbbSFPWDIf3KLxOXwOruryKO3e8Tm8bDMz9EyK+CUr6zqWUC2sT7jZjsQIUawndGzQA==
+
 node-exports-info@^1.6.0:
   version "1.6.0"
   resolved "https://registry.npmjs.org/node-exports-info/-/node-exports-info-1.6.0.tgz"
