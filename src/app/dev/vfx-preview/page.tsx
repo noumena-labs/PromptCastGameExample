@@ -8,7 +8,7 @@
 
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { SceneNodeRenderer } from "@/components/game/scene/SceneNodeRenderer";
 import { MorphingTerrainMesh } from "@/components/game/scene/Meadow";
@@ -58,6 +58,19 @@ type PreviewMode = "preset" | "generated";
 type ScenePhase = "travel" | "impact";
 
 const PHASES: ScenePhase[] = ["travel", "impact"];
+const MIN_AUTO_ADVANCE_SECONDS = 0.5;
+const MIN_AUTO_ORBIT_SPEED = 0.1;
+
+function nextItem<T extends string>(items: readonly T[], current: T): T {
+  const index = items.indexOf(current);
+  const nextIndex = index < 0 ? 0 : (index + 1) % items.length;
+  return items[nextIndex];
+}
+
+function numericInputValue(value: string, min: number): number {
+  const next = Number(value);
+  return Number.isFinite(next) ? Math.max(min, next) : min;
+}
 
 function generatedSpec(
   alignment: SpellAlignmentId,
@@ -226,6 +239,14 @@ export default function VfxPreviewPage() {
   const [alignment, setAlignment] = useState<SpellAlignmentId>("fire");
   const [deliveryVehicle, setDeliveryVehicle] = useState<DeliveryVehicleId>("projectile_linear");
   const [phase, setPhase] = useState<ScenePhase>("travel");
+  const [autoOrbit, setAutoOrbit] = useState(false);
+  const [autoOrbitSpeed, setAutoOrbitSpeed] = useState(0.7);
+  const [autoAdvanceAlignment, setAutoAdvanceAlignment] = useState(false);
+  const [autoAdvanceAlignmentSeconds, setAutoAdvanceAlignmentSeconds] = useState(5);
+  const [autoAdvanceDelivery, setAutoAdvanceDelivery] = useState(false);
+  const [autoAdvanceDeliverySeconds, setAutoAdvanceDeliverySeconds] = useState(6);
+  const [autoAdvancePhase, setAutoAdvancePhase] = useState(false);
+  const [autoAdvancePhaseSeconds, setAutoAdvancePhaseSeconds] = useState(4);
   const generatedScene = useMemo(
     () => compilePreviewScene(alignment, deliveryVehicle, phase),
     [alignment, deliveryVehicle, phase],
@@ -236,9 +257,33 @@ export default function VfxPreviewPage() {
   );
   const presetTextures = getQuarksPresetTextures(preset);
 
+  useEffect(() => {
+    if (mode !== "generated" || !autoAdvanceAlignment) return;
+    const timeoutId = window.setTimeout(() => {
+      setAlignment((current) => nextItem(spellAlignmentIds, current));
+    }, autoAdvanceAlignmentSeconds * 1000);
+    return () => window.clearTimeout(timeoutId);
+  }, [alignment, autoAdvanceAlignment, autoAdvanceAlignmentSeconds, mode]);
+
+  useEffect(() => {
+    if (mode !== "generated" || !autoAdvanceDelivery) return;
+    const timeoutId = window.setTimeout(() => {
+      setDeliveryVehicle((current) => nextItem(deliveryVehicleIds, current));
+    }, autoAdvanceDeliverySeconds * 1000);
+    return () => window.clearTimeout(timeoutId);
+  }, [autoAdvanceDelivery, autoAdvanceDeliverySeconds, deliveryVehicle, mode]);
+
+  useEffect(() => {
+    if (mode !== "generated" || !autoAdvancePhase) return;
+    const timeoutId = window.setTimeout(() => {
+      setPhase((current) => nextItem(PHASES, current));
+    }, autoAdvancePhaseSeconds * 1000);
+    return () => window.clearTimeout(timeoutId);
+  }, [autoAdvancePhase, autoAdvancePhaseSeconds, mode, phase]);
+
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#1a1610", color: "#e8d8b8", fontFamily: "Georgia, serif" }}>
-      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 10, width: 330, background: "rgba(0,0,0,0.68)", padding: 12, border: "1px solid #b8862b" }}>
+      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 10, width: 360, maxHeight: "calc(100vh - 24px)", overflowY: "auto", background: "rgba(0,0,0,0.68)", padding: 12, border: "1px solid #b8862b" }}>
         <div style={{ marginBottom: 8, fontSize: 13, letterSpacing: 1, textTransform: "uppercase" }}>VFX Preview</div>
         <label style={{ display: "block", marginBottom: 8, fontSize: 12 }}>
           Mode
@@ -251,6 +296,57 @@ export default function VfxPreviewPage() {
             <option value="generated">Generated spell scene</option>
           </select>
         </label>
+        <div style={{ marginBottom: 10, padding: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(184,134,43,0.45)" }}>
+          <div style={{ marginBottom: 8, fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", opacity: 0.85 }}>Recording Controls</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 72px", gap: 8, alignItems: "center", marginBottom: 8, fontSize: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={autoOrbit}
+                onChange={(e) => setAutoOrbit(e.target.checked)}
+                style={{ accentColor: "#b8862b" }}
+              />
+              Auto orbit
+            </label>
+            <input
+              type="number"
+              min={MIN_AUTO_ORBIT_SPEED}
+              step={0.1}
+              value={autoOrbitSpeed}
+              onChange={(e) => setAutoOrbitSpeed(numericInputValue(e.target.value, MIN_AUTO_ORBIT_SPEED))}
+              aria-label="Auto orbit speed"
+              style={{ width: "100%", background: "#2a1f10", color: "#f3ead0", border: "1px solid #b8862b", padding: 4, fontFamily: "inherit" }}
+            />
+          </div>
+          {mode === "generated" ? (
+            <>
+              <div style={{ marginBottom: 6, fontSize: 11, opacity: 0.72 }}>Seconds before advancing each generated-scene selector.</div>
+              <AutoAdvanceRow
+                label="Alignment"
+                enabled={autoAdvanceAlignment}
+                seconds={autoAdvanceAlignmentSeconds}
+                onEnabledChange={setAutoAdvanceAlignment}
+                onSecondsChange={setAutoAdvanceAlignmentSeconds}
+              />
+              <AutoAdvanceRow
+                label="Delivery"
+                enabled={autoAdvanceDelivery}
+                seconds={autoAdvanceDeliverySeconds}
+                onEnabledChange={setAutoAdvanceDelivery}
+                onSecondsChange={setAutoAdvanceDeliverySeconds}
+              />
+              <AutoAdvanceRow
+                label="Phase"
+                enabled={autoAdvancePhase}
+                seconds={autoAdvancePhaseSeconds}
+                onEnabledChange={setAutoAdvancePhase}
+                onSecondsChange={setAutoAdvancePhaseSeconds}
+              />
+            </>
+          ) : (
+            <div style={{ fontSize: 11, opacity: 0.72 }}>Auto-advance is available in generated spell scene mode.</div>
+          )}
+        </div>
         {mode === "preset" ? (
           <>
             <label style={{ display: "block", marginBottom: 8, fontSize: 12 }}>
@@ -360,10 +456,53 @@ export default function VfxPreviewPage() {
               />
             )}
           </QuarksProviderRoot>
-          <OrbitControls target={[0, 1, 0]} />
+          <OrbitControls
+            target={[0, 1, 0]}
+            autoRotate={autoOrbit}
+            autoRotateSpeed={autoOrbitSpeed}
+            enableDamping
+            dampingFactor={0.08}
+          />
           <PostFX />
         </Suspense>
       </Canvas>
+    </div>
+  );
+}
+
+function AutoAdvanceRow({
+  label,
+  enabled,
+  seconds,
+  onEnabledChange,
+  onSecondsChange,
+}: {
+  label: string;
+  enabled: boolean;
+  seconds: number;
+  onEnabledChange: (enabled: boolean) => void;
+  onSecondsChange: (seconds: number) => void;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 72px", gap: 8, alignItems: "center", marginBottom: 6, fontSize: 12 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onEnabledChange(e.target.checked)}
+          style={{ accentColor: "#b8862b" }}
+        />
+        {label}
+      </label>
+      <input
+        type="number"
+        min={MIN_AUTO_ADVANCE_SECONDS}
+        step={0.5}
+        value={seconds}
+        onChange={(e) => onSecondsChange(numericInputValue(e.target.value, MIN_AUTO_ADVANCE_SECONDS))}
+        aria-label={`${label} auto-advance seconds`}
+        style={{ width: "100%", background: "#2a1f10", color: "#f3ead0", border: "1px solid #b8862b", padding: 4, fontFamily: "inherit" }}
+      />
     </div>
   );
 }
